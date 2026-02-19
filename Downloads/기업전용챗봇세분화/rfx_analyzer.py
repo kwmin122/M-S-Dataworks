@@ -564,6 +564,7 @@ class RFxAnalyzer:
                         description=req.description,
                         is_mandatory=req.is_mandatory,
                         detail=req.detail,
+                        constraints=list(req.constraints),  # 첫 패스 constraints 유지
                     )
                     continue
                 # 중복 시 필수 플래그 보수적으로 OR
@@ -630,7 +631,12 @@ class RFxAnalyzer:
             "분류": "필수자격|기술요건|실적요건|재무요건|기타",
             "요건": "자격요건 설명",
             "필수여부": "필수|권장",
-            "상세": "구체적인 조건 및 기준"
+            "상세": "구체적인 조건 및 기준",
+            "constraints": [
+                {{"metric": "contract_amount", "op": ">=", "value": 20.0, "unit": "KRW_100M", "raw": "건당 20억원 이상"}},
+                {{"metric": "project_count",   "op": ">=", "value": 2,    "unit": "",         "raw": "2건 이상"}},
+                {{"metric": "completion_required", "op": "==", "value": true, "unit": "", "raw": "완료된 실적만"}}
+            ]
         }}
     ],
     "평가기준": [
@@ -652,6 +658,15 @@ class RFxAnalyzer:
 3. 평가기준의 배점이 있으면 반드시 포함해주세요.
 4. 문서에 명시되지 않은 항목은 빈 값으로 두세요.
 5. 반드시 유효한 JSON만 출력하세요.
+6. 자격요건의 constraints 배열 추출 규칙:
+   - 금액 조건 → metric: "contract_amount", 억원 단위 숫자(KRW_100M), 예: "건당 20억원" → value: 20.0
+   - 건수/명수 → metric: "project_count" / "headcount", 정수
+   - 기간(최근 N년, 명확한 경우만) → metric: "period_years", 정수
+   - 완료여부 → metric: "completion_required", boolean
+   - 등급/자격 → metric: "cert_grade", 문자열
+   - 파싱 불가 또는 애매한 표현 → metric: "CUSTOM", raw에 원문 그대로
+   - raw 필드: 반드시 원문 구절 그대로 (추정/재서술 금지)
+   - 조건 없으면 constraints: [] (빈 배열, 키 생략 금지)
 
 ===== RFx 문서 원문 =====
 {text}
@@ -900,11 +915,29 @@ JSON:
             description = str(req.get("요건", "")).strip()
             if not description:
                 continue
+            raw_constraints = req.get("constraints", [])
+            parsed_constraints = []
+            if isinstance(raw_constraints, list):
+                for c in raw_constraints:
+                    if not isinstance(c, dict):
+                        continue
+                    metric = str(c.get("metric", "CUSTOM")).strip() or "CUSTOM"
+                    op = str(c.get("op", ">=")).strip()
+                    if op not in (">=", ">", "<=", "<", "==", "!=", "in", "not_in"):
+                        op = ">="
+                    parsed_constraints.append(RFxConstraint(
+                        metric=metric,
+                        op=op,
+                        value=c.get("value", 0),
+                        unit=str(c.get("unit", "")).strip(),
+                        raw=str(c.get("raw", "")).strip(),
+                    ))
             result.requirements.append(RFxRequirement(
                 category=str(req.get("분류", "기타")).strip() or "기타",
                 description=description,
                 is_mandatory=self._parse_mandatory_flag(req.get("필수여부", "필수")),
-                detail=str(req.get("상세", "")).strip()
+                detail=str(req.get("상세", "")).strip(),
+                constraints=parsed_constraints,
             ))
 
         # 평가기준 파싱
