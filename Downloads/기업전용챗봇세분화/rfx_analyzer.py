@@ -205,8 +205,33 @@ RFX_EXTRACTION_JSON_SCHEMA: dict[str, Any] = {
                     "요건": {"type": "string"},
                     "필수여부": {"type": "string", "enum": ["필수", "권장"]},
                     "상세": {"type": "string"},
+                    "constraints": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "metric": {"type": "string"},
+                                "op": {
+                                    "type": "string",
+                                    "enum": [">=", ">", "<=", "<", "==", "!=", "in", "not_in"]
+                                },
+                                "value": {
+                                    "oneOf": [
+                                        {"type": "number"},
+                                        {"type": "boolean"},
+                                        {"type": "string"},
+                                        {"type": "array", "items": {"type": "string"}}
+                                    ]
+                                },
+                                "unit": {"type": "string"},
+                                "raw": {"type": "string"},
+                            },
+                            "required": ["metric", "op", "value", "unit", "raw"],
+                        },
+                    },
                 },
-                "required": ["분류", "요건", "필수여부", "상세"],
+                "required": ["분류", "요건", "필수여부", "상세", "constraints"],
             },
         },
         "평가기준": {
