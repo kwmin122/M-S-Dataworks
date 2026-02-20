@@ -140,7 +140,17 @@ class RFxAnalysisResult:
                     "분류": r.category,
                     "요건": r.description,
                     "필수여부": "필수" if r.is_mandatory else "권장",
-                    "상세": r.detail
+                    "상세": r.detail,
+                    "constraints": [
+                        {
+                            "metric": c.metric,
+                            "op": c.op,
+                            "value": c.value,
+                            "unit": c.unit,
+                            "raw": c.raw,
+                        }
+                        for c in r.constraints
+                    ],
                 }
                 for r in self.requirements
             ],
@@ -700,7 +710,8 @@ class RFxAnalyzer:
             "분류": "핵심조건|기술요건|품질요건|절차요건|기타",
             "요건": "비교 가능한 핵심 문장",
             "필수여부": "필수|권장",
-            "상세": "근거 또는 수치"
+            "상세": "근거 또는 수치",
+            "constraints": []
         }}
     ],
     "평가기준": [

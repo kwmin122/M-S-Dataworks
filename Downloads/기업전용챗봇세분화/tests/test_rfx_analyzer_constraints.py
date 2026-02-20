@@ -177,3 +177,93 @@ def test_missing_constraints_key_defaults_to_empty():
 
     req = result.requirements[0]
     assert req.constraints == [], f"constraints 없으면 빈 배열이어야 함, 실제: {req.constraints}"
+
+
+# ────────────────────────────────────────────────────────────
+# Task 14: to_dict() constraints 직렬화 + general prompt 검증
+# ────────────────────────────────────────────────────────────
+
+def test_to_dict_includes_constraints():
+    """to_dict()의 자격요건 항목에 constraints 필드가 포함되어야 함"""
+    from rfx_analyzer import RFxAnalysisResult, RFxRequirement, RFxConstraint
+
+    req = RFxRequirement(
+        category="실적요건",
+        description="공공기관 SI 2건 이상",
+        is_mandatory=True,
+        detail="건당 20억원 이상",
+        constraints=[
+            RFxConstraint(metric="contract_amount", op=">=", value=20.0, unit="KRW_100M", raw="건당 20억원 이상"),
+        ]
+    )
+    analysis = RFxAnalysisResult.__new__(RFxAnalysisResult)
+    analysis.title = "테스트"
+    analysis.issuing_org = ""
+    analysis.announcement_number = ""
+    analysis.deadline = ""
+    analysis.project_period = ""
+    analysis.budget = ""
+    analysis.document_type = "rfx"
+    analysis.is_rfx_like = True
+    analysis.document_gate_confidence = 0.9
+    analysis.document_gate_reason = ""
+    analysis.extraction_model = "gpt-4o-mini"
+    analysis.requirements = [req]
+    analysis.evaluation_criteria = []
+    analysis.required_documents = []
+    analysis.special_notes = []
+
+    d = analysis.to_dict()
+    req_dict = d["자격요건"][0]
+    assert "constraints" in req_dict, "to_dict() 자격요건에 constraints 필드 없음"
+    assert len(req_dict["constraints"]) == 1
+    c = req_dict["constraints"][0]
+    assert c["metric"] == "contract_amount"
+    assert c["op"] == ">="
+    assert c["value"] == 20.0
+    assert c["unit"] == "KRW_100M"
+    assert c["raw"] == "건당 20억원 이상"
+
+
+def test_to_dict_empty_constraints_serialized():
+    """constraints=[] 이어도 to_dict()에서 빈 배열로 포함되어야 함"""
+    from rfx_analyzer import RFxAnalysisResult, RFxRequirement
+
+    req = RFxRequirement(
+        category="기술요건",
+        description="ISO 인증",
+        is_mandatory=False,
+        detail="",
+        constraints=[]
+    )
+    analysis = RFxAnalysisResult.__new__(RFxAnalysisResult)
+    analysis.title = ""
+    analysis.issuing_org = ""
+    analysis.announcement_number = ""
+    analysis.deadline = ""
+    analysis.project_period = ""
+    analysis.budget = ""
+    analysis.document_type = "rfx"
+    analysis.is_rfx_like = True
+    analysis.document_gate_confidence = 0.9
+    analysis.document_gate_reason = ""
+    analysis.extraction_model = "gpt-4o-mini"
+    analysis.requirements = [req]
+    analysis.evaluation_criteria = []
+    analysis.required_documents = []
+    analysis.special_notes = []
+
+    d = analysis.to_dict()
+    req_dict = d["자격요건"][0]
+    assert "constraints" in req_dict, "빈 constraints도 to_dict()에 포함되어야 함"
+    assert req_dict["constraints"] == []
+
+
+def test_general_prompt_includes_constraints_example():
+    """_build_general_extraction_prompt()가 constraints 예시를 포함해야 함"""
+    analyzer = RFxAnalyzer.__new__(RFxAnalyzer)
+    prompt = analyzer._build_general_extraction_prompt("임의의 텍스트")
+    assert "constraints" in prompt, (
+        "_build_general_extraction_prompt에 constraints 예시 없음 "
+        "(LLM이 constraints를 출력하지 않을 수 있음)"
+    )
