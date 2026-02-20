@@ -789,6 +789,37 @@ class QualificationMatcher:
         context = "\n---\n".join([r.text for r in search_results])
         source_files = list(set(r.source_file for r in search_results))
 
+        # STEP 5-3A-0: 선언적 제약 평가기 (constraints가 있으면 결정론 비교 우선)
+        if req.constraints:
+            evaluator = ConstraintEvaluator()
+            eval_results = evaluator.evaluate(req.constraints, context)
+            aggregate = ConstraintEvaluator.aggregate(eval_results)
+
+            if aggregate == "DETERMINED_NOT_MET":
+                evidence_parts = [
+                    f"{c.raw}: 기준={c.value}{c.unit}, 실제={r.observed_value}"
+                    for c, r in zip(req.constraints, eval_results)
+                    if r.outcome == "FAIL"
+                ]
+                return RequirementMatch(
+                    requirement=req,
+                    status=MatchStatus.NOT_MET,
+                    evidence="; ".join(evidence_parts) or "정량 기준 미달",
+                    confidence=0.95,
+                    preparation_guide="제시된 기준을 충족하는 실적/자격을 준비하세요.",
+                    source_files=source_files,
+                )
+            elif aggregate == "DETERMINED_MET":
+                return RequirementMatch(
+                    requirement=req,
+                    status=MatchStatus.MET,
+                    evidence="정량 조건 모두 충족",
+                    confidence=0.95,
+                    preparation_guide="",
+                    source_files=source_files,
+                )
+            # FALLBACK_NEEDED → 아래 기존 경로 계속
+
         # STEP 5-3A: 규칙형 판정이 가능한 요건은 LLM보다 먼저 처리
         judgment = self._apply_rule_based_judgment(req, context)
         if judgment is None:
