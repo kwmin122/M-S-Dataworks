@@ -922,13 +922,16 @@ JSON:
                     if not isinstance(c, dict):
                         continue
                     metric = str(c.get("metric", "CUSTOM")).strip() or "CUSTOM"
-                    op = str(c.get("op", ">=")).strip()
+                    op = str(c.get("op", "")).strip()
                     if op not in (">=", ">", "<=", "<", "==", "!=", "in", "not_in"):
-                        op = ">="
+                        metric = "CUSTOM"  # 잘못된 op → SKIP 경로 (강제 치환 금지)
+                    value = c.get("value")
+                    if value is None or isinstance(value, (dict, list)):
+                        metric = "CUSTOM"  # 누락/타입 불일치 → SKIP 경로 (기본값 0 금지)
                     parsed_constraints.append(RFxConstraint(
                         metric=metric,
                         op=op,
-                        value=c.get("value", 0),
+                        value=value,
                         unit=str(c.get("unit", "")).strip(),
                         raw=str(c.get("raw", "")).strip(),
                     ))

@@ -80,8 +80,8 @@ def test_empty_constraints_for_no_conditions():
     assert req.constraints == []
 
 
-def test_invalid_op_is_replaced():
-    """잘못된 op 문자열은 '>='로 치환되어야 함"""
+def test_invalid_op_becomes_custom_metric():
+    """잘못된 op는 CUSTOM 메트릭으로 마킹되어 SKIP 경로로 가야 함 ('>=' 강제 치환 금지)"""
     bad_response = """{
         "기본정보": {"공고명": "T", "발주기관": "", "공고번호": "", "제출마감일": "", "사업기간": "", "예산": ""},
         "자격요건": [
@@ -101,7 +101,61 @@ def test_invalid_op_is_replaced():
     result = analyzer._parse_llm_response(bad_response)
 
     c = result.requirements[0].constraints[0]
-    assert c.op == ">=", f"잘못된 op가 '>='로 치환되어야 함, 실제: {c.op}"
+    assert c.metric == "CUSTOM", (
+        f"잘못된 op는 metric=CUSTOM이 되어야 함 (SKIP 경로), 실제 metric={c.metric!r}, op={c.op!r}"
+    )
+
+
+def test_missing_value_becomes_custom_metric():
+    """value 키 누락 시 metric=CUSTOM으로 마킹하여 SKIP 경로로 가야 함 (기본값 0 금지)"""
+    bad_response = """{
+        "기본정보": {"공고명": "T", "발주기관": "", "공고번호": "", "제출마감일": "", "사업기간": "", "예산": ""},
+        "자격요건": [
+            {
+                "분류": "실적요건",
+                "요건": "테스트",
+                "필수여부": "필수",
+                "상세": "테스트",
+                "constraints": [
+                    {"metric": "contract_amount", "op": ">=", "unit": "", "raw": "value 없음"}
+                ]
+            }
+        ],
+        "평가기준": [], "제출서류": [], "특이사항": []
+    }"""
+    analyzer = RFxAnalyzer.__new__(RFxAnalyzer)
+    result = analyzer._parse_llm_response(bad_response)
+
+    c = result.requirements[0].constraints[0]
+    assert c.metric == "CUSTOM", (
+        f"value 누락 시 metric=CUSTOM이 되어야 함 (SKIP 경로), 실제 metric={c.metric!r}"
+    )
+
+
+def test_dict_value_becomes_custom_metric():
+    """value가 dict/list 타입이면 metric=CUSTOM으로 마킹하여 SKIP 경로로 가야 함"""
+    bad_response = """{
+        "기본정보": {"공고명": "T", "발주기관": "", "공고번호": "", "제출마감일": "", "사업기간": "", "예산": ""},
+        "자격요건": [
+            {
+                "분류": "실적요건",
+                "요건": "테스트",
+                "필수여부": "필수",
+                "상세": "테스트",
+                "constraints": [
+                    {"metric": "contract_amount", "op": ">=", "value": {"min": 10}, "unit": "", "raw": "dict value"}
+                ]
+            }
+        ],
+        "평가기준": [], "제출서류": [], "특이사항": []
+    }"""
+    analyzer = RFxAnalyzer.__new__(RFxAnalyzer)
+    result = analyzer._parse_llm_response(bad_response)
+
+    c = result.requirements[0].constraints[0]
+    assert c.metric == "CUSTOM", (
+        f"dict value는 metric=CUSTOM이 되어야 함 (SKIP 경로), 실제 metric={c.metric!r}"
+    )
 
 
 def test_missing_constraints_key_defaults_to_empty():
