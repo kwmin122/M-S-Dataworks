@@ -51,9 +51,18 @@ class CompanyFactNormalizer:
     - 동일 metric에서 서로 다른 값이 2개 이상 → None (SKIP, 모호)
     """
 
-    # 금액: 계약 관련 키워드 앞에 오는 N억 (앵커링)
+    # 근사 수식어 (약/내외/전후/가량/추정/상당) → 모호 → None (SKIP)
+    _AMOUNT_APPROX_RE = re.compile(
+        r"(?:약|추정)\s*\d+(?:\.\d+)?\s*억"
+        r"|\d+(?:\.\d+)?\s*억\s*(?:원\s*)?(?:내외|전후|가량|추정|상당)"
+    )
+    # 금액: 계약 관련 키워드 앞에 오는 N억 (앵커링, 정방향)
     _AMOUNT_ANCHOR_RE = re.compile(
         r"(?:계약금액|계약액|사업비|총액|금액|규모)[^\d]{0,8}(\d+(?:\.\d+)?)\s*억"
+    )
+    # 금액: N억 뒤에 오는 키워드 (역방향 앵커)
+    _AMOUNT_ANCHOR_REV_RE = re.compile(
+        r"(\d+(?:\.\d+)?)\s*억[^\d]{0,8}(?:계약금액|계약액|사업비|총액|금액|규모)"
     )
     # fallback: N,NNN,NNN원 형식 (5자리 이상 숫자)
     _AMOUNT_PLAIN_RE = re.compile(r"([\d,]{5,})\s*원")
@@ -84,11 +93,18 @@ class CompanyFactNormalizer:
         return values[0] if len(unique) == 1 else None
 
     def _extract_amount(self, text: str) -> "float | None":
-        # 앵커 패턴 우선
+        # 1. 근사 수식어 감지 → 모호 (SKIP)
+        if self._AMOUNT_APPROX_RE.search(text):
+            return None
+        # 2. 정방향 앵커 (keyword → N억)
         hits = [float(m.group(1)) for m in self._AMOUNT_ANCHOR_RE.finditer(text)]
         if hits:
             return self._unique_or_none(hits)
-        # fallback: N,NNN,NNN원
+        # 3. 역방향 앵커 (N억 → keyword)
+        hits = [float(m.group(1)) for m in self._AMOUNT_ANCHOR_REV_RE.finditer(text)]
+        if hits:
+            return self._unique_or_none(hits)
+        # 4. fallback: N,NNN,NNN원
         m = self._AMOUNT_PLAIN_RE.search(text)
         if m:
             try:
