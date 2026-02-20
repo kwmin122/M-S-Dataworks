@@ -1,0 +1,21 @@
+{
+  "inputs": {
+    "company_file": "/Users/min-kyungwook/Downloads/회사정보더미.pdf",
+    "rfx_file": "/Users/min-kyungwook/Downloads/제안요청서더미.pdf",
+    "model": "gpt-4o-mini",
+    "api_key_present": true
+  },
+  "metrics": {
+    "extraction_success_rate": 1.0,
+    "matching_completion_rate": 1.0,
+    "llm_format_compliance_rate": 1.0,
+    "highlight_success_rate": 1.0
+  },
+  "counts": {
+    "requirements_extracted": 8,
+    "matching_items": 8
+  },
+  "top_failures": [],
+  "top_failure_details": [],
+  "notes": []
+}

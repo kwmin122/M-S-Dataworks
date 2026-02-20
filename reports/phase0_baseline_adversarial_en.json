@@ -1,0 +1,21 @@
+{
+  "inputs": {
+    "company_file": "testdata/adversarial/company_adversarial_en.pdf",
+    "rfx_file": "testdata/adversarial/rfx_adversarial_en.pdf",
+    "model": "gpt-4o-mini",
+    "api_key_present": true
+  },
+  "metrics": {
+    "extraction_success_rate": 1.0,
+    "matching_completion_rate": 1.0,
+    "llm_format_compliance_rate": 1.0,
+    "highlight_success_rate": 1.0
+  },
+  "counts": {
+    "requirements_extracted": 8,
+    "matching_items": 8
+  },
+  "top_failures": [],
+  "top_failure_details": [],
+  "notes": []
+}

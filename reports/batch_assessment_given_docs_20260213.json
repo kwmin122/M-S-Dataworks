@@ -1,0 +1,119 @@
+{
+  "run_at": "2026-02-13T04:18:59.288872Z",
+  "model": "gpt-4o-mini",
+  "company_file": "/Users/min-kyungwook/Downloads/테크윈_특허연구소_회사소개서.pdf",
+  "results": [
+    {
+      "rfx_file": "/Users/min-kyungwook/Downloads/(1) (23년 용역제안요청서) 특허정보를 활용한 자동차 부품기업의 미래차 전환 전략 연구.pdf",
+      "ok": true,
+      "title": "특허정보를 활용한 자동차 부품기업의 미래차 전환 전략 연구",
+      "issuing_org": "산업정책연구소",
+      "requirements_count": 10,
+      "mandatory_requirements_count": 10,
+      "evaluation_criteria_count": 3,
+      "overall_score": 10.0,
+      "recommendation": "🔴 NO-GO (필수 요건 9개 미충족)",
+      "met_count": 1,
+      "partially_met_count": 0,
+      "not_met_count": 9,
+      "unknown_count": 0,
+      "mandatory_not_met": [
+        "계약 이행에 있어서 부실, 조잡 또는 부당하게 하거나 부정한 행위를 한 자",
+        "입찰참가를 방해하거나 낙찰자의 계약체결 또는 그 이행을 방해한 자",
+        "감독 또는 검사에 있어서 그 직무수행을 방해한 자",
+        "정당한 사유 없이 계약을 체결 또는 이행하지 아니한 자",
+        "고의로 무효의 입찰을 한 자",
+        "자격에 관한 서류 기타 계약에 관한 서류를 위조 또는 변조한 자",
+        "연구원의 승인 없이 하도급을 시키거나 연구원 승인을 얻은 하도급 조건을 변경한 자",
+        "계약의 체결 또는 그 이행에 관련하여 관계직원에게 뇌물을 준 자",
+        "정부로부터 부정당업자로 입찰참가 제한을 받은 자"
+      ],
+      "mandatory_uncertain": [],
+      "evaluation_expected_score": 16.0,
+      "evaluation_total_score": 100.0
+    },
+    {
+      "rfx_file": "/Users/min-kyungwook/Downloads/01_물품구매 제안요청서_디지털 트윈 활용 중앙집중형 열관리 시스템 최적제어 검증용 전기동력자동차_20230405 (1).pdf",
+      "ok": true,
+      "title": "디지털 트윈 활용 중앙집중형 열관리 시스템 최적제어 검증용 전기동력자동차",
+      "issuing_org": "융합기술연구본부 열제어연구센터",
+      "requirements_count": 2,
+      "mandatory_requirements_count": 2,
+      "evaluation_criteria_count": 9,
+      "overall_score": 100.0,
+      "recommendation": "🟢 GO - 적극 참여 권장",
+      "met_count": 2,
+      "partially_met_count": 0,
+      "not_met_count": 0,
+      "unknown_count": 0,
+      "mandatory_not_met": [],
+      "mandatory_uncertain": [],
+      "evaluation_expected_score": 100.0,
+      "evaluation_total_score": 100.0
+    },
+    {
+      "rfx_file": "/Users/min-kyungwook/Downloads/경기도 재가노인지원서비스 품질관리 방안 모색 연구.pdf",
+      "ok": true,
+      "title": "경기도 재가노인지원서비스 품질관리 방안 모색 연구",
+      "issuing_org": "경기복지재단",
+      "requirements_count": 2,
+      "mandatory_requirements_count": 1,
+      "evaluation_criteria_count": 3,
+      "overall_score": 0.0,
+      "recommendation": "🔴 NO-GO (필수 요건 1개 미충족)",
+      "met_count": 0,
+      "partially_met_count": 0,
+      "not_met_count": 2,
+      "unknown_count": 0,
+      "mandatory_not_met": [
+        "재가노인지원서비스센터 운영을 위한 인력 기준"
+      ],
+      "mandatory_uncertain": [],
+      "evaluation_expected_score": 21.0,
+      "evaluation_total_score": 100.0
+    },
+    {
+      "rfx_file": "/Users/min-kyungwook/Downloads/RFx더미_데이터_50장_한국어_목차화_50_korean_sample.pdf",
+      "ok": true,
+      "title": "KPS 공급 업체 품질 요구 사항",
+      "issuing_org": "Kohler Co. Power Systems",
+      "requirements_count": 3,
+      "mandatory_requirements_count": 2,
+      "evaluation_criteria_count": 2,
+      "overall_score": 20.0,
+      "recommendation": "🔴 NO-GO (필수 요건 2개 미충족)",
+      "met_count": 1,
+      "partially_met_count": 0,
+      "not_met_count": 2,
+      "unknown_count": 0,
+      "mandatory_not_met": [
+        "ISO 9001:2015 또는 최신 버전의 인증 보유",
+        "IATF 16949:2016 인증 (자동차 산업 공급업체의 경우)"
+      ],
+      "mandatory_uncertain": [],
+      "evaluation_expected_score": 103.33,
+      "evaluation_total_score": 200.0
+    },
+    {
+      "rfx_file": "/Users/min-kyungwook/Downloads/RFx더미_데이터_100장_RAG_훈련용.pdf",
+      "ok": true,
+      "title": "자동차 산업 RFx 문서 - RAG 최적화",
+      "issuing_org": "TESLA-HYUNDAI",
+      "requirements_count": 1,
+      "mandatory_requirements_count": 1,
+      "evaluation_criteria_count": 1,
+      "overall_score": 0.0,
+      "recommendation": "🔴 NO-GO (필수 요건 1개 미충족)",
+      "met_count": 0,
+      "partially_met_count": 0,
+      "not_met_count": 1,
+      "unknown_count": 0,
+      "mandatory_not_met": [
+        "ISO 26262 및 IATF 16949 완전 준수"
+      ],
+      "mandatory_uncertain": [],
+      "evaluation_expected_score": 0.0,
+      "evaluation_total_score": 100.0
+    }
+  ]
+}

@@ -1,0 +1,79 @@
+# Codex Idea 2 - 최신 자료 조사 (2026-02-19 기준)
+
+작성일: 2026-02-19  
+목적: 범용 문서비교형 RAG 설계를 위해 2026년 자료까지 1차 조사 정리
+
+## 1) 공식 문서(제품/실무)
+
+1. OpenAI Retrieval Guide  
+   - https://platform.openai.com/docs/guides/retrieval  
+   - 의미: 쿼리 재작성, 검색 결과 수 제어, 검색 파이프라인 설계의 기본 가이드
+
+2. OpenAI File Search Guide  
+   - https://platform.openai.com/docs/guides/tools-file-search  
+   - 의미: semantic + keyword 결합 검색, 파일 기반 RAG 도구화
+
+3. OpenAI Responses API  
+   - https://platform.openai.com/docs/api-reference/responses  
+   - 의미: tool orchestration과 structured output 기반의 멀티스텝 RAG에 적합
+
+## 2) 핵심 연구(원문, 시계열)
+
+1. Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks (RAG, 2020)  
+   - https://arxiv.org/abs/2005.11401  
+   - 포인트: RAG 기본 패러다임 제시
+
+2. Self-RAG: Learning to Retrieve, Generate, and Critique through Self-Reflection (2023)  
+   - https://arxiv.org/abs/2310.11511  
+   - 포인트: 생성 중 자기반성 기반 retrieval 제어
+
+3. Corrective Retrieval Augmented Generation (CRAG, 2024)  
+   - https://arxiv.org/abs/2401.15884  
+   - 포인트: retrieval 품질 평가 후 보정하는 구조
+
+4. RAPTOR: Recursive Abstractive Processing for Tree-Organized Retrieval (2024)  
+   - https://arxiv.org/abs/2401.18059  
+   - 포인트: 장문 문서 계층 요약/검색
+
+5. Memorization vs Retrieval Trade-off in RAG (arXiv:2501.14342, 2025-01)  
+   - https://arxiv.org/abs/2501.14342  
+   - 포인트: 파라메트릭 메모리와 외부 검색의 균형 분석
+
+6. RAG/Groundedness 고도화 계열 (arXiv:2506.20963, 2025-06)  
+   - https://arxiv.org/abs/2506.20963  
+   - 포인트: 근거 정합성 및 hallucination 완화 방향
+
+7. 2026 신규 동향 #1 (arXiv:2601.16478, 2026-01)  
+   - https://arxiv.org/abs/2601.16478  
+   - 제목: RAG in Computational Histopathology  
+   - 포인트: 도메인 특화 RAG에서 retrieval 품질 관리의 중요성 재확인
+
+8. 2026 신규 동향 #2 (arXiv:2601.16462, 2026-01)  
+   - https://arxiv.org/abs/2601.16462  
+   - 제목: Augmented Retrieval Module for RAG  
+   - 포인트: retrieval module 개선 자체가 성능에 직접 영향
+
+9. 2026 신규 동향 #3 (arXiv:2602.11156, 2026-02)  
+   - https://arxiv.org/abs/2602.11156  
+   - 제목: RAGSynth  
+   - 포인트: 합성 데이터 기반 RAG 평가/학습 프레임워크 방향
+
+## 3) 오픈소스/실행 프레임워크 참고
+
+1. Microsoft GraphRAG (공식 저장소)  
+   - https://github.com/microsoft/graphrag  
+   - 의미: 다문서 관계 질의/요약형 질의에서 그래프 기반 retrieval 참고 가능
+
+## 4) 조사 기반 해석
+
+- 2026년까지도 공통 결론은 동일:
+  1) 단순 벡터 검색만으로는 숫자/조건 질의 취약
+  2) retrieval 품질 측정/보정 레이어가 필수
+  3) 최종 답변 전 groundedness 검증(citation validation)이 중요
+- 즉, "프롬프트 몇 줄"이 아니라 `검색-추출-비교-검증` 파이프라인 설계가 성능 핵심
+
+## 5) 한계/주의
+
+- 본 문서는 2026-02-19 시점 공개 자료 기준 1차 조사 결과이며, 이후 새 논문은 추가 반영 필요
+- 일부 2026 논문은 초기 공개 단계(arXiv preprint)라 실제 운영 반영 전 재검증 필요
+

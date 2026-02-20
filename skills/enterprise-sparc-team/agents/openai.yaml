@@ -1,0 +1,4 @@
+interface:
+  display_name: "Enterprise SPARC Team"
+  short_description: "Run enterprise SPARC multi-agent development workflow"
+  default_prompt: "Use $enterprise-sparc-team to plan and execute this project with role-based phases and quality gates."

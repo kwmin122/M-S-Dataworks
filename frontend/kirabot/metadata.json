@@ -1,0 +1,5 @@
+{
+  "name": "KiraBot",
+  "description": "업무 문서를 업로드하면 AI가 분석하고, 근거와 함께 답하는 지능형 문서 분석 도구. 입찰 공고, 계약서, 보고서 등 모든 문서를 지원합니다.",
+  "requestFramePermissions": []
+}

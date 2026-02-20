@@ -1,0 +1,72 @@
+{
+  "dataset_id": "adversarial_v1",
+  "company_source": "testdata/adversarial/company_adversarial.md",
+  "rfx_source": "testdata/adversarial/rfx_adversarial.md",
+  "expected_gate": "NO_GO_OR_CONDITIONAL",
+  "requirements": [
+    {
+      "id": "A-1",
+      "title": "ISO 9001 유효 인증 보유",
+      "expected_status": "NOT_MET",
+      "importance": "required",
+      "reason": "2019 취득, 2022 갱신 만료로 유효 인증 아님"
+    },
+    {
+      "id": "A-2",
+      "title": "(ISO 27001 OR ISMS-P) AND ISO 9001",
+      "expected_status": "NOT_MET",
+      "importance": "required",
+      "reason": "ISO27001/ISMS-P 미보유, ISO9001도 유효성 미충족"
+    },
+    {
+      "id": "A-3",
+      "title": "정보처리기사 10명 이상",
+      "expected_status": "NOT_MET",
+      "importance": "required",
+      "reason": "회사 인력 9명으로 경계값 실패"
+    },
+    {
+      "id": "A-4",
+      "title": "20억원 이상 단일사업 2건",
+      "expected_status": "PARTIALLY_MET",
+      "importance": "required",
+      "reason": "25억 1건은 충족, 18억 1건은 미충족"
+    },
+    {
+      "id": "A-5",
+      "title": "컨소시엄은 분담금만 인정",
+      "expected_status": "MET",
+      "importance": "required",
+      "reason": "회사 문서에 컨소시엄 분담금 8억 명시"
+    },
+    {
+      "id": "A-6",
+      "title": "기업신용등급 BBB 이상",
+      "expected_status": "MET_OR_CONDITIONAL",
+      "importance": "required",
+      "reason": "BBB0 경계값으로 기관별 해석 차이 가능"
+    },
+    {
+      "id": "A-7",
+      "title": "감리원 또는 감리사 보유",
+      "expected_status": "MET",
+      "importance": "optional",
+      "reason": "정보시스템감리사 1명 보유"
+    },
+    {
+      "id": "A-8",
+      "title": "보안관제 조직 상시 운영(권장)",
+      "expected_status": "UNKNOWN_OR_PARTIALLY_MET",
+      "importance": "optional",
+      "reason": "상시 운영을 입증하는 정량 증빙이 없음"
+    }
+  ],
+  "evaluation_checks": {
+    "must_detect_score_inconsistency": true,
+    "expected_note_keywords": [
+      "기술 90",
+      "소계 88",
+      "불일치"
+    ]
+  }
+}

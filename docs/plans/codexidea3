@@ -1,0 +1,159 @@
+# Codex Idea 3 - 판단/검증 기반 최선안 (범용 문서비교형 RAG)
+
+작성일: 2026-02-19  
+목표: 회사 문서 vs 비교 문서(입찰 포함)에서 범용 질문 대응 + 적합성/보완안 판단
+
+## 0) 결론 요약
+
+최선안은 다음 4단 결합이다.
+
+1. **Schema-first extraction**: 양쪽 문서를 동일한 구조로 추출
+2. **Hybrid retrieval + rerank**: 숫자/코드/문장 혼합 질의를 안정화
+3. **Rule+LLM comparator**: 정량은 규칙, 정성은 LLM으로 분리 판단
+4. **Grounded answer gate**: citation 없는 문장 차단 후 응답
+
+이 방식이 하드코딩 오버피팅을 최소화하면서 정확도와 재현성을 동시에 확보한다.
+
+---
+
+## 1) 왜 이게 최선인가 (판단 근거)
+
+1. 프롬프트 단독 강화는 재현성이 약함  
+   - 문서 형식이 바뀌면 성능 흔들림
+
+2. 하드코딩 키워드 확장은 오탐 위험이 큼  
+   - 일반 질의까지 도메인 질문으로 오인될 수 있음
+
+3. 최신 연구/실무 공통점  
+   - retrieval 품질 보정(CRAG류), 근거 검증, 다단계 파이프라인이 핵심
+   - 단일 단계 LLM 분류/판정보다 구조적 체인이 안정적
+
+---
+
+## 2) 권장 아키텍처
+
+### Stage A. 문서 전처리
+- 문서 타입을 "입찰/비입찰" 이진으로 보지 말고 "비교 가능한 요구조건 문서"인지 판정
+- chunk metadata에 `page`, `section`, `doc_type`, `timestamp` 보존
+
+### Stage B. 검색
+- 1차: hybrid retrieval (BM25 + vector)
+- 2차: cross-encoder rerank (또는 LLM rerank)
+- 3차: diversity merge (중복 chunk 제거)
+
+### Stage C. 구조화
+- target 문서 -> requirement schema
+- company 문서 -> capability schema
+- 둘 다 JSON schema 고정 + strict validation
+
+### Stage D. 비교/판정
+- 정량 조건: deterministic rule evaluator
+- 정성 조건: LLM comparator
+- 최종 상태: `MET/PARTIAL/NOT_MET/UNKNOWN`
+
+### Stage E. 응답 가드
+- citation validator: 모든 핵심 주장에 근거 연결 필수
+- contradiction check: verdict와 본문 모순 여부 확인
+- 불충분 시 명시적 보수 응답
+
+---
+
+## 3) 프롬프트 설계 (실전형)
+
+### 3-1. Comparator System Prompt (핵심)
+
+```text
+너는 기업 문서와 비교 대상 문서를 근거 기반으로 비교하는 심사 보조 엔진이다.
+규칙:
+1) 충족 판단은 반드시 문서 근거와 함께 제시
+2) 근거가 없으면 UNKNOWN
+3) 수치/기간/등급/완료여부는 추정하지 말고 명시값만 사용
+4) mandatory 요건 중 NOT_MET이 1개 이상이면 기본 verdict는 NO_GO
+5) 출력은 지정 JSON 스키마만 반환
+```
+
+### 3-2. Improvement Planner Prompt
+
+```text
+입력된 GAP 목록을 바탕으로 입찰 성공 가능성을 높이는 실행 계획을 작성하라.
+조건:
+- 우선순위(P0/P1/P2)
+- 담당 역할
+- 필요한 증빙
+- 예상 소요기간
+- 마감 임박 시 단기 대안 포함
+출력은 JSON 스키마만 사용.
+```
+
+### 3-3. Answer Prompt
+
+```text
+사용자 질문에 직접 답하되 다음 형식을 지켜라:
+1) 결론 1문장
+2) 핵심 근거 3개 이내
+3) 부족한 정보가 있으면 명시
+4) citations 배열에 quote와 page를 포함
+근거 없는 문장 생성 금지.
+```
+
+---
+
+## 4) 평가/검증 설계 (오버피팅 방지)
+
+### 필수 지표
+- 정확도(요건 상태 분류)
+- 근거 정합률(citation-grounded rate)
+- 보수적 판단 적중률(UNKNOWN 처리 품질)
+- 재현성(동일 입력 반복 시 결과 일관성)
+
+### 데이터셋 원칙
+- 단일 더미 금지
+- 다회사 x 다문서 유형 holdout 세트
+- 숫자 함정 케이스(금액 경계값, 기간 경계값, 진행중/완료 구분) 포함
+
+### 테스트 구성
+- Unit: parser/schema/rule evaluator
+- Integration: retrieval->compare->answer 전체 체인
+- Regression: 과거 실패 케이스 고정
+- Adversarial: 유사어/노이즈/문서 길이 증가 테스트
+
+---
+
+## 5) 구현 우선순위 (실행 권장 순서)
+
+1. schema-first extractor 고정 (target/company 공통)
+2. hybrid retrieval + rerank
+3. rule comparator(정량) + llm comparator(정성) 분리
+4. citation validator + contradiction check
+5. 다회사 holdout 자동평가 파이프라인
+
+---
+
+## 6) 기술 선택 제안 (현재 스택 기준)
+
+- 유지:
+  - Python, ChromaDB, OpenAI
+- 추가 권장:
+  - BM25(`rank_bm25`) + reranker
+  - JSON schema strict parsing
+  - 평가 스크립트(정답셋 기반 자동 채점)
+
+---
+
+## 7) 실무 운영 가이드
+
+- "정확도" 단일 수치만 보지 말고 citation 정합률을 함께 모니터링
+- 운영 초기에는 `NO_GO/UNKNOWN` 기준을 보수적으로 설정
+- 월 단위로 실패 유형 top-N을 재학습(프롬프트/규칙/데이터셋 갱신)
+
+---
+
+## 8) 최종 판단
+
+범용성을 원하면 답은 명확하다:
+
+- **하드코딩 키워드 중심 설계는 보조 수단으로만 사용**
+- **핵심은 구조화 스키마 + 하이브리드 검색 + 규칙/LLM 분리 비교 + 근거 검증 게이트**
+
+이 조합이 실제 다기업/다문서 환경에서 가장 안정적이다.
+

@@ -1,0 +1,108 @@
+{"timestamp": "2026-02-15T10:35:45.317390+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:35:45.391248+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:35:45.455216+00:00", "event": "mode_selected", "mode": "conservative", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:35:45.520717+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:35:45.583311+00:00", "event": "mode_selected", "mode": "aggressive", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:35:45.583837+00:00", "event": "generation_skipped_no_api_key", "mode": "aggressive", "variant": "", "username": "tester", "cache_key": "aggressive"}
+{"timestamp": "2026-02-15T10:36:05.677480+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:36:05.738863+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:36:05.795265+00:00", "event": "mode_selected", "mode": "conservative", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:36:05.853787+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:36:05.910531+00:00", "event": "mode_selected", "mode": "aggressive", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:36:05.910872+00:00", "event": "generation_skipped_no_api_key", "mode": "aggressive", "variant": "", "username": "tester", "cache_key": "aggressive"}
+{"timestamp": "2026-02-15T10:36:56.644530+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:36:56.822086+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:36:56.890455+00:00", "event": "mode_selected", "mode": "conservative", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:36:56.951479+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:36:57.011274+00:00", "event": "mode_selected", "mode": "aggressive", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:36:57.011659+00:00", "event": "generation_skipped_no_api_key", "mode": "aggressive", "variant": "", "username": "tester", "cache_key": "aggressive"}
+{"timestamp": "2026-02-15T10:37:07.754263+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:37:07.814771+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:37:07.871409+00:00", "event": "mode_selected", "mode": "conservative", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:37:07.930009+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:37:07.986234+00:00", "event": "mode_selected", "mode": "aggressive", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:37:07.986668+00:00", "event": "generation_skipped_no_api_key", "mode": "aggressive", "variant": "", "username": "tester", "cache_key": "aggressive"}
+{"timestamp": "2026-02-15T10:38:23.326995+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:38:23.384666+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:38:23.438529+00:00", "event": "mode_selected", "mode": "conservative", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:38:23.493842+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:38:23.547297+00:00", "event": "mode_selected", "mode": "aggressive", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-15T10:38:23.547621+00:00", "event": "generation_skipped_no_api_key", "mode": "aggressive", "variant": "", "username": "tester", "cache_key": "aggressive"}
+{"timestamp": "2026-02-19T02:45:04.058257+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-19T02:45:05.618631+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-19T02:45:07.013916+00:00", "event": "mode_selected", "mode": "conservative", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-19T02:45:08.470189+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-19T02:45:09.792039+00:00", "event": "mode_selected", "mode": "aggressive", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-19T02:45:11.078462+00:00", "event": "generated", "mode": "aggressive", "variant": "", "username": "tester", "cache_key": "aggressive"}
+{"timestamp": "2026-02-19T07:12:30.188906+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-19T07:12:31.731600+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-19T07:12:33.267125+00:00", "event": "mode_selected", "mode": "conservative", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-19T07:12:34.602440+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-19T07:12:36.126497+00:00", "event": "mode_selected", "mode": "aggressive", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-19T07:12:37.478689+00:00", "event": "generated", "mode": "aggressive", "variant": "", "username": "tester", "cache_key": "aggressive"}
+{"timestamp": "2026-02-19T07:48:25.274020+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-19T07:48:26.745071+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-19T07:48:28.265042+00:00", "event": "mode_selected", "mode": "conservative", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-19T07:48:29.770170+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-19T07:48:31.193616+00:00", "event": "mode_selected", "mode": "aggressive", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-19T07:48:32.369415+00:00", "event": "generated", "mode": "aggressive", "variant": "", "username": "tester", "cache_key": "aggressive"}
+{"timestamp": "2026-02-20T05:36:32.702951+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T05:36:33.313832+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T05:36:33.375327+00:00", "event": "mode_selected", "mode": "conservative", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T05:36:34.476904+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T05:36:34.538946+00:00", "event": "mode_selected", "mode": "aggressive", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T05:36:39.642041+00:00", "event": "generated", "mode": "aggressive", "variant": "", "username": "tester", "cache_key": "aggressive"}
+{"timestamp": "2026-02-20T05:49:08.296102+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T05:49:09.777373+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T05:49:09.839434+00:00", "event": "mode_selected", "mode": "conservative", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T05:49:10.707456+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T05:49:10.769644+00:00", "event": "mode_selected", "mode": "aggressive", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T05:49:16.317029+00:00", "event": "generated", "mode": "aggressive", "variant": "", "username": "tester", "cache_key": "aggressive"}
+{"timestamp": "2026-02-20T07:01:58.163526+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:01:59.092566+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:01:59.154020+00:00", "event": "mode_selected", "mode": "conservative", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:01:59.791721+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:01:59.852482+00:00", "event": "mode_selected", "mode": "aggressive", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:02:04.435680+00:00", "event": "generated", "mode": "aggressive", "variant": "", "username": "tester", "cache_key": "aggressive"}
+{"timestamp": "2026-02-20T07:12:17.224328+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:12:18.249104+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:12:18.308918+00:00", "event": "mode_selected", "mode": "conservative", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:12:18.964690+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:12:19.023689+00:00", "event": "mode_selected", "mode": "aggressive", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:12:22.430395+00:00", "event": "generated", "mode": "aggressive", "variant": "", "username": "tester", "cache_key": "aggressive"}
+{"timestamp": "2026-02-20T07:25:52.068312+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:25:52.986829+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:25:53.046684+00:00", "event": "mode_selected", "mode": "conservative", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:25:53.727857+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:25:53.789025+00:00", "event": "mode_selected", "mode": "aggressive", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:25:59.482102+00:00", "event": "generated", "mode": "aggressive", "variant": "", "username": "tester", "cache_key": "aggressive"}
+{"timestamp": "2026-02-20T07:54:06.418085+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:54:07.057664+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:54:07.127950+00:00", "event": "mode_selected", "mode": "conservative", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:54:07.977947+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:54:08.044310+00:00", "event": "mode_selected", "mode": "aggressive", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T07:54:12.395251+00:00", "event": "generated", "mode": "aggressive", "variant": "", "username": "tester", "cache_key": "aggressive"}
+{"timestamp": "2026-02-20T08:04:45.117721+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:04:45.643478+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:04:45.703815+00:00", "event": "mode_selected", "mode": "conservative", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:04:46.349470+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:04:46.410341+00:00", "event": "mode_selected", "mode": "aggressive", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:04:50.790283+00:00", "event": "generated", "mode": "aggressive", "variant": "", "username": "tester", "cache_key": "aggressive"}
+{"timestamp": "2026-02-20T08:06:28.548165+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:06:29.107277+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:06:29.171594+00:00", "event": "mode_selected", "mode": "conservative", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:06:29.692838+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:06:29.752937+00:00", "event": "mode_selected", "mode": "aggressive", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:06:35.606254+00:00", "event": "generated", "mode": "aggressive", "variant": "", "username": "tester", "cache_key": "aggressive"}
+{"timestamp": "2026-02-20T08:17:07.001837+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:17:08.008860+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:17:08.069316+00:00", "event": "mode_selected", "mode": "conservative", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:17:08.790442+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:17:08.851704+00:00", "event": "mode_selected", "mode": "aggressive", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:17:12.761292+00:00", "event": "generated", "mode": "aggressive", "variant": "", "username": "tester", "cache_key": "aggressive"}
+{"timestamp": "2026-02-20T08:24:53.442829+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:24:54.849600+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:24:56.206896+00:00", "event": "mode_selected", "mode": "conservative", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:24:57.459192+00:00", "event": "mode_selected", "mode": "balanced", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:24:59.063897+00:00", "event": "mode_selected", "mode": "aggressive", "variant": "", "username": "tester"}
+{"timestamp": "2026-02-20T08:25:00.328397+00:00", "event": "generated", "mode": "aggressive", "variant": "", "username": "tester", "cache_key": "aggressive"}

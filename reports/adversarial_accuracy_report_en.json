@@ -1,0 +1,153 @@
+{
+  "inputs": {
+    "company_file": "testdata/adversarial/company_adversarial_en.pdf",
+    "rfx_file": "testdata/adversarial/rfx_adversarial_en.pdf",
+    "answer_key": "testdata/adversarial/answer_key_adversarial_eval.json",
+    "model": "gpt-4o-mini"
+  },
+  "summary": {
+    "requirement_count_expected": 8,
+    "requirement_count_observed": 8,
+    "requirement_status_accuracy": 1.0,
+    "requirement_correct": 8,
+    "requirement_missing_expected": 0,
+    "gate_expected_keywords": [
+      "NO-GO",
+      "보류",
+      "CONDITIONAL"
+    ],
+    "gate_actual_recommendation": "🔴 NO-GO (필수 요건 4개 미충족)",
+    "gate_pass": true,
+    "overall_score": 28.57142857142857
+  },
+  "comparisons": [
+    {
+      "description": "Valid ISO 9001 certificate",
+      "allowed_statuses": [
+        "NOT_MET"
+      ],
+      "actual_status": "NOT_MET",
+      "pass": true,
+      "confidence": 0.9
+    },
+    {
+      "description": "(ISO 27001 OR ISMS-P) AND ISO 9001",
+      "allowed_statuses": [
+        "NOT_MET"
+      ],
+      "actual_status": "NOT_MET",
+      "pass": true,
+      "confidence": 0.9
+    },
+    {
+      "description": "At least 10 certified information-processing engineers",
+      "allowed_statuses": [
+        "NOT_MET"
+      ],
+      "actual_status": "NOT_MET",
+      "pass": true,
+      "confidence": 0.9
+    },
+    {
+      "description": "At least two single public SI projects >= 2.0B KRW in last 3 years",
+      "allowed_statuses": [
+        "PARTIALLY_MET",
+        "NOT_MET"
+      ],
+      "actual_status": "NOT_MET",
+      "pass": true,
+      "confidence": 0.9
+    },
+    {
+      "description": "For consortium records, only contribution share is recognized",
+      "allowed_statuses": [
+        "MET",
+        "PARTIALLY_MET"
+      ],
+      "actual_status": "MET",
+      "pass": true,
+      "confidence": 0.95
+    },
+    {
+      "description": "Corporate credit rating BBB or above",
+      "allowed_statuses": [
+        "MET",
+        "PARTIALLY_MET"
+      ],
+      "actual_status": "PARTIALLY_MET",
+      "pass": true,
+      "confidence": 0.7
+    },
+    {
+      "description": "Auditor/audit engineer availability may receive bonus consideration",
+      "allowed_statuses": [
+        "MET",
+        "PARTIALLY_MET",
+        "UNKNOWN"
+      ],
+      "actual_status": "PARTIALLY_MET",
+      "pass": true,
+      "confidence": 0.7
+    },
+    {
+      "description": "A dedicated security operations team is desirable",
+      "allowed_statuses": [
+        "PARTIALLY_MET",
+        "UNKNOWN"
+      ],
+      "actual_status": "PARTIALLY_MET",
+      "pass": true,
+      "confidence": 0.7
+    }
+  ],
+  "observed_matches": [
+    {
+      "description": "Valid ISO 9001 certificate",
+      "status": "NOT_MET",
+      "confidence": 0.9,
+      "is_mandatory": true
+    },
+    {
+      "description": "(ISO 27001 OR ISMS-P) AND ISO 9001",
+      "status": "NOT_MET",
+      "confidence": 0.9,
+      "is_mandatory": true
+    },
+    {
+      "description": "At least 10 certified information-processing engineers",
+      "status": "NOT_MET",
+      "confidence": 0.9,
+      "is_mandatory": true
+    },
+    {
+      "description": "At least two single public SI projects >= 2.0B KRW in last 3 years",
+      "status": "NOT_MET",
+      "confidence": 0.9,
+      "is_mandatory": true
+    },
+    {
+      "description": "For consortium records, only contribution share is recognized",
+      "status": "MET",
+      "confidence": 0.95,
+      "is_mandatory": true
+    },
+    {
+      "description": "Corporate credit rating BBB or above",
+      "status": "PARTIALLY_MET",
+      "confidence": 0.7,
+      "is_mandatory": true
+    },
+    {
+      "description": "Auditor/audit engineer availability may receive bonus consideration",
+      "status": "PARTIALLY_MET",
+      "confidence": 0.7,
+      "is_mandatory": false
+    },
+    {
+      "description": "A dedicated security operations team is desirable",
+      "status": "PARTIALLY_MET",
+      "confidence": 0.7,
+      "is_mandatory": false
+    }
+  ]
+}

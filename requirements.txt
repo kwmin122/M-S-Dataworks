@@ -1,0 +1,28 @@
+# RFx AI 입찰 분석 어시스턴트 v2 - 의존성
+# ========================================
+
+# 🔑 핵심 프레임워크
+streamlit>=1.28.0
+openai>=1.40.0
+
+# 📄 PDF 처리 + 하이라이트
+pymupdf>=1.23.0
+streamlit-pdf-viewer>=0.0.20
+pdfplumber>=0.9.0
+
+# 📊 RAG 파이프라인
+chromadb>=0.4.0
+
+# 📝 문서 파싱
+python-docx>=0.8.11
+
+# ⚙️ 유틸리티
+python-dotenv>=1.0.0
+
+# 🧪 테스트
+pytest>=7.0.0
+
+# 🌐 Web Runtime (React + FastAPI 통합 실행)
+fastapi>=0.112.0
+uvicorn>=0.30.0
+python-multipart>=0.0.9

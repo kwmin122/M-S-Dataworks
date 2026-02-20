@@ -1,0 +1,37 @@
+{
+  "inputs": {
+    "company_file": "/Users/min-kyungwook/Downloads/회사정보더미.pdf",
+    "rfx_file": "/Users/min-kyungwook/Downloads/공고문[방범CCTV 자가통신망 광다중화장비 교체]더미.pdf",
+    "model": "gpt-4o-mini",
+    "api_key_present": true
+  },
+  "metrics": {
+    "extraction_success_rate": 1.0,
+    "matching_completion_rate": 1.0,
+    "llm_format_compliance_rate": 1.0,
+    "highlight_success_rate": 0.3333
+  },
+  "counts": {
+    "requirements_extracted": 8,
+    "matching_items": 8
+  },
+  "top_failures": [
+    {
+      "type": "highlight_not_found",
+      "count": 2
+    }
+  ],
+  "top_failure_details": [
+    {
+      "detail": "highlight_not_found:page=4:text=석사 이상 (이공계) 22명 AI·데이터 본부 집중",
+      "count": 1
+    },
+    {
+      "detail": "highlight_not_found:page=4:text=정보관리기술사 3명 — 석사 이상 (이공계) 22명 AI·데이터 본부 집중",
+      "count": 1
+    }
+  ],
+  "notes": [
+    "Top failure is highlight mapping; verify reference text span length and page metadata."
+  ]
+}

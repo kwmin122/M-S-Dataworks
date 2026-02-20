@@ -1,0 +1,40 @@
+{
+  "dataset_id": "adversarial_v1_eval",
+  "expected_gate": {
+    "allowed_recommendation_keywords": ["NO-GO", "보류", "CONDITIONAL"]
+  },
+  "requirements": [
+    {
+      "description": "Valid ISO 9001 certificate",
+      "allowed_statuses": ["NOT_MET"]
+    },
+    {
+      "description": "(ISO 27001 OR ISMS-P) AND ISO 9001",
+      "allowed_statuses": ["NOT_MET"]
+    },
+    {
+      "description": "At least 10 certified information-processing engineers",
+      "allowed_statuses": ["NOT_MET"]
+    },
+    {
+      "description": "At least two single public SI projects >= 2.0B KRW in last 3 years",
+      "allowed_statuses": ["PARTIALLY_MET", "NOT_MET"]
+    },
+    {
+      "description": "For consortium records, only contribution share is recognized",
+      "allowed_statuses": ["MET", "PARTIALLY_MET"]
+    },
+    {
+      "description": "Corporate credit rating BBB or above",
+      "allowed_statuses": ["MET", "PARTIALLY_MET"]
+    },
+    {
+      "description": "Auditor/audit engineer availability may receive bonus consideration",
+      "allowed_statuses": ["MET", "PARTIALLY_MET", "UNKNOWN"]
+    },
+    {
+      "description": "A dedicated security operations team is desirable",
+      "allowed_statuses": ["PARTIALLY_MET", "UNKNOWN"]
+    }
+  ]
+}
