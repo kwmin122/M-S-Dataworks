@@ -129,10 +129,10 @@ def step3_match_company(company_name: str, company_file: Path, rfx_result: objec
     matcher = QualificationMatcher(engine, api_key=API_KEY)
     matching = matcher.match(rfx_result)
 
-    print(f"  종합 결과: {matching.overall_status}")
+    print(f"  종합 점수: {matching.overall_score:.0f}%")
     print(f"  권고사항: {matching.recommendation}")
     print(f"  요건별 결과:")
-    for req_match in matching.requirement_matches:
+    for req_match in matching.matches:
         status_icon = {"MET": "✅", "NOT_MET": "❌", "PARTIALLY_MET": "🟡", "UNKNOWN": "❓"}.get(
             req_match.status.value if hasattr(req_match.status, "value") else str(req_match.status), "?"
         )
@@ -142,7 +142,7 @@ def step3_match_company(company_name: str, company_file: Path, rfx_result: objec
     return {
         "company": company_name,
         "file": str(company_file.name),
-        "overall_status": str(matching.overall_status),
+        "overall_score": matching.overall_score,
         "recommendation": matching.recommendation,
         "requirements": [
             {
@@ -152,7 +152,7 @@ def step3_match_company(company_name: str, company_file: Path, rfx_result: objec
                 "confidence": m.confidence,
                 "evidence": m.evidence,
             }
-            for m in matching.requirement_matches
+            for m in matching.matches
         ],
     }
 
@@ -183,6 +183,7 @@ def main() -> None:
         "rfx_issuing_org": rfx_result.issuing_org,
         "requirements_count": len(rfx_result.requirements),
         "company_results": results,
+        "note": "overall_score: 0~100% 점수, recommendation: GO/CONDITIONAL/NO-GO",
     }
     report_path = REPORT_DIR / f"smoke_hwp_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
     with open(report_path, "w", encoding="utf-8") as f:
@@ -191,8 +192,8 @@ def main() -> None:
     # 최종 요약
     header("최종 요약")
     for r in results:
-        status_icon = "✅" if "MET" in r["overall_status"] and "NOT" not in r["overall_status"] else "❌"
-        print(f"  {status_icon} {r['company']}: {r['overall_status']}")
+        status_icon = "✅" if r["overall_score"] >= 60 else "❌"
+        print(f"  {status_icon} {r['company']}: {r['overall_score']:.0f}% - {r['recommendation']}")
     print(f"\n  📄 리포트 저장: {report_path}")
     print("\n  ✅ 스모크 테스트 완료\n")
 

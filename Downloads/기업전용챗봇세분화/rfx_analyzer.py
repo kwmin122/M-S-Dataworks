@@ -226,14 +226,7 @@ RFX_EXTRACTION_JSON_SCHEMA: dict[str, Any] = {
                                     "type": "string",
                                     "enum": [">=", ">", "<=", "<", "==", "!=", "in", "not_in"]
                                 },
-                                "value": {
-                                    "oneOf": [
-                                        {"type": "number"},
-                                        {"type": "boolean"},
-                                        {"type": "string"},
-                                        {"type": "array", "items": {"type": "string"}}
-                                    ]
-                                },
+                                "value": {"type": "string"},
                                 "unit": {"type": "string"},
                                 "raw": {"type": "string"},
                             },
@@ -937,6 +930,14 @@ JSON:
                     if op not in (">=", ">", "<=", "<", "==", "!=", "in", "not_in"):
                         metric = "CUSTOM"  # 잘못된 op → SKIP 경로 (강제 치환 금지)
                     value = c.get("value")
+                    # strict 모드: value는 항상 string으로 수신 → native 타입 복원
+                    if isinstance(value, str):
+                        try:
+                            parsed = json.loads(value)
+                            if not isinstance(parsed, dict):
+                                value = parsed
+                        except (json.JSONDecodeError, ValueError):
+                            pass
                     if value is None or isinstance(value, (dict, list)):
                         metric = "CUSTOM"  # 누락/타입 불일치 → SKIP 경로 (기본값 0 금지)
                     parsed_constraints.append(RFxConstraint(
