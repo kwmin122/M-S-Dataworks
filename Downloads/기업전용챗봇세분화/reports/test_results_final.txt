@@ -1,0 +1,83 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.5, pytest-9.0.2, pluggy-1.6.0 -- /Users/min-kyungwook/Downloads/기업전용챗봇세분화/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/min-kyungwook/Downloads/기업전용챗봇세분화
+plugins: anyio-4.12.1
+collecting ... collected 65 items
+
+tests/test_admin_analytics.py::test_admin_overview_counts PASSED         [  1%]
+tests/test_admin_analytics.py::test_user_activity_and_recent_files PASSED [  3%]
+tests/test_admin_dashboard_ui.py::test_admin_dashboard_visible_for_super_admin_user PASSED [  4%]
+tests/test_admin_dashboard_ui.py::test_admin_dashboard_hidden_for_non_admin_user PASSED [  6%]
+tests/test_admin_dashboard_ui.py::test_admin_dashboard_visible_for_operator_user PASSED [  7%]
+tests/test_chat_policy_integration.py::test_unknown_query_returns_clarify_message PASSED [  9%]
+tests/test_chat_policy_integration.py::test_domain_query_without_context_blocks PASSED [ 10%]
+tests/test_chat_policy_integration.py::test_relevance_threshold_blocks_when_enabled PASSED [ 12%]
+tests/test_chat_policy_integration.py::test_relevance_threshold_skipped_when_zero PASSED [ 13%]
+tests/test_chat_policy_integration.py::test_offtopic_policy_message_is_available_without_api_key PASSED [ 15%]
+tests/test_chat_router.py::test_prefilter_offtopic_blocks_without_llm PASSED [ 16%]
+tests/test_chat_router.py::test_prefilter_domain_allows_without_llm PASSED [ 18%]
+tests/test_chat_router.py::test_prefilter_company_profile_question_allows_without_llm PASSED [ 20%]
+tests/test_chat_router.py::test_context_policy_blocks_when_no_context PASSED [ 21%]
+tests/test_chat_router.py::test_context_policy_respects_disabled_threshold PASSED [ 23%]
+tests/test_chat_router.py::test_write_router_telemetry_omits_raw_query PASSED [ 24%]
+tests/test_chat_router.py::test_prefilter_blocks_offtopic_directly PASSED [ 26%]
+tests/test_chat_router.py::test_prefilter_allows_rfx_domain PASSED       [ 27%]
+tests/test_chat_router.py::test_prefilter_allows_company_doc PASSED      [ 29%]
+tests/test_chat_router.py::test_prefilter_returns_none_for_unknown PASSED [ 30%]
+tests/test_chat_router.py::test_llm_classifies_business_query_correctly PASSED [ 32%]
+tests/test_constraint_evaluator.py::test_amount_exactly_at_boundary_is_pass PASSED [ 33%]
+tests/test_constraint_evaluator.py::test_amount_below_boundary_is_fail PASSED [ 35%]
+tests/test_constraint_evaluator.py::test_headcount_exactly_at_boundary PASSED [ 36%]
+tests/test_constraint_evaluator.py::test_headcount_one_below_boundary PASSED [ 38%]
+tests/test_constraint_evaluator.py::test_custom_metric_always_skip PASSED [ 40%]
+tests/test_constraint_evaluator.py::test_ambiguous_period_is_skip PASSED [ 41%]
+tests/test_constraint_evaluator.py::test_completion_conflict_is_skip PASSED [ 43%]
+tests/test_constraint_evaluator.py::test_no_info_in_context_is_skip PASSED [ 44%]
+tests/test_constraint_evaluator.py::test_aggregate_empty_is_fallback PASSED [ 46%]
+tests/test_constraint_evaluator.py::test_aggregate_all_pass_is_determined_met PASSED [ 47%]
+tests/test_constraint_evaluator.py::test_aggregate_any_fail_is_determined_not_met PASSED [ 49%]
+tests/test_constraint_evaluator.py::test_aggregate_skip_no_fail_is_fallback PASSED [ 50%]
+tests/test_evaluation_accuracy.py::test_eval_accuracy_summary SKIPPED    [ 52%]
+tests/test_hybrid_search.py::test_hybrid_disabled_by_default PASSED      [ 53%]
+tests/test_hybrid_search.py::test_hybrid_enabled_flag PASSED             [ 55%]
+tests/test_hybrid_search.py::test_dirty_flag_set_after_add_text PASSED   [ 56%]
+tests/test_hybrid_search.py::test_bm25_keyword_precision PASSED          [ 58%]
+tests/test_hybrid_search.py::test_rebuild_bm25_clears_dirty_flag PASSED  [ 60%]
+tests/test_matcher_consortium_rule.py::test_detect_consortium_share_requirement_ko PASSED [ 61%]
+tests/test_matcher_consortium_rule.py::test_detect_consortium_share_requirement_en PASSED [ 63%]
+tests/test_matcher_consortium_rule.py::test_rule_based_judgment_returns_met_with_consortium_and_share PASSED [ 64%]
+tests/test_matcher_consortium_rule.py::test_rule_based_judgment_returns_partially_met_with_only_consortium PASSED [ 66%]
+tests/test_matcher_consortium_rule.py::test_rule_based_judgment_returns_none_for_other_requirements PASSED [ 67%]
+tests/test_matcher_detail_rules.py::test_amount_fail_returns_not_met_without_llm PASSED [ 69%]
+tests/test_matcher_detail_rules.py::test_amount_pass_returns_met_without_llm PASSED [ 70%]
+tests/test_matcher_detail_rules.py::test_skip_constraint_falls_back_to_llm PASSED [ 72%]
+tests/test_matcher_detail_rules.py::test_empty_constraints_uses_llm PASSED [ 73%]
+tests/test_matcher_opinion.py::test_generate_assistant_opinion_parses_schema PASSED [ 75%]
+tests/test_matcher_opinion.py::test_generate_assistant_opinion_fallback_on_error PASSED [ 76%]
+tests/test_matcher_opinion.py::test_match_pre_generates_balanced_opinion PASSED [ 78%]
+tests/test_matcher_opinion.py::test_generate_opinion_for_mode_uses_cache_key_normalization PASSED [ 80%]
+tests/test_matcher_opinion.py::test_generate_opinion_for_mode_balanced_ab_cache_keys PASSED [ 81%]
+tests/test_matcher_opinion.py::test_generate_opinion_for_mode_balanced_default_variant_config PASSED [ 83%]
+tests/test_opinion_ui_integration.py::test_analysis_tab_renders_summary_and_disclaimer PASSED [ 84%]
+tests/test_opinion_ui_integration.py::test_opinion_mode_switch_uses_cached_payload PASSED [ 86%]
+tests/test_opinion_ui_integration.py::test_cache_miss_for_mode_generates_empty_payload_without_api_key PASSED [ 87%]
+tests/test_rfx_analyzer_constraints.py::test_constraints_always_present PASSED [ 89%]
+tests/test_rfx_analyzer_constraints.py::test_constraints_parsed_correctly PASSED [ 90%]
+tests/test_rfx_analyzer_constraints.py::test_empty_constraints_for_no_conditions PASSED [ 92%]
+tests/test_rfx_analyzer_constraints.py::test_invalid_op_is_replaced PASSED [ 93%]
+tests/test_rfx_analyzer_constraints.py::test_missing_constraints_key_defaults_to_empty PASSED [ 95%]
+tests/test_rfx_analyzer_multipass.py::test_split_text_for_multipass_splits_large_text PASSED [ 96%]
+tests/test_rfx_analyzer_multipass.py::test_merge_partial_results_dedups_requirements_and_criteria PASSED [ 98%]
+tests/test_rfx_analyzer_multipass.py::test_select_extraction_model_prefers_large_for_big_docs PASSED [100%]
+
+=============================== warnings summary ===============================
+tests/test_hybrid_search.py::test_hybrid_disabled_by_default
+tests/test_hybrid_search.py::test_hybrid_enabled_flag
+tests/test_hybrid_search.py::test_dirty_flag_set_after_add_text
+tests/test_hybrid_search.py::test_rebuild_bm25_clears_dirty_flag
+  /Users/min-kyungwook/Downloads/기업전용챗봇세분화/.venv/lib/python3.13/site-packages/chromadb/api/collection_configuration.py:327: DeprecationWarning: legacy embedding function config: '_FakeEF' object has no attribute 'is_legacy'
+    return json.dumps(create_collection_configuration_to_json(config, metadata))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================== 64 passed, 1 skipped, 4 warnings in 14.16s ==================
