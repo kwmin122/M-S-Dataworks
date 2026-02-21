@@ -142,3 +142,6 @@ dmypy.json
 # Frontend
 frontend/kirabot/node_modules/
 frontend/kirabot/dist/
+
+# Allow TypeScript source lib directories
+!web_saas/src/lib/
