@@ -45,7 +45,7 @@
       "name": "Process Notices",
       "type": "n8n-nodes-base.code",
       "parameters": {
-        "jsCode": "const crypto = require('crypto');\nconst items = $input.first().json.response?.body?.items?.item ?? [];\nconst results = [];\nfor (const item of (Array.isArray(items) ? items : [items])) {\n  const attachmentUrl = item.ntceSpecDocUrl ?? '';\n  const modifiedAt = item.rgstDt ?? '';\n  const provisionalHash = crypto.createHash('sha256').update(attachmentUrl + modifiedAt).digest('hex');\n  results.push({ json: { source: 'g2b', externalId: item.bidNtceNo, title: item.bidNtceNm, category: item.ntceInsttNm, region: item.dminsttNm, url: item.ntceSpecDocUrl, publishedAt: item.rgstDt, deadlineAt: item.bidClseDt, attachmentUrl, provisionalHash } });\n}\nreturn results;"
+        "jsCode": "const crypto = require('crypto');\nconst items = $input.first().json.response?.body?.items?.item ?? [];\nconst results = [];\nfor (const item of (Array.isArray(items) ? items : [items])) {\n  const attachmentUrl = item.ntceSpecDocUrl ?? '';\n  const modifiedAt = item.rgstDt ?? '';\n  const provisionalHash = crypto.createHash('sha256').update(attachmentUrl + modifiedAt).digest('hex');\n  // Generate app-level IDs (n8n env: crypto.randomUUID(); Next.js app layer uses cuid2)\n  const bidNoticeId = crypto.randomUUID();\n  const ingestionJobId = crypto.randomUUID();\n  const idempotencyKey = `g2b:${item.bidNtceNo}:${provisionalHash}`;\n  // Sanitize string fields to prevent SQL injection via single-quote escaping\n  const safeTitle = (item.bidNtceNm ?? '').replace(/'/g, \"''\");\n  const safeCategory = (item.ntceInsttNm ?? '').replace(/'/g, \"''\");\n  const safeRegion = (item.dminsttNm ?? '').replace(/'/g, \"''\");\n  const safeExternalId = (item.bidNtceNo ?? '').replace(/'/g, \"''\");\n  results.push({ json: {\n    bidNoticeId, ingestionJobId, idempotencyKey,\n    source: 'g2b', externalId: safeExternalId, safeTitle, safeCategory, safeRegion,\n    url: item.ntceSpecDocUrl, publishedAt: item.rgstDt, deadlineAt: item.bidClseDt,\n    attachmentUrl, provisionalHash\n  }});\n}\nreturn results;"
       },
       "position": [900, 300]
     },
@@ -54,18 +54,26 @@
       "type": "n8n-nodes-base.postgres",
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO bid_notices (id, source, external_id, title, category, region, url, published_at, deadline_at, created_at) VALUES (gen_random_uuid()::text, '{{ $json.source }}', '{{ $json.externalId }}', '{{ $json.title }}', '{{ $json.category }}', '{{ $json.region }}', '{{ $json.url }}', '{{ $json.publishedAt }}'::timestamptz, '{{ $json.deadlineAt }}'::timestamptz, NOW()) ON CONFLICT (source, external_id) DO UPDATE SET title = EXCLUDED.title RETURNING id;"
+        "query": "INSERT INTO bid_notices (id, source, external_id, title, category, region, url, published_at, deadline_at, created_at) VALUES ('{{ $json.bidNoticeId }}', '{{ $json.source }}', '{{ $json.externalId }}', '{{ $json.safeTitle }}', '{{ $json.safeCategory }}', '{{ $json.safeRegion }}', '{{ $json.url }}', '{{ $json.publishedAt }}'::timestamptz, '{{ $json.deadlineAt }}'::timestamptz, NOW()) ON CONFLICT (source, external_id) DO UPDATE SET title = EXCLUDED.title RETURNING id, external_id;"
       },
       "position": [1100, 300]
+    },
+    {
+      "name": "Get BidNotice ID",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "jsCode": "// Resolve the actual bid_notice_id:\n// RETURNING id gives the existing row id on conflict, or the newly inserted id.\n// Fall back to the pre-generated bidNoticeId only if RETURNING produced no row.\nconst upsertResult = $input.first().json;\nconst actualBidNoticeId = upsertResult.id ?? $node[\"Process Notices\"].json.bidNoticeId;\nreturn [{ json: {\n  ...($node[\"Process Notices\"].json),\n  bidNoticeId: actualBidNoticeId\n}}];"
+      },
+      "position": [1200, 300]
     },
     {
       "name": "Insert IngestionJob",
       "type": "n8n-nodes-base.postgres",
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO ingestion_jobs (id, bid_notice_id, status, idempotency_key, provisional_hash, attachment_url, created_at, updated_at) VALUES (gen_random_uuid()::text, '{{ $json.id }}', 'NEW', '{{ $json.id }}:{{ $json.provisionalHash }}', '{{ $json.provisionalHash }}', '{{ $json.attachmentUrl }}', NOW(), NOW()) ON CONFLICT (idempotency_key) DO NOTHING;"
+        "query": "INSERT INTO ingestion_jobs (id, bid_notice_id, status, idempotency_key, provisional_hash, attachment_url, created_at, updated_at) VALUES ('{{ $json.ingestionJobId }}', '{{ $json.bidNoticeId }}', 'NEW', '{{ $json.idempotencyKey }}', '{{ $json.provisionalHash }}', '{{ $json.attachmentUrl }}', NOW(), NOW()) ON CONFLICT (idempotency_key) DO NOTHING;"
       },
-      "position": [1300, 300]
+      "position": [1400, 300]
     }
   ],
   "connections": {
@@ -74,6 +82,7 @@
     "Build Keyword Filter": { "main": [[{ "node": "G2B OpenAPI", "type": "main", "index": 0 }]] },
     "G2B OpenAPI": { "main": [[{ "node": "Process Notices", "type": "main", "index": 0 }]] },
     "Process Notices": { "main": [[{ "node": "Upsert BidNotice", "type": "main", "index": 0 }]] },
-    "Upsert BidNotice": { "main": [[{ "node": "Insert IngestionJob", "type": "main", "index": 0 }]] }
+    "Upsert BidNotice": { "main": [[{ "node": "Get BidNotice ID", "type": "main", "index": 0 }]] },
+    "Get BidNotice ID": { "main": [[{ "node": "Insert IngestionJob", "type": "main", "index": 0 }]] }
   }
 }
