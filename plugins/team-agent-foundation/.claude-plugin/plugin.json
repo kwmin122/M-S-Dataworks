@@ -1,0 +1,9 @@
+{
+  "name": "team-agent-foundation",
+  "version": "0.1.0",
+  "description": "Team-ready plugin with deep-think command, review agent, and maintainability skills.",
+  "author": {
+    "name": "team"
+  },
+  "mcpServers": {}
+}
