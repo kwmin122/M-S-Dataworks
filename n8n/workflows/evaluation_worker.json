@@ -1,0 +1,51 @@
+{
+  "name": "evaluation_worker",
+  "nodes": [
+    {
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "parameters": { "rule": { "interval": [{ "field": "minutes", "minutesInterval": 1 }] } },
+      "position": [100, 300]
+    },
+    {
+      "name": "Find Candidates",
+      "type": "n8n-nodes-base.postgres",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id FROM evaluation_jobs WHERE status IN ('PENDING', 'SCORED', 'SCORE_ERROR', 'NOTIFY_ERROR') AND locked_at IS NULL AND (next_retry_at IS NULL OR next_retry_at <= NOW()) LIMIT 10;"
+      },
+      "position": [300, 300]
+    },
+    {
+      "name": "Sign & Prepare Payload",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst workerId = `n8n-eval-${Date.now()}`;\nconst results = [];\n\nfor (const item of $input.all()) {\n  const payload = JSON.stringify({ event: 'evaluation.process', data: { jobId: item.json.id, workerId } });\n  const timestamp = Math.floor(Date.now() / 1000).toString();\n  const nonce = crypto.randomUUID();\n  const signingString = `${timestamp}.${nonce}.${payload}`;\n  const signature = crypto.createHmac('sha256', $env.WEBHOOK_SECRET).update(signingString).digest('hex');\n  results.push({ json: { payload, timestamp, nonce, signature } });\n}\nreturn results;"
+      },
+      "position": [500, 300]
+    },
+    {
+      "name": "Call Next.js Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "url": "={{ $env.N8N_WEBHOOK_URL }}/api/webhooks/n8n",
+        "method": "POST",
+        "body": "={{ $json.payload }}",
+        "headers": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-Timestamp", "value": "={{ $json.timestamp }}" },
+            { "name": "X-Nonce", "value": "={{ $json.nonce }}" },
+            { "name": "X-Signature", "value": "={{ $json.signature }}" }
+          ]
+        }
+      },
+      "position": [700, 300]
+    }
+  ],
+  "connections": {
+    "Schedule": { "main": [[{ "node": "Find Candidates", "type": "main", "index": 0 }]] },
+    "Find Candidates": { "main": [[{ "node": "Sign & Prepare Payload", "type": "main", "index": 0 }]] },
+    "Sign & Prepare Payload": { "main": [[{ "node": "Call Next.js Webhook", "type": "main", "index": 0 }]] }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "name": "ingestion_worker",
+  "nodes": [
+    {
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "parameters": { "rule": { "interval": [{ "field": "minutes", "minutesInterval": 2 }] } },
+      "position": [100, 300]
+    },
+    {
+      "name": "Find Candidates",
+      "type": "n8n-nodes-base.postgres",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, bid_notice_id, attachment_url, provisional_hash, retry_count FROM ingestion_jobs WHERE ( (status = 'NEW' AND created_at < NOW() - INTERVAL '2 minutes') OR status IN ('FETCH_ERROR', 'PARSE_ERROR') ) AND locked_at IS NULL AND (next_retry_at IS NULL OR next_retry_at <= NOW()) LIMIT 5;"
+      },
+      "position": [300, 300]
+    },
+    {
+      "name": "Build Worker ID",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "jsCode": "const workerId = `n8n-ingestion-${Date.now()}`;\nreturn $input.all().map(item => ({ json: { ...item.json, workerId } }));"
+      },
+      "position": [500, 300]
+    },
+    {
+      "name": "Call Process Ingestion API",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "url": "={{ $env.N8N_WEBHOOK_URL }}/api/internal/process-ingestion-job",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "jobId", "value": "={{ $json.id }}" },
+            { "name": "workerId", "value": "={{ $json.workerId }}" }
+          ]
+        },
+        "headers": {
+          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+        }
+      },
+      "position": [700, 300]
+    }
+  ],
+  "connections": {
+    "Schedule": { "main": [[{ "node": "Find Candidates", "type": "main", "index": 0 }]] },
+    "Find Candidates": { "main": [[{ "node": "Build Worker ID", "type": "main", "index": 0 }]] },
+    "Build Worker ID": { "main": [[{ "node": "Call Process Ingestion API", "type": "main", "index": 0 }]] }
+  }
+}
