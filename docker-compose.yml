@@ -7,9 +7,15 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       PGTZ: UTC
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
   web:
     build: ./web_saas
@@ -23,7 +29,9 @@ services:
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
   rag_engine:
     build: ./rag_engine
@@ -31,6 +39,7 @@ services:
       - "8001:8001"
     environment:
       DATABASE_URL: ${DATABASE_URL}
+    restart: unless-stopped
 
   n8n:
     image: n8nio/n8n:latest
@@ -44,7 +53,9 @@ services:
     volumes:
       - n8n_data:/home/node/.n8n
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    restart: on-failure
 
 volumes:
   postgres_data:
