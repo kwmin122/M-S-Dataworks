@@ -93,7 +93,14 @@ async function sendNotification(jobId: string) {
       bidNotice: { select: { title: true } },
     },
   });
-  if (!job) return NextResponse.json({ ok: false });
+  if (!job) {
+    // Release lock best-effort
+    await prisma.evaluationJob.update({
+      where: { id: jobId },
+      data: { lockedAt: null, lockOwner: null },
+    }).catch(() => {});
+    return NextResponse.json({ ok: false, reason: 'job_not_found' });
+  }
 
   try {
     await resend.emails.send({
@@ -115,41 +122,55 @@ async function sendNotification(jobId: string) {
 }
 
 async function handleScoreError(jobId: string) {
-  const job = await prisma.evaluationJob.findUnique({
-    where: { id: jobId },
-    select: { retryCount: true },
-  });
-  const n = (job?.retryCount ?? 0) + 1;
-  if (n > MAX_RETRIES) {
+  try {
+    const job = await prisma.evaluationJob.findUnique({
+      where: { id: jobId },
+      select: { retryCount: true },
+    });
+    const n = (job?.retryCount ?? 0) + 1;
+    if (n > MAX_RETRIES) {
+      await prisma.evaluationJob.update({
+        where: { id: jobId },
+        data: { status: 'RETRY_EXHAUSTED', retryCount: n, lockedAt: null, lockOwner: null },
+      });
+    } else {
+      await prisma.evaluationJob.update({
+        where: { id: jobId },
+        data: { status: 'SCORE_ERROR', retryCount: n, nextRetryAt: new Date(Date.now() + backoffMs(n)), lockedAt: null, lockOwner: null },
+      });
+    }
+  } catch (_dbErr) {
     await prisma.evaluationJob.update({
       where: { id: jobId },
-      data: { status: 'RETRY_EXHAUSTED', retryCount: n, lockedAt: null, lockOwner: null },
-    });
-  } else {
-    await prisma.evaluationJob.update({
-      where: { id: jobId },
-      data: { status: 'SCORE_ERROR', retryCount: n, nextRetryAt: new Date(Date.now() + backoffMs(n)), lockedAt: null, lockOwner: null },
-    });
+      data: { lockedAt: null, lockOwner: null },
+    }).catch(() => {});
   }
   return NextResponse.json({ ok: false, reason: 'score_error' });
 }
 
 async function handleNotifyError(jobId: string) {
-  const job = await prisma.evaluationJob.findUnique({
-    where: { id: jobId },
-    select: { retryCount: true },
-  });
-  const n = (job?.retryCount ?? 0) + 1;
-  if (n > MAX_RETRIES) {
+  try {
+    const job = await prisma.evaluationJob.findUnique({
+      where: { id: jobId },
+      select: { retryCount: true },
+    });
+    const n = (job?.retryCount ?? 0) + 1;
+    if (n > MAX_RETRIES) {
+      await prisma.evaluationJob.update({
+        where: { id: jobId },
+        data: { status: 'RETRY_EXHAUSTED', retryCount: n, lockedAt: null, lockOwner: null },
+      });
+    } else {
+      await prisma.evaluationJob.update({
+        where: { id: jobId },
+        data: { status: 'NOTIFY_ERROR', retryCount: n, nextRetryAt: new Date(Date.now() + backoffMs(n)), lockedAt: null, lockOwner: null },
+      });
+    }
+  } catch (_dbErr) {
     await prisma.evaluationJob.update({
       where: { id: jobId },
-      data: { status: 'RETRY_EXHAUSTED', retryCount: n, lockedAt: null, lockOwner: null },
-    });
-  } else {
-    await prisma.evaluationJob.update({
-      where: { id: jobId },
-      data: { status: 'NOTIFY_ERROR', retryCount: n, nextRetryAt: new Date(Date.now() + backoffMs(n)), lockedAt: null, lockOwner: null },
-    });
+      data: { lockedAt: null, lockOwner: null },
+    }).catch(() => {});
   }
   return NextResponse.json({ ok: false, reason: 'notify_error' });
 }

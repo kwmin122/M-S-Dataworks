@@ -6,6 +6,7 @@ import { isUniqueConstraintError } from '@/lib/errors';
 import { createEvaluationJobsForBidNotice } from '@/lib/jobs/createEvaluationJobs';
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET!;
+const INTERNAL_API_BASE_URL = process.env.INTERNAL_API_BASE_URL ?? 'http://localhost:3000';
 const REPLAY_WINDOW_SEC = 300; // ±5분
 
 export async function POST(req: NextRequest) {
@@ -83,6 +84,12 @@ async function handleIngestionCompleted(payload: IngestionCompletedPayload) {
   });
 }
 
-async function handleEvaluationProcess(_payload: EvaluationProcessPayload) {
-  // Task 15에서 구현: process-evaluation-job 로직 호출
+async function handleEvaluationProcess(payload: EvaluationProcessPayload) {
+  // Forward to internal process-evaluation-job API
+  // The payload already contains jobId and workerId from evaluation_worker
+  await fetch(`${INTERNAL_API_BASE_URL}/api/internal/process-evaluation-job`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jobId: payload.jobId, workerId: payload.workerId }),
+  });
 }

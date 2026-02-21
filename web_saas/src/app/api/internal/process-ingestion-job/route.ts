@@ -84,23 +84,31 @@ async function handleError(
   errorStatus: 'FETCH_ERROR' | 'PARSE_ERROR',
   _err: unknown
 ) {
-  const job = await prisma.ingestionJob.findUnique({
-    where: { id: jobId },
-    select: { retryCount: true },
-  });
-  const newRetryCount = (job?.retryCount ?? 0) + 1;
+  try {
+    const job = await prisma.ingestionJob.findUnique({
+      where: { id: jobId },
+      select: { retryCount: true },
+    });
+    const newRetryCount = (job?.retryCount ?? 0) + 1;
 
-  if (newRetryCount > MAX_RETRIES) {
+    if (newRetryCount > MAX_RETRIES) {
+      await prisma.ingestionJob.update({
+        where: { id: jobId },
+        data: { status: 'RETRY_EXHAUSTED', retryCount: newRetryCount, lockedAt: null, lockOwner: null },
+      });
+    } else {
+      const nextRetryAt = new Date(Date.now() + backoffMs(newRetryCount));
+      await prisma.ingestionJob.update({
+        where: { id: jobId },
+        data: { status: errorStatus, retryCount: newRetryCount, nextRetryAt, lockedAt: null, lockOwner: null },
+      });
+    }
+  } catch (_dbErr) {
+    // Ensure lock is always released even if status update fails
     await prisma.ingestionJob.update({
       where: { id: jobId },
-      data: { status: 'RETRY_EXHAUSTED', retryCount: newRetryCount, lockedAt: null, lockOwner: null },
-    });
-  } else {
-    const nextRetryAt = new Date(Date.now() + backoffMs(newRetryCount));
-    await prisma.ingestionJob.update({
-      where: { id: jobId },
-      data: { status: errorStatus, retryCount: newRetryCount, nextRetryAt, lockedAt: null, lockOwner: null },
-    });
+      data: { lockedAt: null, lockOwner: null },
+    }).catch(() => {}); // Best-effort — stale_lock_reclaim will clean up if this also fails
   }
 
   return NextResponse.json({ ok: false, reason: errorStatus });
