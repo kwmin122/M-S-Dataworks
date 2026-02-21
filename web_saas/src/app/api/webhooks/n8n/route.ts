@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { createId } from '@/lib/ids';
 import { verifyWebhookSignature } from '@/lib/hmac';
 import { isUniqueConstraintError } from '@/lib/errors';
+import { createEvaluationJobsForBidNotice } from '@/lib/jobs/createEvaluationJobs';
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET!;
 const REPLAY_WINDOW_SEC = 300; // ±5분
@@ -68,8 +69,18 @@ interface EvaluationProcessPayload {
   workerId: string;
 }
 
-async function handleIngestionCompleted(_payload: IngestionCompletedPayload) {
-  // Task 8에서 구현: createEvaluationJobsForBidNotice 호출
+async function handleIngestionCompleted(payload: IngestionCompletedPayload) {
+  const notice = await prisma.bidNotice.findUnique({
+    where: { id: payload.bidNoticeId },
+    select: { title: true, category: true, region: true },
+  });
+  if (!notice) return;
+
+  await createEvaluationJobsForBidNotice({
+    bidNoticeId: payload.bidNoticeId,
+    noticeRevision: payload.contentHash,
+    noticeMeta: notice,
+  });
 }
 
 async function handleEvaluationProcess(_payload: EvaluationProcessPayload) {
