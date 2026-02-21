@@ -1,0 +1,23 @@
+{
+  "name": "stale_lock_reclaim",
+  "nodes": [
+    {
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "parameters": { "rule": { "interval": [{ "field": "minutes", "minutesInterval": 5 }] } },
+      "position": [240, 300]
+    },
+    {
+      "name": "Release Stale Locks",
+      "type": "n8n-nodes-base.postgres",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE evaluation_jobs SET locked_at = NULL, lock_owner = NULL WHERE locked_at < NOW() - INTERVAL '5 minutes';\nUPDATE ingestion_jobs SET locked_at = NULL, lock_owner = NULL WHERE locked_at < NOW() - INTERVAL '10 minutes';"
+      },
+      "position": [460, 300]
+    }
+  ],
+  "connections": {
+    "Schedule": { "main": [[{ "node": "Release Stale Locks", "type": "main", "index": 0 }]] }
+  }
+}

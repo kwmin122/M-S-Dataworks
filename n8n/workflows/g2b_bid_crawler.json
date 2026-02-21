@@ -1,0 +1,79 @@
+{
+  "name": "g2b_bid_crawler",
+  "nodes": [
+    {
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "parameters": { "rule": { "interval": [{ "field": "minutes", "minutesInterval": 30 }] } },
+      "position": [100, 300]
+    },
+    {
+      "name": "Aggregate Keywords",
+      "type": "n8n-nodes-base.postgres",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT DISTINCT kw.keyword FROM organizations o JOIN subscriptions s ON s.organization_id = o.id AND s.status IN ('ACTIVE', 'TRIALING') CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(o.interest_config->'keywords', '[]'::jsonb)) AS kw(keyword);"
+      },
+      "position": [300, 300]
+    },
+    {
+      "name": "Build Keyword Filter",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "jsCode": "const keywords = $input.all().map(i => i.json.keyword);\nreturn [{ json: { keywords, keywordParam: keywords.join(',') } }];"
+      },
+      "position": [500, 300]
+    },
+    {
+      "name": "G2B OpenAPI",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "url": "https://apis.data.go.kr/1230000/BidPublicInfoService04/getBidPblancListInfoThng01",
+        "method": "GET",
+        "queryParameters": {
+          "parameters": [
+            { "name": "serviceKey", "value": "={{ $env.G2B_API_KEY }}" },
+            { "name": "pageNo", "value": "1" },
+            { "name": "numOfRows", "value": "100" },
+            { "name": "inqryDiv", "value": "1" }
+          ]
+        }
+      },
+      "position": [700, 300]
+    },
+    {
+      "name": "Process Notices",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst items = $input.first().json.response?.body?.items?.item ?? [];\nconst results = [];\nfor (const item of (Array.isArray(items) ? items : [items])) {\n  const attachmentUrl = item.ntceSpecDocUrl ?? '';\n  const modifiedAt = item.rgstDt ?? '';\n  const provisionalHash = crypto.createHash('sha256').update(attachmentUrl + modifiedAt).digest('hex');\n  results.push({ json: { source: 'g2b', externalId: item.bidNtceNo, title: item.bidNtceNm, category: item.ntceInsttNm, region: item.dminsttNm, url: item.ntceSpecDocUrl, publishedAt: item.rgstDt, deadlineAt: item.bidClseDt, attachmentUrl, provisionalHash } });\n}\nreturn results;"
+      },
+      "position": [900, 300]
+    },
+    {
+      "name": "Upsert BidNotice",
+      "type": "n8n-nodes-base.postgres",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO bid_notices (id, source, external_id, title, category, region, url, published_at, deadline_at, created_at) VALUES (gen_random_uuid()::text, '{{ $json.source }}', '{{ $json.externalId }}', '{{ $json.title }}', '{{ $json.category }}', '{{ $json.region }}', '{{ $json.url }}', '{{ $json.publishedAt }}'::timestamptz, '{{ $json.deadlineAt }}'::timestamptz, NOW()) ON CONFLICT (source, external_id) DO UPDATE SET title = EXCLUDED.title RETURNING id;"
+      },
+      "position": [1100, 300]
+    },
+    {
+      "name": "Insert IngestionJob",
+      "type": "n8n-nodes-base.postgres",
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO ingestion_jobs (id, bid_notice_id, status, idempotency_key, provisional_hash, attachment_url, created_at, updated_at) VALUES (gen_random_uuid()::text, '{{ $json.id }}', 'NEW', '{{ $json.id }}:{{ $json.provisionalHash }}', '{{ $json.provisionalHash }}', '{{ $json.attachmentUrl }}', NOW(), NOW()) ON CONFLICT (idempotency_key) DO NOTHING;"
+      },
+      "position": [1300, 300]
+    }
+  ],
+  "connections": {
+    "Schedule": { "main": [[{ "node": "Aggregate Keywords", "type": "main", "index": 0 }]] },
+    "Aggregate Keywords": { "main": [[{ "node": "Build Keyword Filter", "type": "main", "index": 0 }]] },
+    "Build Keyword Filter": { "main": [[{ "node": "G2B OpenAPI", "type": "main", "index": 0 }]] },
+    "G2B OpenAPI": { "main": [[{ "node": "Process Notices", "type": "main", "index": 0 }]] },
+    "Process Notices": { "main": [[{ "node": "Upsert BidNotice", "type": "main", "index": 0 }]] },
+    "Upsert BidNotice": { "main": [[{ "node": "Insert IngestionJob", "type": "main", "index": 0 }]] }
+  }
+}
