@@ -183,3 +183,17 @@ model ProposalDraft {
   updatedAt      DateTime @updatedAt @map("updated_at")
   @@map("proposal_drafts")
 }
+
+model PreBidSignal {
+  id           String    @id @default(cuid())
+  source       String
+  externalId   String    @map("external_id")
+  title        String
+  estimatedAmt BigInt?   @map("estimated_amt")
+  region       String?
+  estimatedAt  DateTime? @map("estimated_at")
+  isEstimate   Boolean   @default(true) @map("is_estimate")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  @@unique([source, externalId])
+  @@map("pre_bid_signals")
+}
