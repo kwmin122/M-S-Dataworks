@@ -46,6 +46,7 @@ model Organization {
   evaluationJobs EvaluationJob[]
   savedSearches  SavedSearch[]
   bidInterests   BidInterest[]
+  users          User[]
   @@map("organizations")
 }
 
@@ -196,4 +197,15 @@ model PreBidSignal {
   createdAt    DateTime  @default(now()) @map("created_at")
   @@unique([source, externalId])
   @@map("pre_bid_signals")
+}
+
+model User {
+  id             String       @id
+  email          String       @unique
+  passwordHash   String       @map("password_hash")
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  @@map("users")
 }
