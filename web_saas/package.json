@@ -12,6 +12,7 @@
   "dependencies": {
     "@paralleldrive/cuid2": "^3.3.0",
     "@prisma/client": "^5.22.0",
+    "exceljs": "^4.4.0",
     "next": "16.1.6",
     "prisma": "^5.22.0",
     "react": "19.2.3",
