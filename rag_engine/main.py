@@ -21,8 +21,10 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from models import AnalyzeBidRequest, AnalyzeBidResponse
+from proposal_generator import extract_template_sections, fill_template_sections
 
 logger = logging.getLogger("rag_engine")
 logging.basicConfig(level=logging.INFO)
@@ -188,6 +190,36 @@ async def analyze_bid(request: AnalyzeBidRequest) -> AnalyzeBidResponse:
     except Exception as exc:
         logger.error("analyze_bid failed: %s\n%s", exc, traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Analysis failed: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Proposal generation
+# ---------------------------------------------------------------------------
+
+class GenerateProposalRequest(BaseModel):
+    notice_text: str
+    template_text: str = ""
+    company_info: dict = {}
+
+
+class GenerateProposalResponse(BaseModel):
+    sections: dict[str, str]
+    status: str
+
+
+@app.post("/api/generate-proposal", response_model=GenerateProposalResponse)
+async def generate_proposal(req: GenerateProposalRequest) -> GenerateProposalResponse:
+    """Generate a proposal draft skeleton from bid notice text and company info."""
+    if req.template_text:
+        sections = extract_template_sections(req.template_text)
+    else:
+        sections = {
+            "사업 개요": "{{사업 개요}}",
+            "수행 전략": "{{수행 전략}}",
+            "유사 실적": "{{유사 실적}}",
+        }
+    filled = fill_template_sections(sections, req.notice_text, req.company_info)
+    return GenerateProposalResponse(sections=filled, status="done")
 
 
 # ---------------------------------------------------------------------------
