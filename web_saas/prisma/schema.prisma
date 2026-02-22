@@ -85,6 +85,7 @@ model BidNotice {
   url            String?
   publishedAt    DateTime? @map("published_at")
   deadlineAt     DateTime? @map("deadline_at")
+  estimatedAmt   BigInt?   @map("estimated_amt")
   attachmentText String?   @map("attachment_text") @db.Text
   createdAt      DateTime  @default(now()) @map("created_at")
   ingestionJobs  IngestionJob[]
@@ -169,4 +170,16 @@ model BidInterest {
   updatedAt      DateTime          @updatedAt @map("updated_at")
   @@unique([organizationId, bidNoticeId])
   @@map("bid_interests")
+}
+
+model ProposalDraft {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  bidNoticeId    String   @map("bid_notice_id")
+  templateKey    String?  @map("template_key")
+  draftKey       String?  @map("draft_key")
+  status         String   @default("PENDING")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  @@map("proposal_drafts")
 }
