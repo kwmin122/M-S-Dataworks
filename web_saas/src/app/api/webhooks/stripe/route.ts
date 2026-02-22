@@ -2,9 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { prisma } from '@/lib/prisma';
 import { createId } from '@/lib/ids';
+import { getEnv } from '@/lib/env';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? 'sk_test_placeholder');
-const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET ?? '';
+let _stripe: Stripe | null = null;
+function getStripe(): Stripe {
+  const env = getEnv();
+  if (!_stripe) _stripe = new Stripe(env.STRIPE_SECRET_KEY);
+  return _stripe;
+}
 
 // Stripe SDK v20 removed current_period_start/end from the TS type,
 // but the fields still exist in the live webhook payload.
@@ -19,7 +24,7 @@ export async function POST(req: NextRequest) {
 
   let event: Stripe.Event;
   try {
-    event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
+    event = getStripe().webhooks.constructEvent(rawBody, sig, getEnv().STRIPE_WEBHOOK_SECRET);
   } catch (_e) {
     return NextResponse.json({ error: 'invalid_signature' }, { status: 400 });
   }
