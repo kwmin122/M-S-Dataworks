@@ -11,6 +11,7 @@ interface SearchConditions {
   maxAmt: string;
   period: '1w' | '1m' | '3m';
   excludeExpired: boolean;
+  includeAttachmentText: boolean;
 }
 
 interface BidResult {
@@ -36,6 +37,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ organizationId: _organization
     maxAmt: '',
     period: '1m',
     excludeExpired: true,
+    includeAttachmentText: false,
   });
   const [keywordInput, setKeywordInput] = useState('');
   const [results, setResults] = useState<BidResult[]>([]);
@@ -65,6 +67,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ organizationId: _organization
           minAmt: conditions.minAmt ? Number(conditions.minAmt) : undefined,
           maxAmt: conditions.maxAmt ? Number(conditions.maxAmt) : undefined,
           excludeExpired: conditions.excludeExpired,
+          includeAttachmentText: conditions.includeAttachmentText,
         }),
       });
       const data = await res.json() as { notices: BidResult[] };
@@ -191,6 +194,16 @@ const SearchPanel: React.FC<SearchPanelProps> = ({ organizationId: _organization
               className="rounded"
             />
             마감된 공고 제외
+          </label>
+
+          <label className="flex items-center gap-2 text-xs text-slate-600">
+            <input
+              type="checkbox"
+              checked={conditions.includeAttachmentText}
+              onChange={(e) => setConditions((prev) => ({ ...prev, includeAttachmentText: e.target.checked }))}
+              className="rounded"
+            />
+            첨부파일 본문 포함 검색 (조달AI 수준)
           </label>
 
           <Button size="sm" onClick={() => void handleSearch()} disabled={isLoading} className="w-full">
