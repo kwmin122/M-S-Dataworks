@@ -137,3 +137,23 @@ model UsedNonce {
   @@index([expiredAt])
   @@map("used_nonces")
 }
+
+model SavedSearch {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  name           String
+  conditions     Json
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  @@map("saved_searches")
+}
+
+model BidInterest {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  bidNoticeId    String   @map("bid_notice_id")
+  status         String   @default("STARRED")
+  createdAt      DateTime @default(now()) @map("created_at")
+  @@unique([organizationId, bidNoticeId])
+  @@map("bid_interests")
+}
