@@ -17,6 +17,13 @@ describe('buildSearchConditions', () => {
     expect(result.region).toEqual({ contains: '경기', mode: 'insensitive' });
   });
 
+  it('금액 범위 필터', () => {
+    const result = buildSearchConditions({ minAmt: 50000000, maxAmt: 300000000 });
+    const amtCond = result.estimatedAmt as { gte: bigint; lte: bigint };
+    expect(amtCond.gte).toBe(BigInt(50000000));
+    expect(amtCond.lte).toBe(BigInt(300000000));
+  });
+
   it('excludeExpired=true이면 deadlineAt > now() 조건', () => {
     const before = new Date();
     const result = buildSearchConditions({ excludeExpired: true });
