@@ -19,12 +19,13 @@ import traceback
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from models import AnalyzeBidRequest, AnalyzeBidResponse
 from proposal_generator import extract_template_sections, fill_template_sections
+from hwp_parser import extract_hwp_text_bytes
 
 logger = logging.getLogger("rag_engine")
 logging.basicConfig(level=logging.INFO)
@@ -220,6 +221,20 @@ async def generate_proposal(req: GenerateProposalRequest) -> GenerateProposalRes
         }
     filled = fill_template_sections(sections, req.notice_text, req.company_info)
     return GenerateProposalResponse(sections=filled, status="done")
+
+
+# ---------------------------------------------------------------------------
+# HWP parsing
+# ---------------------------------------------------------------------------
+
+@app.post("/api/parse-hwp")
+async def parse_hwp(file: UploadFile = File(...)) -> dict:
+    """Extract plain text from an HWP 5.x file."""
+    data = await file.read()
+    text = extract_hwp_text_bytes(data)
+    if not text:
+        return {"text": "", "success": False, "error": "파싱 실패 또는 HWP 형식 아님"}
+    return {"text": text, "success": True, "char_count": len(text)}
 
 
 # ---------------------------------------------------------------------------
