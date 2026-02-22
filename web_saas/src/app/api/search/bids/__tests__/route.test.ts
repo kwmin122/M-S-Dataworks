@@ -23,6 +23,22 @@ describe('POST /api/search/bids', () => {
     );
   });
 
+  it('clamps negative limit to minimum 1', async () => {
+    (prisma.bidNotice.findMany as jest.Mock).mockResolvedValue([]);
+
+    const req = new NextRequest('http://localhost/api/search/bids', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ limit: -10 }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    expect(prisma.bidNotice.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 1 })
+    );
+  });
+
   it('caps limit to 100 for attachment FTS path too', async () => {
     (prisma.$queryRaw as jest.Mock).mockResolvedValue([]);
 

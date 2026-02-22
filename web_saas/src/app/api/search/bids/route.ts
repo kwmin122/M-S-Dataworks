@@ -26,7 +26,10 @@ export async function POST(req: NextRequest) {
     includeAttachmentText?: boolean;
     limit?: number;
   };
-  const cappedLimit = Math.min(Number(body.limit ?? 50), 100);
+  const parsedLimit = Number(body.limit ?? 50);
+  const cappedLimit = Number.isFinite(parsedLimit)
+    ? Math.max(1, Math.min(Math.trunc(parsedLimit), 100))
+    : 50;
 
   let notices;
 
