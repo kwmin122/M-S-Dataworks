@@ -27,55 +27,24 @@ function stripZoneId(ip: string): string {
   return zoneIndex === -1 ? ip : ip.slice(0, zoneIndex);
 }
 
-function ipv6ToBigInt(ipv6: string): bigint {
-  let value = stripZoneId(ipv6).toLowerCase();
-  if (value.includes('.')) {
-    const lastColon = value.lastIndexOf(':');
-    if (lastColon === -1) throw new Error(`Invalid IPv6: ${ipv6}`);
-    const ipv4Part = value.slice(lastColon + 1);
-    const ipv4Int = ipv4ToInt(ipv4Part);
-    const hi = ((ipv4Int >>> 16) & 0xffff).toString(16);
-    const lo = (ipv4Int & 0xffff).toString(16);
-    value = `${value.slice(0, lastColon)}:${hi}:${lo}`;
-  }
-
-  const halves = value.split('::');
-  if (halves.length > 2) throw new Error(`Invalid IPv6: ${ipv6}`);
-
-  const left = halves[0] ? halves[0].split(':').filter(Boolean) : [];
-  const right = halves.length === 2 && halves[1] ? halves[1].split(':').filter(Boolean) : [];
-  const hasCompression = halves.length === 2;
-  const missing = 8 - (left.length + right.length);
-
-  if (!hasCompression && left.length !== 8) throw new Error(`Invalid IPv6: ${ipv6}`);
-  if (missing < 0) throw new Error(`Invalid IPv6: ${ipv6}`);
-
-  const full = hasCompression
-    ? [...left, ...Array(missing).fill('0'), ...right]
-    : left;
-  if (full.length !== 8) throw new Error(`Invalid IPv6: ${ipv6}`);
-
-  let out = 0n;
-  for (const seg of full) {
-    if (!/^[0-9a-f]{1,4}$/i.test(seg)) {
-      throw new Error(`Invalid IPv6 segment: ${seg}`);
-    }
-    out = (out << 16n) + BigInt(parseInt(seg, 16));
-  }
-  return out;
-}
-
-const IPV6_PRIVATE_RANGES: [bigint, bigint][] = [
-  [0n, 0n], // ::/128 unspecified
-  [1n, 1n], // ::1/128 loopback
-  [ipv6ToBigInt('fc00::'), ipv6ToBigInt('fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff')], // fc00::/7
-  [ipv6ToBigInt('fe80::'), ipv6ToBigInt('febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff')], // fe80::/10
-  [ipv6ToBigInt('ff00::'), ipv6ToBigInt('ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff')], // ff00::/8
-];
-
 function isPrivateIpv6(ipv6: string): boolean {
-  const n = ipv6ToBigInt(ipv6);
-  return IPV6_PRIVATE_RANGES.some(([start, end]) => n >= start && n <= end);
+  const normalized = stripZoneId(ipv6).toLowerCase();
+
+  if (normalized === '::' || normalized === '::1') return true;
+  if (normalized.startsWith('::') && !normalized.startsWith('::ffff:')) return true;
+
+  const firstToken = normalized.split(':')[0] || '0';
+  if (!/^[0-9a-f]{1,4}$/.test(firstToken)) return true;
+  const first = parseInt(firstToken, 16);
+
+  // fc00::/7 (unique local)
+  if ((first & 0xfe00) === 0xfc00) return true;
+  // fe80::/10 (link-local)
+  if ((first & 0xffc0) === 0xfe80) return true;
+  // ff00::/8 (multicast)
+  if ((first & 0xff00) === 0xff00) return true;
+
+  return false;
 }
 
 function isPrivateIp(ip: string): boolean {
@@ -204,7 +173,8 @@ export async function safeFetch(
   }
 
   const bodyBytes = await readBodyWithinLimit(response, maxBytes);
-  return new Response(bodyBytes, {
+  const responseBody = bodyBytes as unknown as BodyInit;
+  return new Response(responseBody, {
     status: response.status,
     statusText: response.statusText,
     headers: new Headers(response.headers),
