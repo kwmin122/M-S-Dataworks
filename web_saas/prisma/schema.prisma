@@ -25,6 +25,11 @@ enum EvaluationJobStatus {
   RETRY_EXHAUSTED
 }
 
+enum BidInterestStatus {
+  STARRED
+  ARCHIVED
+}
+
 enum PlanTier {
   FREE
   PRO
@@ -39,6 +44,8 @@ model Organization {
   updatedAt      DateTime        @updatedAt @map("updated_at")
   subscription   Subscription?
   evaluationJobs EvaluationJob[]
+  savedSearches  SavedSearch[]
+  bidInterests   BidInterest[]
   @@map("organizations")
 }
 
@@ -82,6 +89,7 @@ model BidNotice {
   createdAt      DateTime  @default(now()) @map("created_at")
   ingestionJobs  IngestionJob[]
   evaluationJobs EvaluationJob[]
+  bidInterests   BidInterest[]
   @@unique([source, externalId])
   @@map("bid_notices")
 }
@@ -139,21 +147,26 @@ model UsedNonce {
 }
 
 model SavedSearch {
-  id             String   @id @default(cuid())
-  organizationId String   @map("organization_id")
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   name           String
   conditions     Json
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  @@index([organizationId])
   @@map("saved_searches")
 }
 
 model BidInterest {
-  id             String   @id @default(cuid())
-  organizationId String   @map("organization_id")
-  bidNoticeId    String   @map("bid_notice_id")
-  status         String   @default("STARRED")
-  createdAt      DateTime @default(now()) @map("created_at")
+  id             String            @id @default(cuid())
+  organizationId String            @map("organization_id")
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  bidNoticeId    String            @map("bid_notice_id")
+  bidNotice      BidNotice         @relation(fields: [bidNoticeId], references: [id], onDelete: Cascade)
+  status         BidInterestStatus @default(STARRED)
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
   @@unique([organizationId, bidNoticeId])
   @@map("bid_interests")
 }
