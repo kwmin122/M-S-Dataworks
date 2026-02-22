@@ -17,6 +17,8 @@ import {
 } from '../services/kiraApiService';
 import { AnalyzeResponse, ChatReference, User } from '../types';
 import Button from './Button';
+import SearchPanel from './workspace/SearchPanel';
+import MultiAnalysisPanel from './workspace/MultiAnalysisPanel';
 
 interface DashboardProps {
   user: User | null;
@@ -31,6 +33,14 @@ interface ChatLine {
 
 type OpinionMode = 'conservative' | 'balanced' | 'aggressive';
 type PreviewMode = 'company' | 'target';
+type WorkspaceMode = 'rfx' | 'search' | 'multi' | 'proposal';
+
+const WORKSPACE_TABS: { mode: WorkspaceMode; label: string }[] = [
+  { mode: 'rfx', label: 'RFx 분석' },
+  { mode: 'search', label: '공고 검색' },
+  { mode: 'multi', label: '다중 분석' },
+  { mode: 'proposal', label: '제안서' },
+];
 
 const SESSION_KEY = 'kira_web_session_id';
 
@@ -73,6 +83,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [opinionMode, setOpinionMode] = useState<OpinionMode>('balanced');
   const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>(defaultQuestions);
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('rfx');
 
   useEffect(() => {
     const boot = async (): Promise<void> => {
@@ -335,6 +346,32 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
           <span className="text-xs text-slate-500">{user?.name || '로그인 사용자'}</span>
         </div>
 
+        <div className="flex border-b border-slate-200 bg-white px-4">
+          {WORKSPACE_TABS.map((tab) => (
+            <button
+              key={tab.mode}
+              type="button"
+              onClick={() => setWorkspaceMode(tab.mode)}
+              className={`px-3 py-2 text-xs font-medium border-b-2 -mb-px ${
+                workspaceMode === tab.mode
+                  ? 'border-primary-600 text-primary-700'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {workspaceMode === 'search' && <SearchPanel organizationId={user?.id ?? ''} />}
+        {workspaceMode === 'multi' && <MultiAnalysisPanel organizationId={user?.id ?? ''} />}
+        {workspaceMode === 'proposal' && (
+          <div className="flex-1 flex items-center justify-center text-sm text-slate-400">
+            제안서 기능 준비 중 (Wave 3)
+          </div>
+        )}
+
+        {workspaceMode === 'rfx' && (<>
         <div className="space-y-3 border-b border-slate-200 bg-slate-50 p-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <label className="block rounded-lg border border-dashed border-slate-300 bg-white p-3 text-xs text-slate-600">
@@ -492,6 +529,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
             </Button>
           </div>
         </div>
+        </>)}
       </div>
     </div>
   );
