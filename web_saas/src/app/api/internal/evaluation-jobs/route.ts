@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { verifyInternalAuth } from '@/lib/internal-auth';
 
 export async function GET(req: NextRequest) {
+  const rawQuery = new URL(req.url).searchParams.toString();
+  const authError = await verifyInternalAuth(req, rawQuery);
+  if (authError) return authError;
+
   const { searchParams } = new URL(req.url);
   const organizationId = searchParams.get('organizationId');
 

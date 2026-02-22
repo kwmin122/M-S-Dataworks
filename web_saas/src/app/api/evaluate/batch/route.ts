@@ -8,8 +8,11 @@ export async function POST(req: NextRequest) {
     organizationId: string;
   };
 
-  if (!bidNoticeIds?.length || !organizationId) {
-    return NextResponse.json({ error: 'bidNoticeIds and organizationId required' }, { status: 400 });
+  if (!bidNoticeIds?.length || bidNoticeIds.length > 50 || !organizationId) {
+    return NextResponse.json(
+      { error: 'bidNoticeIds: 1–50 items required' },
+      { status: 400 }
+    );
   }
 
   const org = await prisma.organization.findUnique({ where: { id: organizationId } });

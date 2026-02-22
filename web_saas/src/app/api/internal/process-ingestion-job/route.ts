@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { createEvaluationJobsForBidNotice } from '@/lib/jobs/createEvaluationJobs';
+import { verifyInternalAuth } from '@/lib/internal-auth';
+import { safeFetch } from '@/lib/safe-fetch';
+import { getEnv } from '@/lib/env';
 import crypto from 'crypto';
 
 const MAX_RETRIES = 3;
@@ -10,7 +13,12 @@ function backoffMs(retryCount: number): number {
 }
 
 export async function POST(req: NextRequest) {
-  const { jobId, workerId } = await req.json();
+  const rawBody = await req.text();
+
+  const authError = await verifyInternalAuth(req, rawBody);
+  if (authError) return authError;
+
+  const { jobId, workerId } = JSON.parse(rawBody) as { jobId: string; workerId: string };
 
   // 1. 원자 락 획득 (SELECT 후보 → UPDATE WHERE locked_at IS NULL)
   const acquired = await prisma.$executeRaw`
@@ -30,7 +38,12 @@ export async function POST(req: NextRequest) {
     // 2. 첨부파일 다운로드
     let fileBytes: Buffer;
     try {
-      const resp = await fetch(job.attachmentUrl!);
+      const env = getEnv();
+      if (!job.attachmentUrl) {
+        return await handleError(jobId, 'FETCH_ERROR', new Error('attachment_url_missing'));
+      }
+      const allowedDomains = env.ATTACHMENT_ALLOWED_DOMAINS.split(',').map((d) => d.trim());
+      const resp = await safeFetch(job.attachmentUrl, allowedDomains);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       fileBytes = Buffer.from(await resp.arrayBuffer());
     } catch (e) {

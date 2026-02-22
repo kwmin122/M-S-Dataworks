@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
     includeAttachmentText?: boolean;
     limit?: number;
   };
+  const cappedLimit = Math.min(Number(body.limit ?? 50), 100);
 
   let notices;
 
@@ -37,7 +38,7 @@ export async function POST(req: NextRequest) {
       FROM bid_notices
       WHERE attachment_tsv @@ plainto_tsquery('simple', ${ftsQuery})
       ORDER BY published_at DESC NULLS LAST
-      LIMIT 50
+      LIMIT ${cappedLimit}
     `;
     notices = raw.map((n) => ({
       id: n.id,
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
     notices = await prisma.bidNotice.findMany({
       where,
       orderBy: { publishedAt: 'desc' },
-      take: body.limit ?? 50,
+      take: cappedLimit,
       select: {
         id: true,
         title: true,

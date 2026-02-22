@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { consumeQuotaIfNeeded, getCurrentPeriodStart } from '@/lib/quota/consumeQuota';
+import { verifyInternalAuth } from '@/lib/internal-auth';
 import { Resend } from 'resend';
 
 const FASTAPI_URL = process.env.FASTAPI_URL ?? 'http://rag_engine:8001';
@@ -12,7 +13,12 @@ function backoffMs(n: number): number {
 }
 
 export async function POST(req: NextRequest) {
-  const { jobId, workerId } = await req.json();
+  const rawBody = await req.text();
+
+  const authError = await verifyInternalAuth(req, rawBody);
+  if (authError) return authError;
+
+  const { jobId, workerId } = JSON.parse(rawBody) as { jobId: string; workerId: string };
 
   // 1. 원자 락 획득
   const acquired = await prisma.$executeRaw`
