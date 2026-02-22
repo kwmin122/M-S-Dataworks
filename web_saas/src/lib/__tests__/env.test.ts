@@ -10,13 +10,21 @@ const REQUIRED_VARS = {
   NEXTAUTH_URL: 'http://localhost:3000',
 };
 
+let savedEnv: NodeJS.ProcessEnv;
+
 beforeEach(() => {
+  savedEnv = { ...process.env };
   _resetEnv();
   Object.keys(REQUIRED_VARS).forEach((k) => delete process.env[k]);
 });
 
 afterEach(() => {
   _resetEnv();
+  // 추가된 키 제거
+  Object.keys(process.env).forEach((k) => {
+    if (!(k in savedEnv)) delete process.env[k];
+  });
+  Object.assign(process.env, savedEnv);
 });
 
 it('필수 변수 누락 시 ZodError throw', () => {
@@ -33,4 +41,17 @@ it('모든 필수 변수 있으면 통과', () => {
 it('WEBHOOK_SECRET 32자 미만이면 실패', () => {
   Object.assign(process.env, { ...REQUIRED_VARS, WEBHOOK_SECRET: 'short' });
   expect(() => getEnv()).toThrow();
+});
+
+it('같은 인스턴스를 반환한다 (캐시)', () => {
+  Object.assign(process.env, REQUIRED_VARS);
+  expect(getEnv()).toBe(getEnv());
+});
+
+it('_resetEnv 후 재파싱된다', () => {
+  Object.assign(process.env, REQUIRED_VARS);
+  getEnv();
+  _resetEnv();
+  process.env.DATABASE_URL = 'postgresql://y';
+  expect(getEnv().DATABASE_URL).toBe('postgresql://y');
 });

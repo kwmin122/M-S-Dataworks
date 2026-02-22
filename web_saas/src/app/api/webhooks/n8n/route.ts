@@ -4,12 +4,13 @@ import { createId } from '@/lib/ids';
 import { verifyWebhookSignature } from '@/lib/hmac';
 import { isUniqueConstraintError } from '@/lib/errors';
 import { createEvaluationJobsForBidNotice } from '@/lib/jobs/createEvaluationJobs';
+import { getEnv } from '@/lib/env';
 
-const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET!;
 const INTERNAL_API_BASE_URL = process.env.INTERNAL_API_BASE_URL ?? 'http://localhost:3000';
 const REPLAY_WINDOW_SEC = 300; // ±5분
 
 export async function POST(req: NextRequest) {
+  const { WEBHOOK_SECRET } = getEnv();
   const rawBody = await req.text();
   const ts        = req.headers.get('x-timestamp') ?? '';
   const nonce     = req.headers.get('x-nonce') ?? '';

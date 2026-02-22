@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const schema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
-  STRIPE_SECRET_KEY: z.string().min(1, 'STRIPE_SECRET_KEY is required'),
+  STRIPE_SECRET_KEY: z.string().regex(/^sk_(test|live)_/, 'STRIPE_SECRET_KEY must start with sk_test_ or sk_live_'),
   STRIPE_WEBHOOK_SECRET: z.string().min(1, 'STRIPE_WEBHOOK_SECRET is required'),
   WEBHOOK_SECRET: z.string().min(32, 'WEBHOOK_SECRET must be >= 32 chars'),
   INTERNAL_API_SECRET: z.string().min(32, 'INTERNAL_API_SECRET must be >= 32 chars'),
@@ -33,5 +33,8 @@ export function getEnv(): Env {
 
 /** 테스트에서만 사용 — env 캐시 초기화 */
 export function _resetEnv(): void {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('[env] _resetEnv() must not be called in production');
+  }
   _env = undefined;
 }
