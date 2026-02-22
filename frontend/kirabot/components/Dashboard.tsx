@@ -19,6 +19,7 @@ import { AnalyzeResponse, ChatReference, User } from '../types';
 import Button from './Button';
 import SearchPanel from './workspace/SearchPanel';
 import MultiAnalysisPanel from './workspace/MultiAnalysisPanel';
+import ProposalPanel from './workspace/ProposalPanel';
 
 interface DashboardProps {
   user: User | null;
@@ -365,11 +366,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user }) => {
 
         {workspaceMode === 'search' && <SearchPanel organizationId={user?.id ?? ''} />}
         {workspaceMode === 'multi' && <MultiAnalysisPanel organizationId={user?.id ?? ''} />}
-        {workspaceMode === 'proposal' && (
-          <div className="flex-1 flex items-center justify-center text-sm text-slate-400">
-            제안서 기능 준비 중 (Wave 3)
-          </div>
-        )}
+        {workspaceMode === 'proposal' && <ProposalPanel organizationId={user?.id ?? ''} />}
 
         {workspaceMode === 'rfx' && (<>
         <div className="space-y-3 border-b border-slate-200 bg-slate-50 p-4">
