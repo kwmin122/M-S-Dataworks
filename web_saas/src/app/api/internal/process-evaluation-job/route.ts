@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { consumeQuotaIfNeeded, getCurrentPeriodStart } from '@/lib/quota/consumeQuota';
 import { verifyInternalAuth } from '@/lib/internal-auth';
+import { getEnv } from '@/lib/env';
 import { Resend } from 'resend';
 
-const FASTAPI_URL = process.env.FASTAPI_URL ?? 'http://rag_engine:8001';
 const MAX_RETRIES = 3;
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -59,6 +59,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const { FASTAPI_URL } = getEnv();
     const resp = await fetch(`${FASTAPI_URL}/api/analyze-bid`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -68,6 +69,7 @@ export async function POST(req: NextRequest) {
         company_facts: job.organization.companyFacts,
         attachment_text: job.bidNotice.attachmentText ?? '',
       }),
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (!resp.ok) throw new Error(`FastAPI ${resp.status}`);
@@ -128,55 +130,56 @@ async function sendNotification(jobId: string) {
 }
 
 async function handleScoreError(jobId: string) {
-  try {
-    const job = await prisma.evaluationJob.findUnique({
+  await prisma.$transaction(async (tx) => {
+    const job = await tx.evaluationJob.findUnique({
       where: { id: jobId },
       select: { retryCount: true },
     });
     const n = (job?.retryCount ?? 0) + 1;
     if (n > MAX_RETRIES) {
-      await prisma.evaluationJob.update({
+      await tx.evaluationJob.update({
         where: { id: jobId },
         data: { status: 'RETRY_EXHAUSTED', retryCount: n, lockedAt: null, lockOwner: null },
       });
     } else {
-      await prisma.evaluationJob.update({
+      await tx.evaluationJob.update({
         where: { id: jobId },
         data: { status: 'SCORE_ERROR', retryCount: n, nextRetryAt: new Date(Date.now() + backoffMs(n)), lockedAt: null, lockOwner: null },
       });
     }
-  } catch (_dbErr) {
-    await prisma.evaluationJob.update({
+  }).catch(() => {
+    // 트랜잭션 자체가 실패해도 락은 반드시 해제
+    return prisma.evaluationJob.update({
       where: { id: jobId },
       data: { lockedAt: null, lockOwner: null },
     }).catch(() => {});
-  }
+  });
   return NextResponse.json({ ok: false, reason: 'score_error' });
 }
 
 async function handleNotifyError(jobId: string) {
-  try {
-    const job = await prisma.evaluationJob.findUnique({
+  await prisma.$transaction(async (tx) => {
+    const job = await tx.evaluationJob.findUnique({
       where: { id: jobId },
       select: { retryCount: true },
     });
     const n = (job?.retryCount ?? 0) + 1;
     if (n > MAX_RETRIES) {
-      await prisma.evaluationJob.update({
+      await tx.evaluationJob.update({
         where: { id: jobId },
         data: { status: 'RETRY_EXHAUSTED', retryCount: n, lockedAt: null, lockOwner: null },
       });
     } else {
-      await prisma.evaluationJob.update({
+      await tx.evaluationJob.update({
         where: { id: jobId },
         data: { status: 'NOTIFY_ERROR', retryCount: n, nextRetryAt: new Date(Date.now() + backoffMs(n)), lockedAt: null, lockOwner: null },
       });
     }
-  } catch (_dbErr) {
-    await prisma.evaluationJob.update({
+  }).catch(() => {
+    return prisma.evaluationJob.update({
       where: { id: jobId },
       data: { lockedAt: null, lockOwner: null },
     }).catch(() => {});
-  }
+  });
   return NextResponse.json({ ok: false, reason: 'notify_error' });
 }
