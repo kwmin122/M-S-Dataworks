@@ -1,26 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { createId } from '@/lib/ids';
+import { auth } from '@/auth';
+import { getEnv } from '@/lib/env';
 
 export async function POST(req: NextRequest) {
-  const { organizationId, bidNoticeId } = await req.json() as {
-    organizationId: string;
+  const session = await auth();
+  const orgId = session?.user?.organizationId;
+  if (!orgId) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+
+  const { bidNoticeId } = await req.json() as {
     bidNoticeId: string;
   };
 
-  if (!organizationId || !bidNoticeId) {
+  if (!bidNoticeId) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
 
   const [notice, org] = await Promise.all([
     prisma.bidNotice.findUnique({ where: { id: bidNoticeId } }),
-    prisma.organization.findUnique({ where: { id: organizationId } }),
+    prisma.organization.findUnique({ where: { id: orgId } }),
   ]);
 
   if (!notice) return NextResponse.json({ error: 'BidNotice not found' }, { status: 404 });
   if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
 
-  const ragUrl = process.env.FASTAPI_URL ?? 'http://localhost:8001';
+  const { FASTAPI_URL: ragUrl } = getEnv();
   const ragRes = await fetch(`${ragUrl}/api/generate-proposal`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -28,6 +35,7 @@ export async function POST(req: NextRequest) {
       notice_text: `${notice.title} ${notice.attachmentText ?? ''}`.slice(0, 2000),
       company_info: org.companyFacts,
     }),
+    signal: AbortSignal.timeout(30_000),
   });
 
   if (!ragRes.ok) {
@@ -39,7 +47,7 @@ export async function POST(req: NextRequest) {
   const draft = await prisma.proposalDraft.create({
     data: {
       id: createId(),
-      organizationId,
+      organizationId: orgId,
       bidNoticeId,
       status: 'DONE',
     },

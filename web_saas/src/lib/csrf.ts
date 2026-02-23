@@ -1,13 +1,14 @@
 import { NextRequest } from 'next/server';
+import { getEnv } from '@/lib/env';
 
 const STATE_CHANGING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 function getAllowedOrigins(): string[] {
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? '').trim();
+  const { NEXT_PUBLIC_APP_URL: appUrl, NODE_ENV } = getEnv();
   const origins: string[] = [];
 
-  if (appUrl) origins.push(appUrl);
-  if (process.env.NODE_ENV !== 'production') {
+  if (appUrl) origins.push(appUrl.trim());
+  if (NODE_ENV !== 'production') {
     origins.push('http://localhost:3000', 'http://localhost:5173');
   }
 

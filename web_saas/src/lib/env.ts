@@ -10,6 +10,7 @@ const schema = z.object({
   NEXTAUTH_URL: z.string().url('NEXTAUTH_URL must be a valid URL'),
   FASTAPI_URL: z.string().url().default('http://localhost:8001'),
   ATTACHMENT_ALLOWED_DOMAINS: z.string().default('.go.kr'),
+  NEXT_PUBLIC_APP_URL: z.string().default(''),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 });
 

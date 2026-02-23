@@ -15,7 +15,7 @@ const HEADERS = [
   '공고명', '금액(원)', '마감일', '지역', 'GO/NO-GO', '판정근거', '준비액션', '공고URL',
 ];
 
-export async function buildEvaluationExcel(rows: EvalRow[]): Promise<Buffer> {
+export async function buildEvaluationExcel(rows: EvalRow[]): Promise<ArrayBuffer> {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('공고 분석 결과');
 
@@ -35,5 +35,8 @@ export async function buildEvaluationExcel(rows: EvalRow[]): Promise<Buffer> {
     ]);
   }
 
-  return wb.xlsx.writeBuffer() as Promise<Buffer>;
+  const bytes = new Uint8Array(await wb.xlsx.writeBuffer());
+  const out = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(out).set(bytes);
+  return out;
 }

@@ -11,7 +11,9 @@ export const prisma = {
   subscription: { findUnique: jest.fn() },
   usageQuota: { upsert: jest.fn() },
   organization: { findMany: jest.fn(), findUnique: jest.fn() },
-  bidNotice: { findMany: jest.fn() },
+  bidNotice: { findMany: jest.fn(), findUnique: jest.fn() },
+  proposalDraft: { create: jest.fn() },
+  user: { findUnique: jest.fn() },
   ingestionJob: { findUnique: jest.fn(), update: jest.fn() },
   usedNonce: { create: jest.fn() },
 };

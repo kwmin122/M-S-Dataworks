@@ -14,14 +14,14 @@ const mockRows = [
 ];
 
 describe('buildEvaluationExcel', () => {
-  it('Buffer를 반환한다', async () => {
-    const buf = await buildEvaluationExcel(mockRows);
-    expect(buf).toBeInstanceOf(Buffer);
-    expect(buf.length).toBeGreaterThan(0);
+  it('ArrayBuffer를 반환한다', async () => {
+    const bytes = await buildEvaluationExcel(mockRows);
+    expect(bytes).toBeInstanceOf(ArrayBuffer);
+    expect(bytes.byteLength).toBeGreaterThan(0);
   });
 
   it('빈 배열도 처리한다', async () => {
-    const buf = await buildEvaluationExcel([]);
-    expect(buf).toBeInstanceOf(Buffer);
+    const bytes = await buildEvaluationExcel([]);
+    expect(bytes).toBeInstanceOf(ArrayBuffer);
   });
 });

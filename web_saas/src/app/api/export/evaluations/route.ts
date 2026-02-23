@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { buildEvaluationExcel } from '@/lib/export/buildEvaluationExcel';
+import { auth } from '@/auth';
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const organizationId = searchParams.get('organizationId');
-  if (!organizationId) {
-    return NextResponse.json({ error: 'organizationId required' }, { status: 400 });
+  const session = await auth();
+  const orgId = session?.user?.organizationId;
+  if (!orgId) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
   const jobs = await prisma.evaluationJob.findMany({
-    where: { organizationId },
+    where: { organizationId: orgId },
     include: { bidNotice: true },
     orderBy: { createdAt: 'desc' },
     take: 200,
@@ -27,9 +28,9 @@ export async function GET(req: NextRequest) {
     url: j.bidNotice.url,
   }));
 
-  const buffer = await buildEvaluationExcel(rows);
+  const bytes = await buildEvaluationExcel(rows);
 
-  return new NextResponse(buffer, {
+  return new NextResponse(bytes, {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': 'attachment; filename="kirabot_evaluations.xlsx"',
