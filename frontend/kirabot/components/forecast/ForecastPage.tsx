@@ -33,7 +33,7 @@ const ForecastPage: React.FC = () => {
   const chartData = data
     ? Object.entries(data.monthlyPattern)
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([month, val]) => ({ month: month.slice(5), count: val.count }))
+        .map(([month, val]: [string, { count: number; totalAmt: number }]) => ({ month: month.slice(5), count: val.count }))
     : [];
 
   return (
