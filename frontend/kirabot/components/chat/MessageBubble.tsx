@@ -26,7 +26,7 @@ const MessageBubble: React.FC<Props> = ({ message, onAction }) => {
       case 'bid_card_list':
         return <BidCardListView message={message} onAction={onAction} />;
       case 'analysis_result':
-        return <AnalysisResultView message={message} />;
+        return <AnalysisResultView message={message} onAction={onAction} />;
       case 'inline_form':
         return <InlineFormView message={message} onAction={onAction} />;
       case 'file_upload':

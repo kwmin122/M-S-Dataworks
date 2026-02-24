@@ -1736,6 +1736,115 @@ async def api_bids_evaluate_batch(payload: BidEvaluateBatchPayload, request: Req
     }
 
 
+# ── 제안서 초안 생성 ──
+
+
+class ProposalGeneratePayload(BaseModel):
+    session_id: str
+    bid_notice_id: str
+
+
+@app.post("/api/proposal/generate")
+async def generate_proposal(payload: ProposalGeneratePayload) -> dict[str, Any]:
+    """분석된 문서 기반 제안서 초안 생성."""
+    session = _get_or_create_session(payload.session_id)
+
+    if session.latest_rfx_analysis is None:
+        raise HTTPException(status_code=400, detail="분석된 문서가 없습니다. 먼저 문서를 분석해주세요.")
+
+    # Build analysis text from session's stored RFx analysis
+    analysis = session.latest_rfx_analysis
+    analysis_text = f"공고명: {analysis.title}\n"
+    analysis_text += f"발주기관: {analysis.issuing_org}\n"
+    analysis_text += f"문서유형: {analysis.document_type}\n"
+    if analysis.budget:
+        analysis_text += f"예산: {analysis.budget}\n"
+    if analysis.project_period:
+        analysis_text += f"사업기간: {analysis.project_period}\n"
+    if analysis.requirements:
+        analysis_text += "\n자격요건:\n"
+        for req in analysis.requirements:
+            analysis_text += f"- [{req.category}] {req.description}\n"
+    if analysis.evaluation_criteria:
+        analysis_text += "\n평가기준:\n"
+        for crit in analysis.evaluation_criteria:
+            analysis_text += f"- [{crit.category}] {crit.item} ({crit.score}점)\n"
+
+    # Build company summary from RAG engine
+    company_text = ""
+    try:
+        if session.rag_engine.collection.count() > 0:
+            company_results = session.rag_engine.search("회사 소개 강점 실적 인증", top_k=5)
+            company_text = "\n".join(r.text for r in company_results if r.text)
+    except Exception:
+        pass
+
+    # Try calling rag_engine if available
+    rag_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(f"{rag_url}/api/generate-proposal", json={
+                "bid_text": analysis_text,
+                "company_text": company_text,
+            })
+            if resp.status_code == 200:
+                data = resp.json()
+                return {"sections": data.get("sections", {})}
+    except Exception:
+        pass
+
+    # Fallback: generate template sections using OpenAI
+    try:
+        api_key = _openai_api_key()
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+        system_prompt = """당신은 공공조달 입찰 제안서 작성 전문가입니다.
+주어진 공고 분석 결과와 회사 정보를 바탕으로 제안서 초안의 각 섹션을 작성하세요.
+반드시 JSON 객체로 응답하세요. 키는 섹션 제목, 값은 섹션 내용입니다.
+
+필수 섹션: "사업 이해 및 목표", "수행 방법론", "추진 일정", "투입 인력 구성", "기대 효과"
+각 섹션은 300-500자로 작성하세요. 한국어로 작성하세요."""
+
+        user_prompt = f"""[공고 분석 결과]
+{analysis_text}
+
+[회사 정보]
+{company_text or '회사 정보 없음'}
+
+위 정보를 바탕으로 제안서 초안을 JSON 형식으로 작성해주세요."""
+
+        response = client.chat.completions.create(
+            model=model,
+            max_tokens=3000,
+            temperature=0.5,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        content = (response.choices[0].message.content or "{}").strip()
+        sections = json.loads(content)
+        if isinstance(sections, dict) and sections:
+            return {"sections": sections}
+    except Exception as exc:
+        logger.warning("OpenAI 제안서 생성 실패: %s", exc)
+
+    # Final fallback: basic template
+    title = analysis.title or payload.bid_notice_id
+    sections = {
+        "사업 이해 및 목표": f"본 제안서는 '{title}' 공고에 대한 제안입니다.\n발주기관의 사업 목적과 요구사항을 분석하여 최적의 수행 방안을 제시합니다.",
+        "수행 방법론": "사업 수행을 위한 체계적인 방법론을 적용합니다.\n요구사항 분석, 설계, 구현, 테스트, 안정화의 단계별 접근법을 따릅니다.",
+        "추진 일정": "사업 착수 후 체계적인 일정 관리를 통해 기한 내 완료를 목표로 합니다.\n주요 마일스톤을 설정하고 단계별 산출물을 제출합니다.",
+        "투입 인력 구성": "프로젝트 관리자(PM)를 중심으로 분야별 전문 인력을 투입합니다.\n각 인력의 역할과 책임을 명확히 정의합니다.",
+        "기대 효과": "본 사업의 성공적 수행을 통해 발주기관의 업무 효율성 향상과 서비스 품질 개선이 기대됩니다.",
+    }
+    return {"sections": sections}
+
+
 # ── 알림 설정 CRUD ──
 
 ALERT_SETTINGS_DIR = ROOT_DIR / "data" / "alert_settings"

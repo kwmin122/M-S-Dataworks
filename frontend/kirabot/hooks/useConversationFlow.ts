@@ -1243,6 +1243,37 @@ export function useConversationFlow() {
           handleFeatureSelection(action.value);
           break;
         }
+
+        case 'generate_proposal': {
+          if (!conversation.sessionId) {
+            pushStatus('error', '세션이 없습니다. 먼저 문서를 분석해주세요.');
+            break;
+          }
+
+          setProcessing(true);
+          pushStatus('loading', '제안서 초안을 생성하고 있어요...');
+
+          try {
+            const result = await api.generateProposalDraft(conversation.sessionId, action.bidNoticeId);
+            removeLastStatus();
+
+            // Show proposal in context panel
+            dispatch({
+              type: 'SET_CONTEXT_PANEL',
+              content: { type: 'proposal', sections: result.sections, bidNoticeId: action.bidNoticeId },
+            });
+
+            pushText(`"${action.bidTitle}" 공고에 대한 제안서 초안이 생성되었습니다. 오른쪽 패널에서 내용을 확인하고 수정하세요.`);
+            trackEvent('proposal_generated', { bid_id: action.bidNoticeId });
+          } catch (error) {
+            removeLastStatus();
+            const msg = error instanceof Error ? error.message : '알 수 없는 오류';
+            pushStatus('error', `제안서 생성 실패: ${msg}`);
+          } finally {
+            setProcessing(false);
+          }
+          break;
+        }
       }
     },
     [conversationId, conversation, state.contextPanel, push, pushText, pushStatus, removeLastStatus, updateMsg, updateConv, setPhase, setProcessing, dispatch, handleFeatureSelection],

@@ -78,6 +78,7 @@ export interface AnalyzeResponse {
   company_chunks: number;
   analysis: AnalysisPayload;
   matching: MatchingPayload;
+  fileUrl?: string;
 }
 
 export interface ChatReference {
@@ -95,3 +96,237 @@ export interface ChatResponse {
   references: ChatReference[];
   suggested_questions: string[];
 }
+
+// ── SaaS API 응답 타입 ──
+
+export interface BidNotice {
+  id: string;               // bid_ntce_no
+  title: string;            // bid_ntce_nm
+  issuingOrg?: string;      // ntce_instt_nm
+  demandOrg?: string;       // dminstt_nm
+  region: string | null;
+  deadlineAt: string | null;
+  url: string | null;
+  estimatedPrice?: string;
+  category?: string;        // 물품/용역/공사/외자/기타
+  bidNtceOrd?: string;      // 입찰공고차수
+}
+
+export interface BidSearchResponse {
+  notices: BidNotice[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface NaraAttachment {
+  fileNm: string;
+  fileUrl: string;
+  fileSize: number;
+}
+
+export interface EvalJob {
+  id: string;
+  bidNoticeId: string;
+  isEligible: boolean | null;
+  evaluationReason: string;
+  actionPlan: string | null;
+  bidNotice: BidNotice;
+}
+
+export interface EvalBatchResponse {
+  jobsCreated: number;
+  jobs: EvalJob[];
+}
+
+export interface ProposalSections {
+  [key: string]: string;
+}
+
+export interface SearchConditions {
+  keywords: string[];
+  region: string;
+  minAmt: string;
+  maxAmt: string;
+  period: '1w' | '1m' | '3m';
+  excludeExpired: boolean;
+  includeAttachmentText: boolean;
+}
+
+// ── 대화형 UI 메시지 타입 ──
+
+export type ChatMessageType =
+  | 'text'
+  | 'button_choice'
+  | 'bid_card_list'
+  | 'analysis_result'
+  | 'inline_form'
+  | 'file_upload'
+  | 'status';
+
+export interface BaseChatMessage {
+  id: string;
+  role: 'user' | 'bot';
+  type: ChatMessageType;
+  timestamp: number;
+}
+
+export interface TextChatMessage extends BaseChatMessage {
+  type: 'text';
+  text: string;
+  references?: ChatReference[];
+}
+
+export interface ButtonChoiceMessage extends BaseChatMessage {
+  type: 'button_choice';
+  text: string;
+  choices: { label: string; value: string }[];
+  selectedValue?: string;
+}
+
+export interface BidCardListMessage extends BaseChatMessage {
+  type: 'bid_card_list';
+  text: string;
+  cards: BidNotice[];
+  selectedIds?: string[];
+  total?: number;
+  page?: number;
+  pageSize?: number;
+  searchConditions?: Record<string, string>;
+}
+
+export interface AnalysisResultMessage extends BaseChatMessage {
+  type: 'analysis_result';
+  analysis: AnalyzeResponse;
+  opinionMode: OpinionMode;
+}
+
+export interface InlineFormMessage extends BaseChatMessage {
+  type: 'inline_form';
+  text: string;
+  fields: {
+    key: string;
+    label: string;
+    type: 'text' | 'number' | 'select';
+    options?: string[];
+  }[];
+  submitLabel: string;
+  submittedValues?: Record<string, string>;
+}
+
+export interface FileUploadMessage extends BaseChatMessage {
+  type: 'file_upload';
+  text: string;
+  accept: string;
+  multiple: boolean;
+  uploadedFileNames?: string[];
+}
+
+export interface StatusChatMessage extends BaseChatMessage {
+  type: 'status';
+  text: string;
+  level: 'loading' | 'success' | 'error' | 'info';
+  retryAction?: string;
+}
+
+export type ChatMessage =
+  | TextChatMessage
+  | ButtonChoiceMessage
+  | BidCardListMessage
+  | AnalysisResultMessage
+  | InlineFormMessage
+  | FileUploadMessage
+  | StatusChatMessage;
+
+// ── 대화 Phase ──
+
+export type ConversationPhase =
+  | 'greeting'
+  | 'doc_upload_company'
+  | 'doc_upload_target'
+  | 'doc_analyzing'
+  | 'doc_chat'
+  | 'bid_search_input'
+  | 'bid_search_results'
+  | 'bid_analyzing'
+  | 'bid_eval_running'
+  | 'bid_eval_results'
+  | 'proposal_input'
+  | 'proposal_preview'
+  | 'alert_keywords'
+  | 'alert_conditions'
+  | 'alert_notification'
+  | 'alert_confirm'
+  | 'free_chat';
+
+export type OpinionMode = 'conservative' | 'balanced' | 'aggressive';
+
+// ── 대화 ──
+
+export interface Conversation {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: number;
+  phase: ConversationPhase;
+  sessionId?: string;
+  companyChunks?: number;
+  opinionMode: OpinionMode;
+  selectedBidIds?: string[];
+  uploadedFileUrl?: string;
+  uploadedFileName?: string;
+  companyDocUrls?: { name: string; url: string }[];
+}
+
+// ── 컨텍스트 패널 ──
+
+export type DocFileType = 'pdf' | 'excel' | 'hwp' | 'docx' | 'ppt' | 'other';
+
+export interface DocumentTab {
+  label: string;
+  url: string;
+  fileName: string;
+  fileType: DocFileType;
+  page?: number;
+  highlightText?: string;
+}
+
+export type ContextPanelContent =
+  | { type: 'none' }
+  | { type: 'pdf'; blobUrl: string; page?: number; highlightText?: string }
+  | { type: 'documents'; tabs: DocumentTab[]; activeTabIndex: number }
+  | { type: 'bid_detail'; bid: BidNotice }
+  | { type: 'proposal'; sections: ProposalSections; bidNoticeId: string };
+
+// ── 알림 설정 ──
+
+export interface AlertSettings {
+  keywords: string[];
+  categories: string[];
+  regions: string[];
+  minAmt?: number;
+  maxAmt?: number;
+  email: string;
+  schedule: 'realtime' | 'daily_1' | 'daily_2' | 'daily_3';
+  hours: number[];
+}
+
+// ── 메시지 액션 ──
+
+export type MessageAction =
+  | { type: 'choice_selected'; value: string; messageId: string }
+  | { type: 'bid_selected'; bidIds: string[]; messageId: string }
+  | { type: 'form_submitted'; values: Record<string, string>; messageId: string }
+  | { type: 'files_uploaded'; files: File[]; messageId: string }
+  | { type: 'reference_clicked'; page: number; text?: string }
+  | { type: 'retry_action'; action: string }
+  | { type: 'open_bid_detail'; bid: BidNotice }
+  | { type: 'open_proposal'; sections: ProposalSections; bidNoticeId: string }
+  | { type: 'analyze_bid'; bid: BidNotice; messageId: string }
+  | { type: 'search_page'; page: number; conditions: Record<string, string>; messageId: string }
+  | { type: 'header_upload_target' }
+  | { type: 'header_add_company' }
+  | { type: 'setup_alert' }
+  | { type: 'confirm_alert'; settings: AlertSettings }
+  | { type: 'welcome_action'; value: string }
+  | { type: 'generate_proposal'; bidNoticeId: string; bidTitle: string };

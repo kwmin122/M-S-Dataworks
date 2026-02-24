@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
-import type { AnalysisResultMessage, OpinionMode } from '../../../types';
+import { CheckCircle2, XCircle, AlertCircle, Sparkles } from 'lucide-react';
+import type { AnalysisResultMessage, MessageAction, OpinionMode } from '../../../types';
 
 interface Props {
   message: AnalysisResultMessage;
+  onAction?: (action: MessageAction) => void;
 }
 
 const modeLabel: Record<OpinionMode, string> = {
@@ -12,7 +13,7 @@ const modeLabel: Record<OpinionMode, string> = {
   aggressive: '공격적',
 };
 
-const AnalysisResultView: React.FC<Props> = ({ message }) => {
+const AnalysisResultView: React.FC<Props> = ({ message, onAction }) => {
   const { analysis } = message;
   const matching = analysis.matching;
   const [opinionMode, setOpinionMode] = useState<OpinionMode>(message.opinionMode);
@@ -171,6 +172,24 @@ const AnalysisResultView: React.FC<Props> = ({ message }) => {
           </ul>
         </div>
       ) : null}
+
+      {/* Proposal generation button — only when matching (company docs) is available */}
+      {matching && (
+        <button
+          type="button"
+          onClick={() =>
+            onAction?.({
+              type: 'generate_proposal',
+              bidNoticeId: analysis.filename || 'unknown',
+              bidTitle: analysis.analysis?.title || '',
+            })
+          }
+          className="mt-1 flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-kira-600 to-kira-700 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:from-kira-700 hover:to-kira-800 transition-all"
+        >
+          <Sparkles size={14} />
+          제안서 초안 생성
+        </button>
+      )}
     </div>
   );
 };

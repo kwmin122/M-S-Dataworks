@@ -177,6 +177,15 @@ export async function generateProposal(bidNoticeId: string): Promise<{ sections:
   return parseJson<{ sections: ProposalSections }>(res);
 }
 
+export async function generateProposalDraft(sessionId: string, bidNoticeId: string): Promise<{ sections: ProposalSections }> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/proposal/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, bid_notice_id: bidNoticeId }),
+  });
+  return parseJson<{ sections: ProposalSections }>(res);
+}
+
 export async function getStrengthCard(bidNoticeId: string): Promise<unknown> {
   const res = await fetch(`/api/strength-card/${bidNoticeId}`, {
     credentials: 'include',
