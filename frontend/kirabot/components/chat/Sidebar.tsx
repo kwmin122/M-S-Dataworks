@@ -30,7 +30,7 @@ const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, onHome }) => {
 
   return (
     <div
-      className={`flex flex-col bg-slate-900 transition-all duration-300 ${
+      className={`flex flex-col bg-sidebar transition-all duration-300 ${
         collapsed ? 'w-[60px]' : 'w-60'
       }`}
     >
@@ -41,7 +41,7 @@ const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, onHome }) => {
         onHome={onHome}
       />
       {/* Navigation */}
-      <nav className="px-2 py-2 space-y-0.5 border-b border-slate-700">
+      <nav className="px-2 py-2 space-y-0.5 border-b border-white/10">
         {navItems.map((item) => {
           const isActive = location.pathname.startsWith(item.path);
           const Icon = item.icon;
@@ -53,7 +53,7 @@ const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, onHome }) => {
               className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                 isActive
                   ? 'bg-sidebar-active/20 text-white'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                  : 'text-slate-400 hover:bg-sidebar-hover hover:text-white'
               } ${collapsed ? 'justify-center px-0' : ''}`}
               title={collapsed ? item.label : undefined}
             >
