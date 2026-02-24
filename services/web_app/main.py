@@ -1931,6 +1931,66 @@ def smart_fit_score(payload: SmartFitScorePayload) -> dict[str, Any]:
     }
 
 
+# ── 발주예측 (Forecast) ──
+
+
+@app.get("/api/forecast/popular")
+async def get_popular_agencies() -> dict[str, Any]:
+    """인기 발주기관 목록 반환."""
+    agencies = [
+        "한국도로공사", "한국수자원공사", "한국전력공사", "한국철도공사",
+        "한국토지주택공사", "국방부", "행정안전부", "과학기술정보통신부",
+        "교육부", "보건복지부", "환경부", "국토교통부",
+        "산업통상자원부", "조달청", "방위사업청", "경찰청",
+        "소방청", "기상청", "특허청", "관세청",
+    ]
+    return {"agencies": agencies}
+
+
+@app.get("/api/forecast/{org_name}")
+async def get_org_forecast(org_name: str) -> dict[str, Any]:
+    """기관별 입찰 공고 패턴 데이터 반환."""
+    try:
+        results_3m = await nara_search_bids(
+            keywords=org_name,
+            category="all",
+            period="3m",
+            exclude_expired=False,
+            page=1,
+            page_size=100,
+        )
+
+        # 월별 집계
+        monthly: dict[str, dict[str, Any]] = {}
+        for bid in results_3m.get("notices", []):
+            deadline = bid.get("deadlineAt") or ""
+            if deadline:
+                month_key = deadline[:7]  # "2026-02"
+                if month_key not in monthly:
+                    monthly[month_key] = {"count": 0, "totalAmt": 0}
+                monthly[month_key]["count"] += 1
+
+        return {
+            "orgName": org_name,
+            "monthlyPattern": monthly,
+            "recentBids": results_3m.get("notices", [])[:10],
+            "aiInsight": (
+                f"{org_name}의 최근 3개월 입찰 공고 패턴입니다. "
+                "이 데이터는 참고용이며 실제 발주 계획과 다를 수 있습니다."
+            ),
+            "total": results_3m.get("total", 0),
+        }
+    except Exception as exc:
+        logger.warning("발주예측 조회 실패 (org=%s): %s", org_name, exc)
+        return {
+            "orgName": org_name,
+            "monthlyPattern": {},
+            "recentBids": [],
+            "aiInsight": "데이터를 불러오는 중 오류가 발생했습니다.",
+            "total": 0,
+        }
+
+
 @app.get("/{path_name:path}")
 def frontend_spa(path_name: str) -> FileResponse:
     """
