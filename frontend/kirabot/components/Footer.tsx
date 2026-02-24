@@ -1,9 +1,8 @@
 import React from 'react';
 import { Layers } from 'lucide-react';
-import { AppView } from '../types';
 
 interface FooterProps {
-  onNavigate: (view: AppView) => void;
+  onNavigate: (path: string) => void;
   onNavigateSection: (id: string) => void;
 }
 
@@ -46,11 +45,11 @@ const Footer: React.FC<FooterProps> = ({ onNavigate, onNavigateSection }) => {
                     </ul>
                 </div>
             </div>
-            
+
             {/* Disclaimer Section */}
             <div className="mt-12 pt-8 border-t border-slate-800">
                 <p className="text-xs text-slate-500 text-center leading-relaxed">
-                    KiraBot은 AI 기반 문서 분석 도구이며, 법률·재무·의료 등 전문 분야의 판단을 대체하지 않습니다. 
+                    KiraBot은 AI 기반 문서 분석 도구이며, 법률·재무·의료 등 전문 분야의 판단을 대체하지 않습니다.
                     AI 응답은 참고용이며, 최종 결정은 사용자의 책임입니다.
                 </p>
             </div>
@@ -60,14 +59,14 @@ const Footer: React.FC<FooterProps> = ({ onNavigate, onNavigateSection }) => {
                 <div className="flex gap-6 mt-4 md:mt-0">
                     <button
                       type="button"
-                      onClick={() => onNavigate(AppView.PRIVACY)}
+                      onClick={() => onNavigate('/privacy')}
                       className="bg-transparent hover:text-slate-300"
                     >
                       개인정보처리방침
                     </button>
                     <button
                       type="button"
-                      onClick={() => onNavigate(AppView.TERMS)}
+                      onClick={() => onNavigate('/terms')}
                       className="bg-transparent hover:text-slate-300"
                     >
                       이용약관
