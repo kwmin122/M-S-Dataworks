@@ -298,76 +298,37 @@ export function useConversationFlow() {
           return;
         }
 
-        // 비인사 텍스트 → 키워드로 공고 검색
-        trackEvent('chat_started', { mode: 'bid_search_from_welcome' });
-        if (!conversation.companyChunks || conversation.companyChunks <= 0) {
-          pushText('💡 회사 소개서를 먼저 등록하면, 검색된 공고에 대해 자동 맞춤 분석과 GO/NO-GO 판정을 받을 수 있어요.');
-        }
-        setPhase('bid_search_input');
-        pushStatus('loading', '공고를 검색하고 있어요...');
+        // 비인사 텍스트 → 일반 챗봇 모드로 전환
+        setPhase('free_chat');
+        // free_chat으로 fall-through
+      }
+
+      // 일반 챗봇 모드: AI 대화
+      if (conversation.phase === 'free_chat' || conversation.phase === 'greeting') {
         setProcessing(true);
+        pushStatus('loading', '답변을 생성하고 있어요...');
 
         try {
-          const conditions = {
-            keywords: text.split(/[\s,]+/).filter(Boolean),
-            category: 'all',
-            period: '1m',
-            excludeExpired: false,
-            page: 1,
-            pageSize: 20,
-          };
-          const result = await api.searchBids(conditions);
-          removeLastStatus();
+          // 최근 대화 히스토리 수집 (최대 6개)
+          const history = conversation.messages
+            .filter(m => m.type === 'text')
+            .slice(-6)
+            .map(m => ({
+              role: m.role === 'user' ? 'user' : 'assistant',
+              content: (m as TextChatMessage).text,
+            }));
 
-          if (result.notices.length > 0) {
-            push({
-              id: msgId(),
-              role: 'bot',
-              type: 'bid_card_list',
-              timestamp: Date.now(),
-              text: `${result.total}건 중 ${result.notices.length}건을 표시합니다.`,
-              cards: result.notices,
-              total: result.total,
-              page: result.page,
-              pageSize: result.pageSize,
-              searchConditions: { keywords: text },
-            } as BidCardListMessage);
-            setPhase('bid_search_results');
-            push({
-              id: msgId(),
-              role: 'bot',
-              type: 'button_choice',
-              timestamp: Date.now(),
-              text: '',
-              choices: [
-                { label: '조건 초기화 재검색', value: 'bid_search' },
-              ],
-            } as ButtonChoiceMessage);
-          } else {
-            pushText('검색 결과가 없습니다. 조건을 변경하여 다시 시도해보세요.');
-            push({
-              id: msgId(),
-              role: 'bot',
-              type: 'inline_form',
-              timestamp: Date.now(),
-              text: '검색 조건을 입력해주세요.',
-              fields: buildSearchFormFields(),
-              submitLabel: '검색',
-            } as InlineFormMessage);
-          }
+          const res = await api.generalChat(text, history);
+          removeLastStatus();
+          pushText(res.answer);
         } catch (error) {
           removeLastStatus();
           const msg = error instanceof Error ? error.message : '알 수 없는 오류';
-          pushStatus('error', `검색에 실패했어요: ${msg}`, 'bid_search');
+          pushStatus('error', `응답 생성 실패: ${msg}`);
         } finally {
           setProcessing(false);
         }
         return;
-      }
-
-      // Free chat fallback
-      if (conversation.phase === 'free_chat') {
-        pushText('아래 버튼을 선택하여 시작해주세요.');
       }
     },
     [conversationId, conversation, push, pushText, pushStatus, removeLastStatus, setProcessing, dispatch, state.contextPanel],

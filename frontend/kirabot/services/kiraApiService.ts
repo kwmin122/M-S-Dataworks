@@ -106,6 +106,20 @@ export function getApiBaseUrl(): string {
   return API_BASE_URL;
 }
 
+// ── 일반 대화 (세션 없이) ──
+
+export async function generalChat(
+  message: string,
+  history: { role: string; content: string }[] = [],
+): Promise<{ answer: string }> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/chat/general`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, history }),
+  });
+  return parseJson<{ answer: string }>(res);
+}
+
 // ── 재매칭 (회사 문서 등록 후) ──
 
 export async function rematchWithCompanyDocs(sessionId: string): Promise<AnalyzeResponse> {

@@ -1744,6 +1744,52 @@ class ProposalGeneratePayload(BaseModel):
     bid_notice_id: str
 
 
+class GeneralChatPayload(BaseModel):
+    message: str
+    history: list[dict[str, str]] = []
+
+
+@app.post("/api/chat/general")
+async def general_chat(payload: GeneralChatPayload) -> dict[str, Any]:
+    """세션/문서 없이 일반 대화. 공공조달 도우미 역할."""
+    message = payload.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="message가 비어 있습니다.")
+
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return {"answer": "죄송합니다, AI 응답 기능이 현재 비활성화되어 있어요. 좌측 메뉴에서 기능을 선택해주세요."}
+
+    from openai import OpenAI
+    client = OpenAI(api_key=api_key)
+
+    system_msg = (
+        "당신은 KiraBot, 공공조달·입찰 전문 AI 비서입니다. "
+        "사용자의 질문에 친절하고 간결하게 답변하세요. "
+        "공고 검색, 문서 분석, 입찰 전략 등에 대해 도움을 줄 수 있습니다. "
+        "사용자가 공고를 검색하고 싶어하면 좌측 '공고 검색/분석' 메뉴를 안내하세요. "
+        "한국어로 답변하세요. 답변은 3~4문장 이내로 간결하게."
+    )
+
+    messages = [{"role": "system", "content": system_msg}]
+    for h in payload.history[-6:]:
+        messages.append({"role": h.get("role", "user"), "content": h.get("content", "")})
+    messages.append({"role": "user", "content": message})
+
+    try:
+        resp = client.chat.completions.create(
+            model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+            messages=messages,
+            max_tokens=300,
+            temperature=0.7,
+        )
+        answer = resp.choices[0].message.content or "응답을 생성하지 못했어요."
+    except Exception as e:
+        answer = f"AI 응답 생성 중 오류가 발생했어요: {str(e)}"
+
+    return {"answer": answer}
+
+
 @app.post("/api/proposal/generate")
 async def generate_proposal(payload: ProposalGeneratePayload) -> dict[str, Any]:
     """분석된 문서 기반 제안서 초안 생성."""

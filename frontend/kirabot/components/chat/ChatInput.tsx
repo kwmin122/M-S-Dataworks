@@ -47,6 +47,8 @@ const ChatInput: React.FC<Props> = ({ onSendText, onAction }) => {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // 한글 IME 조합 중 Enter 무시 (이중 입력 방지)
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
