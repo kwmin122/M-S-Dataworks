@@ -1,6 +1,7 @@
 import {
   AlertSettings,
   AnalyzeResponse,
+  BidNotice,
   BidSearchResponse,
   ChatResponse,
   EvalBatchResponse,
@@ -242,4 +243,59 @@ export async function getSmartFitScore(
     body: JSON.stringify({ session_id: sessionId, bid_notice_id: bidNoticeId, bid_title: bidTitle, keywords }),
   });
   return parseJson<SmartFitResult>(response);
+}
+
+// ── Alert Config APIs ──
+
+export interface AlertRule {
+  id: string;
+  keywords: string[];
+  excludeKeywords: string[];
+  categories: string[];
+  regions: string[];
+  minAmt?: number;
+  maxAmt?: number;
+  enabled: boolean;
+}
+
+export interface AlertConfig {
+  enabled: boolean;
+  email: string;
+  schedule: 'realtime' | 'daily_1' | 'daily_2' | 'daily_3';
+  hours: number[];
+  rules: AlertRule[];
+}
+
+export async function getAlertConfig(sessionId: string): Promise<AlertConfig> {
+  const response = await fetchWithError(`${API_BASE_URL}/api/alerts/config?session_id=${encodeURIComponent(sessionId)}`);
+  return parseJson<AlertConfig>(response);
+}
+
+export async function saveAlertConfig(sessionId: string, config: AlertConfig): Promise<{ ok: boolean }> {
+  const response = await fetchWithError(`${API_BASE_URL}/api/alerts/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, ...config }),
+  });
+  return parseJson<{ ok: boolean }>(response);
+}
+
+// ── Forecast APIs ──
+
+export interface ForecastOrgData {
+  orgName: string;
+  monthlyPattern: Record<string, { count: number; totalAmt: number }>;
+  recentBids: BidNotice[];
+  aiInsight: string;
+  total: number;
+}
+
+export async function getPopularAgencies(): Promise<{ agencies: string[] }> {
+  const response = await fetchWithError(`${API_BASE_URL}/api/forecast/popular`);
+  return parseJson<{ agencies: string[] }>(response);
+}
+
+export async function getOrgForecast(orgName: string): Promise<ForecastOrgData> {
+  const response = await fetchWithError(`${API_BASE_URL}/api/forecast/${encodeURIComponent(orgName)}`);
+  return parseJson<ForecastOrgData>(response);
 }
