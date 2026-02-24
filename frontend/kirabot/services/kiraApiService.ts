@@ -1,4 +1,14 @@
-import { AnalyzeResponse, ChatResponse, SessionStats } from '../types';
+import {
+  AlertSettings,
+  AnalyzeResponse,
+  BidSearchResponse,
+  ChatResponse,
+  EvalBatchResponse,
+  EvalJob,
+  NaraAttachment,
+  ProposalSections,
+  SessionStats,
+} from '../types';
 
 const API_BASE_URL = (
   import.meta.env.VITE_KIRA_API_BASE_URL?.trim()
@@ -49,7 +59,7 @@ export async function getSessionStats(sessionId: string): Promise<SessionStats> 
   return parseJson<SessionStats>(response);
 }
 
-export async function uploadCompanyDocuments(sessionId: string, files: File[]): Promise<{ company_chunks: number; added_chunks: number }> {
+export async function uploadCompanyDocuments(sessionId: string, files: File[]): Promise<{ company_chunks: number; added_chunks: number; fileUrls?: string[] }> {
   const form = new FormData();
   form.append('session_id', sessionId);
   files.forEach((file) => form.append('files', file));
@@ -58,7 +68,7 @@ export async function uploadCompanyDocuments(sessionId: string, files: File[]): 
     method: 'POST',
     body: form,
   });
-  return parseJson<{ company_chunks: number; added_chunks: number }>(response);
+  return parseJson<{ company_chunks: number; added_chunks: number; fileUrls?: string[] }>(response);
 }
 
 export async function clearCompanyDocuments(sessionId: string): Promise<{ company_chunks: number }> {
@@ -93,4 +103,143 @@ export async function chatWithReferences(sessionId: string, message: string): Pr
 
 export function getApiBaseUrl(): string {
   return API_BASE_URL;
+}
+
+// ── 재매칭 (회사 문서 등록 후) ──
+
+export async function rematchWithCompanyDocs(sessionId: string): Promise<AnalyzeResponse> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/rematch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+  return parseJson<AnalyzeResponse>(res);
+}
+
+// ── 공고 검색 API (레거시 백엔드 → 나라장터) ──
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function searchBids(conditions: Record<string, any>): Promise<BidSearchResponse> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/bids/search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(conditions),
+  });
+  return parseJson<BidSearchResponse>(res);
+}
+
+export async function getBidAttachments(bidNtceNo: string, bidNtceOrd?: string): Promise<NaraAttachment[]> {
+  const params = new URLSearchParams({ bid_ntce_ord: bidNtceOrd || '00' });
+  const res = await fetchWithError(`${API_BASE_URL}/api/bids/${bidNtceNo}/attachments?${params}`, {
+    method: 'GET',
+  });
+  const data = await parseJson<{ attachments: NaraAttachment[] }>(res);
+  return data.attachments;
+}
+
+export async function analyzeBidFromNara(sessionId: string, bidNtceNo: string, bidNtceOrd?: string, category?: string): Promise<AnalyzeResponse> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/bids/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      bid_ntce_no: bidNtceNo,
+      bid_ntce_ord: bidNtceOrd || '00',
+      category: category || '',
+    }),
+  });
+  return parseJson<AnalyzeResponse>(res);
+}
+
+// ── 일괄 평가 (레거시 백엔드) ──
+
+export async function evaluateBatch(sessionId: string, bidNoticeIds: string[]): Promise<EvalBatchResponse> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/bids/evaluate-batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, bid_ntce_nos: bidNoticeIds }),
+  });
+  return parseJson<EvalBatchResponse>(res);
+}
+
+export async function exportEvaluations(): Promise<void> {
+  window.open('/api/export/evaluations', '_blank');
+}
+
+export async function generateProposal(bidNoticeId: string): Promise<{ sections: ProposalSections }> {
+  const res = await fetch('/api/proposals', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ bidNoticeId }),
+  });
+  return parseJson<{ sections: ProposalSections }>(res);
+}
+
+export async function getStrengthCard(bidNoticeId: string): Promise<unknown> {
+  const res = await fetch(`/api/strength-card/${bidNoticeId}`, {
+    credentials: 'include',
+  });
+  return parseJson<unknown>(res);
+}
+
+// ── 알림 설정 CRUD ──
+
+export async function saveAlertSettings(sessionId: string, settings: AlertSettings): Promise<{ ok: boolean }> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/alerts/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, ...settings }),
+  });
+  return parseJson<{ ok: boolean }>(res);
+}
+
+export async function getAlertSettings(sessionId: string): Promise<AlertSettings | null> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/alerts/settings?session_id=${sessionId}`, {
+    method: 'GET',
+  });
+  const data = await parseJson<{ settings: AlertSettings | null }>(res);
+  return data.settings;
+}
+
+// ── Dashboard APIs ──
+
+export interface DashboardSummary {
+  newMatches: number;
+  deadlineSoon: number;
+  goCount: number;
+  totalAnalyzed: number;
+  recentSearches: string[];
+  smartFitTop5: unknown[];
+}
+
+export async function getDashboardSummary(sessionId: string): Promise<DashboardSummary> {
+  const response = await fetchWithError(`${API_BASE_URL}/api/dashboard/summary?session_id=${encodeURIComponent(sessionId)}`);
+  return parseJson<DashboardSummary>(response);
+}
+
+export interface SmartFitBreakdown {
+  qualification: { score: number; maxScore: number; details: string };
+  keywords: { score: number; maxScore: number; details: string };
+  region: { score: number; maxScore: number; details: string };
+  experience: { score: number; maxScore: number; details: string };
+}
+
+export interface SmartFitResult {
+  totalScore: number;
+  breakdown: SmartFitBreakdown;
+}
+
+export async function getSmartFitScore(
+  sessionId: string,
+  bidNoticeId: string,
+  bidTitle: string,
+  keywords: string[],
+): Promise<SmartFitResult> {
+  const response = await fetchWithError(`${API_BASE_URL}/api/smart-fit/score`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, bid_notice_id: bidNoticeId, bid_title: bidTitle, keywords }),
+  });
+  return parseJson<SmartFitResult>(response);
 }
