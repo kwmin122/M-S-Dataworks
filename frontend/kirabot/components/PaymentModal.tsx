@@ -8,12 +8,13 @@ interface PaymentModalProps {
   onClose: () => void;
   onSuccess: (subscription: Subscription) => void;
   plan: 'pro';
+  username?: string;
 }
 
 const STORE_ID = import.meta.env.VITE_PORTONE_STORE_ID || 'store-717397bc-f58e-4eaa-8990-e058537209c5';
-const CHANNEL_KEY = 'channel-key-3d29ff2f-6b77-4885-845d-b2e224b1b5ab';
+const CHANNEL_KEY = import.meta.env.VITE_PORTONE_CHANNEL_KEY || 'channel-key-3d29ff2f-6b77-4885-845d-b2e224b1b5ab';
 
-const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSuccess, plan }) => {
+const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSuccess, plan, username }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [step, setStep] = useState<'confirm' | 'processing' | 'done'>('confirm');
@@ -33,10 +34,10 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSuccess,
         storeId: STORE_ID,
         channelKey: CHANNEL_KEY,
         billingKeyMethod: 'CARD',
-        issueId: `billing_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        issueId: `billing_${username || 'anon'}_${Date.now()}`,
         issueName: `KiraBot ${plan.charAt(0).toUpperCase() + plan.slice(1)} 정기결제`,
         customer: {
-          customerId: `kira_user_${Date.now()}`,
+          customerId: username || `kira_user_${Date.now()}`,
         },
       });
 

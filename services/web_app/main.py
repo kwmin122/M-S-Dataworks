@@ -6,6 +6,8 @@ Streamlit UI 없이 웹 랜딩(index.html)에서 Kira 분석 엔진을 직접 �
 
 from __future__ import annotations
 
+import base64
+import fcntl
 import hashlib
 import hmac as hmac_mod
 import json
@@ -2215,9 +2217,20 @@ PORTONE_API_SECRET = os.getenv("PORTONE_API_SECRET", "")
 _SUBSCRIPTIONS_DIR = ROOT_DIR / "data" / "subscriptions"
 
 
+def _safe_username_for_path(username: str) -> str:
+    """username을 파일시스템 안전한 문자열로 변환."""
+    safe = re.sub(r"[^a-zA-Z0-9@._\-]", "_", username)
+    safe = safe.replace("..", "_")
+    safe = safe.lstrip(".")
+    return safe[:100]
+
+
+def _subscription_path(username: str) -> Path:
+    return _SUBSCRIPTIONS_DIR / f"{_safe_username_for_path(username)}.json"
+
+
 def _load_subscription(username: str) -> dict | None:
-    safe = username.replace("/", "_").replace("..", "_")
-    path = _SUBSCRIPTIONS_DIR / f"{safe}.json"
+    path = _subscription_path(username)
     if not path.exists():
         return None
     try:
@@ -2228,16 +2241,43 @@ def _load_subscription(username: str) -> dict | None:
 
 def _save_subscription(username: str, sub: dict) -> None:
     _SUBSCRIPTIONS_DIR.mkdir(parents=True, exist_ok=True)
-    safe = username.replace("/", "_").replace("..", "_")
+    path = _subscription_path(username)
     sub["updatedAt"] = datetime.now(timezone.utc).isoformat()
-    (_SUBSCRIPTIONS_DIR / f"{safe}.json").write_text(
-        json.dumps(sub, ensure_ascii=False, indent=2), "utf-8"
-    )
+    data = json.dumps(sub, ensure_ascii=False, indent=2).encode("utf-8")
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        os.write(fd, data)
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def _public_subscription(sub: dict) -> dict:
+    """클라이언트 응답용: billingKey 제거."""
+    return {k: v for k, v in sub.items() if k != "billingKey"}
+
+
+async def _verify_billing_key_with_portone(billing_key: str) -> bool:
+    """PortOne V2 REST API로 빌링키 실재 여부 확인."""
+    if not PORTONE_API_SECRET:
+        logger.warning("PORTONE_API_SECRET 미설정 — 빌링키 검증 스킵 (테스트 모드)")
+        return True
+    import httpx
+    url = f"https://api.portone.io/billing-keys/{billing_key}"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                url, headers={"Authorization": f"PortOne {PORTONE_API_SECRET}"}
+            )
+        return resp.status_code == 200
+    except Exception:
+        logger.exception("PortOne billingKey verification failed")
+        return False
 
 
 def _company_profile_dir(username: str) -> Path:
-    safe = username.replace("/", "_").replace("..", "_")
-    return _COMPANY_PROFILES_DIR / safe
+    return _COMPANY_PROFILES_DIR / _safe_username_for_path(username)
 
 
 def _load_company_profile(username: str) -> dict | None:
@@ -2643,10 +2683,18 @@ async def register_billing_key(request: Request) -> dict[str, Any]:
     if plan not in PLAN_PRICES or plan == "free":
         raise HTTPException(status_code=400, detail=f"유효하지 않은 플랜: {plan}")
 
+    # PortOne API로 빌링키 유효성 확인
+    if not await _verify_billing_key_with_portone(billing_key):
+        raise HTTPException(status_code=400, detail="유효하지 않은 빌링키입니다.")
+
     # 이중 결제 방지: 이미 활성 구독이 있는지 확인
     existing = _load_subscription(username)
     if existing and existing.get("status") == "active" and existing.get("plan") == plan:
-        return {"ok": True, "subscription": existing, "message": "이미 동일 플랜 구독 중입니다."}
+        return {
+            "ok": True,
+            "subscription": _public_subscription(existing),
+            "message": "이미 동일 플랜 구독 중입니다.",
+        }
 
     now = datetime.now(timezone.utc)
     sub = {
@@ -2662,7 +2710,7 @@ async def register_billing_key(request: Request) -> dict[str, Any]:
         "cancelledAt": None,
     }
     _save_subscription(username, sub)
-    return {"ok": True, "subscription": sub}
+    return {"ok": True, "subscription": _public_subscription(sub)}
 
 
 @app.get("/api/payments/subscription")
@@ -2672,7 +2720,7 @@ async def get_subscription(request: Request) -> dict[str, Any]:
     sub = _load_subscription(username)
     if not sub:
         return {"ok": True, "subscription": {"plan": "free", "status": "none"}}
-    return {"ok": True, "subscription": sub}
+    return {"ok": True, "subscription": _public_subscription(sub)}
 
 
 @app.post("/api/payments/cancel")
@@ -2687,24 +2735,49 @@ async def cancel_subscription(request: Request) -> dict[str, Any]:
     sub["cancelledAt"] = datetime.now(timezone.utc).isoformat()
     _save_subscription(username, sub)
 
-    return {"ok": True, "subscription": sub}
+    return {"ok": True, "subscription": _public_subscription(sub)}
 
 
 @app.post("/api/payments/webhook")
 async def portone_webhook(request: Request) -> dict[str, Any]:
-    """PortOne V2 웹훅 수신 — 결제 상태 변경 알림."""
+    """PortOne V2 웹훅 수신 (Svix 서명 검증)."""
     raw_body = await request.body()
 
-    # HMAC-SHA256 서명 검증
     webhook_secret = os.getenv("PORTONE_WEBHOOK_SECRET", "")
-    if webhook_secret:
-        sig_header = request.headers.get("x-portone-signature", "")
-        expected = hmac_mod.new(
-            webhook_secret.encode(), raw_body, hashlib.sha256
-        ).hexdigest()
-        if not hmac_mod.compare_digest(sig_header, expected):
-            logger.warning("PortOne webhook signature mismatch")
-            raise HTTPException(status_code=401, detail="Invalid signature")
+    if not webhook_secret:
+        logger.warning("PORTONE_WEBHOOK_SECRET 미설정 — 웹훅 거부")
+        raise HTTPException(status_code=503, detail="Webhook not configured")
+
+    # Svix 서명 검증: webhook-id, webhook-timestamp, webhook-signature
+    wh_id = request.headers.get("webhook-id", "")
+    wh_ts = request.headers.get("webhook-timestamp", "")
+    wh_sig = request.headers.get("webhook-signature", "")
+
+    if not wh_id or not wh_ts or not wh_sig:
+        raise HTTPException(status_code=401, detail="Missing webhook headers")
+
+    # webhook_secret이 "whsec_" 접두사로 시작하면 제거 후 base64 디코딩
+    secret_raw = webhook_secret
+    if secret_raw.startswith("whsec_"):
+        secret_raw = secret_raw[6:]
+    try:
+        secret_bytes = base64.b64decode(secret_raw)
+    except Exception:
+        secret_bytes = secret_raw.encode()
+
+    signed_payload = f"{wh_id}.{wh_ts}.{raw_body.decode()}".encode()
+    expected_sig = base64.b64encode(
+        hmac_mod.new(secret_bytes, signed_payload, hashlib.sha256).digest()
+    ).decode()
+
+    # webhook-signature 헤더는 "v1,<sig>" 형식 (공백 구분 복수 가능)
+    valid = any(
+        hmac_mod.compare_digest(f"v1,{expected_sig}", part.strip())
+        for part in wh_sig.split(" ")
+    )
+    if not valid:
+        logger.warning("PortOne webhook signature mismatch")
+        raise HTTPException(status_code=401, detail="Invalid signature")
 
     try:
         payload = json.loads(raw_body)
@@ -2714,12 +2787,9 @@ async def portone_webhook(request: Request) -> dict[str, Any]:
     event_type = payload.get("type", "")
     logger.info("PortOne webhook: type=%s", event_type)
 
-    # 결제 완료/실패 이벤트 처리
     if event_type in ("Transaction.Paid", "BillingKey.Issued"):
-        # 로그만 기록 (빌링키 방식은 프론트에서 직접 등록)
         pass
     elif event_type == "Transaction.Failed":
-        # 결제 실패 시 구독 상태 업데이트 가능
         logger.warning("Payment failed: %s", payload)
 
     return {"ok": True}

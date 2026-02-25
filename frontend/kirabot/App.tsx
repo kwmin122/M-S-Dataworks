@@ -224,10 +224,12 @@ function AppRoutes() {
       <PaymentModal
         isOpen={isPaymentModalOpen}
         onClose={() => setIsPaymentModalOpen(false)}
-        onSuccess={(sub) => {
-          console.log('Subscription activated:', sub);
+        onSuccess={() => {
+          setIsPaymentModalOpen(false);
+          navigate('/settings/subscription');
         }}
         plan="pro"
+        username={user?.email}
       />
     </>
   );

@@ -7,23 +7,25 @@ import EmptyState from '../shared/EmptyState';
 const SubscriptionPage: React.FC = () => {
   const [sub, setSub] = useState<Subscription | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState('');
 
   useEffect(() => {
     getSubscription()
       .then(setSub)
-      .catch(() => {})
+      .catch((e) => setError(e instanceof Error ? e.message : '구독 정보를 불러오지 못했습니다.'))
       .finally(() => setLoading(false));
   }, []);
 
   const handleCancel = async () => {
-    if (!confirm('정말 구독을 해지하시겠습니까? 현재 결제 기간이 끝날 때까지 서비스를 이용할 수 있습니다.')) return;
+    setCancelError('');
     setCancelling(true);
     try {
       const updated = await cancelSubscription();
       setSub(updated);
     } catch (e) {
-      alert(e instanceof Error ? e.message : '해지 실패');
+      setCancelError(e instanceof Error ? e.message : '해지 처리에 실패했습니다.');
     } finally {
       setCancelling(false);
     }
@@ -38,6 +40,18 @@ const SubscriptionPage: React.FC = () => {
           <span className="typing-dot h-2 w-2 rounded-full bg-kira-500" />
         </div>
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <EmptyState
+        icon={AlertCircle}
+        title="오류가 발생했습니다"
+        description={error}
+        actionLabel="다시 시도"
+        onAction={() => window.location.reload()}
+      />
     );
   }
 
@@ -100,6 +114,12 @@ const SubscriptionPage: React.FC = () => {
               구독이 해지되었습니다. {periodEnd}까지 서비스를 이용할 수 있습니다.
             </p>
           </div>
+        )}
+
+        {cancelError && (
+          <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+            {cancelError}
+          </p>
         )}
 
         {isActive && (
