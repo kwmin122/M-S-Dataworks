@@ -20,7 +20,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -185,6 +186,7 @@ class WebRuntimeSession:
     latest_rfx_analysis: RFxAnalysisResult | None = None
     latest_matching_result: MatchingResult | None = None
     latest_document_name: str = ""
+    _inject_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
 
 app = FastAPI(title="Kira Web Runtime", version="0.1.0")
@@ -672,9 +674,9 @@ def _is_grounded_in_rfx(reference: dict[str, Any], rfx_context: str) -> bool:
         return False
     if snippet_norm in rfx_norm:
         return True
-    keywords = [token for token in snippet_norm.split() if len(token) >= 2][:6]
+    keywords = [token for token in snippet_norm.split() if len(token) >= 2][:8]
     hit_count = sum(1 for token in keywords if token in rfx_norm)
-    return hit_count >= 2
+    return hit_count >= 1
 
 
 def _collect_rag_scores(session: WebRuntimeSession, message: str) -> tuple[list[float], list[float]]:
@@ -683,14 +685,14 @@ def _collect_rag_scores(session: WebRuntimeSession, message: str) -> tuple[list[
 
     try:
         if session.rag_engine.collection.count() > 0:
-            company_results = session.rag_engine.search(message, top_k=5)
+            company_results = session.rag_engine.search(message, top_k=12)
             company_scores = [float(item.score or 0.0) for item in company_results]
     except Exception:
         company_scores = []
 
     try:
         if session.rfx_rag_engine.collection.count() > 0:
-            rfx_results = session.rfx_rag_engine.search(message, top_k=5)
+            rfx_results = session.rfx_rag_engine.search(message, top_k=12)
             rfx_scores = [float(item.score or 0.0) for item in rfx_results]
     except Exception:
         rfx_scores = []
@@ -765,14 +767,14 @@ def _build_chat_context(session: WebRuntimeSession, message: str) -> tuple[str, 
     fallback_refs: list[dict[str, Any]] = []
 
     if session.rag_engine.collection.count() > 0:
-        for result in session.rag_engine.search(message, top_k=5):
+        for result in session.rag_engine.search(message, top_k=12):
             page_num = _extract_page_number(result.source_file, result.metadata)
             company_context_text += (
                 f"\n[회사 출처: {result.source_file}, 페이지 {page_num}]\n{result.text}\n---\n"
             )
 
     if session.rfx_rag_engine.collection.count() > 0:
-        for result in session.rfx_rag_engine.search(message, top_k=5):
+        for result in session.rfx_rag_engine.search(message, top_k=12):
             page_num = _extract_page_number(result.source_file, result.metadata)
             rfx_context_text += (
                 f"\n[RFx 출처: {result.source_file}, 페이지 {page_num}]\n{result.text}\n---\n"
@@ -781,7 +783,7 @@ def _build_chat_context(session: WebRuntimeSession, message: str) -> tuple[str, 
                 fallback_refs.append(
                     {
                         "page": page_num,
-                        "text": str(result.text or "")[:100],
+                        "text": str(result.text or "")[:500],
                     }
                 )
 
@@ -891,7 +893,7 @@ def _generate_chat_answer_with_tools(
     client = OpenAI(api_key=api_key)
     response = client.chat.completions.create(
         model=model,
-        max_tokens=2048,
+        max_tokens=4096,
         temperature=0.3,
         tools=CHAT_TOOLS,
         tool_choice="required",
@@ -1157,7 +1159,7 @@ async def analyze_uploaded_document(
     file: UploadFile = File(...),
 ) -> dict[str, Any]:
     session = _get_or_create_session(session_id)
-    company_chunk_count = int(session.rag_engine.get_stats().get("total_documents", 0))
+    company_chunk_count = _inject_company_profile_if_needed(session, request)
 
     quota = _enforce_quota_or_raise(
         request=request,
@@ -1219,7 +1221,7 @@ async def analyze_uploaded_document(
 @app.post("/api/analyze/text")
 def analyze_text(payload: AnalyzeTextPayload, request: Request) -> dict[str, Any]:
     session = _get_or_create_session(payload.session_id)
-    company_chunk_count = int(session.rag_engine.get_stats().get("total_documents", 0))
+    company_chunk_count = _inject_company_profile_if_needed(session, request)
 
     quota = _enforce_quota_or_raise(
         request=request,
@@ -1276,7 +1278,7 @@ def rematch_with_company_docs(payload: RematchPayload, request: Request) -> dict
     if session.latest_rfx_analysis is None:
         raise HTTPException(status_code=400, detail="재매칭할 분석 결과가 없습니다.")
 
-    company_chunk_count = int(session.rag_engine.get_stats().get("total_documents", 0))
+    company_chunk_count = _inject_company_profile_if_needed(session, request)
     if company_chunk_count <= 0:
         raise HTTPException(status_code=400, detail="등록된 회사 문서가 없습니다.")
 
@@ -1302,6 +1304,8 @@ def rematch_with_company_docs(payload: RematchPayload, request: Request) -> dict
 @app.post("/api/chat")
 def chat_with_references(payload: ChatPayload, request: Request) -> dict[str, Any]:
     session = _get_or_create_session(payload.session_id)
+    # 회사 프로필 문서 자동 주입 (RAG 검색에서 회사 정보 활용)
+    _inject_company_profile_if_needed(session, request)
     message = str(payload.message or "").strip()
     if not message:
         raise HTTPException(status_code=400, detail="message가 비어 있습니다.")
@@ -1470,9 +1474,9 @@ def serve_uploaded_file(session_id: str, bucket: str, filename: str) -> FileResp
     if bucket not in ("company", "target"):
         raise HTTPException(status_code=400, detail="유효하지 않은 버킷입니다.")
 
-    # Path traversal 방어
+    # Path traversal 방어: Path.name으로 디렉토리 컴포넌트 제거 + resolve 검증
     safe_filename = Path(filename).name
-    if not safe_filename or "/" in filename or "\\" in filename or ".." in filename:
+    if not safe_filename or "/" in filename or "\\" in filename:
         raise HTTPException(status_code=400, detail="유효하지 않은 파일명입니다.")
 
     file_path = ROOT_DIR / "data" / "web_uploads" / session_id / bucket / safe_filename
@@ -1505,7 +1509,7 @@ def serve_file_text_preview(session_id: str, bucket: str, filename: str) -> dict
         raise HTTPException(status_code=400, detail="유효하지 않은 버킷입니다.")
 
     safe_filename = Path(filename).name
-    if not safe_filename or "/" in filename or "\\" in filename or ".." in filename:
+    if not safe_filename or "/" in filename or "\\" in filename:
         raise HTTPException(status_code=400, detail="유효하지 않은 파일명입니다.")
 
     file_path = ROOT_DIR / "data" / "web_uploads" / session_id / bucket / safe_filename
@@ -1538,7 +1542,7 @@ def serve_file_text_preview(session_id: str, bucket: str, filename: str) -> dict
 async def analyze_bid_from_nara(payload: BidAnalyzePayload, request: Request) -> dict[str, Any]:
     """나라장터 공고 첨부파일 자동 다운로드 + 분석."""
     session = _get_or_create_session(payload.session_id)
-    company_chunk_count = int(session.rag_engine.get_stats().get("total_documents", 0))
+    company_chunk_count = _inject_company_profile_if_needed(session, request)
 
     quota = _enforce_quota_or_raise(
         request=request,
@@ -1641,7 +1645,7 @@ async def analyze_bid_from_nara(payload: BidAnalyzePayload, request: Request) ->
 async def api_bids_evaluate_batch(payload: BidEvaluateBatchPayload, request: Request) -> dict[str, Any]:
     """선택된 공고들을 순차 다운로드 + 분석하여 일괄 평가."""
     session = _get_or_create_session(payload.session_id)
-    company_chunk_count = int(session.rag_engine.get_stats().get("total_documents", 0))
+    company_chunk_count = _inject_company_profile_if_needed(session, request)
 
     api_key = _openai_api_key()
     jobs: list[dict[str, Any]] = []
@@ -2282,14 +2286,21 @@ async def _verify_billing_key_with_portone(billing_key: str) -> bool:
 
 
 def _company_profile_dir(username: str) -> Path:
-    return _COMPANY_PROFILES_DIR / _safe_username_for_path(username)
+    path = _COMPANY_PROFILES_DIR / _safe_username_for_path(username)
+    if not path.resolve().is_relative_to(_COMPANY_PROFILES_DIR.resolve()):
+        raise HTTPException(status_code=400, detail="잘못된 사용자명")
+    return path
 
 
 def _load_company_profile(username: str) -> dict | None:
     path = _company_profile_dir(username) / "profile.json"
     if not path.exists():
         return None
-    return json.loads(path.read_text("utf-8"))
+    try:
+        return json.loads(path.read_text("utf-8"))
+    except Exception:
+        logger.warning("profile.json corrupted for user=%s", username)
+        return None
 
 
 def _save_company_profile(username: str, profile: dict) -> None:
@@ -2335,6 +2346,68 @@ def _add_company_docs_to_vectordb(username: str, text: str) -> None:
     chunks = [text[i:i + 1000] for i in range(0, len(text), 800)]
     for chunk in chunks[:50]:  # Cap at 50 chunks
         engine.add_text_directly(chunk, source_name="company_profile")
+
+
+_DOC_ID_RE = re.compile(r"^doc_[a-f0-9]{8}$")
+_MAX_CHUNKS_PER_DOC = 10
+_MAX_TOTAL_INJECT_CHUNKS = 50
+
+
+def _inject_company_profile_if_needed(session: "WebRuntimeSession", request: Request) -> int:
+    """세션에 회사 문서가 없으면, 로그인 유저의 회사 프로필 문서를 자동 주입.
+
+    Returns the company chunk count after injection.
+    """
+    with session._inject_lock:
+        company_chunk_count = int(session.rag_engine.get_stats().get("total_documents", 0))
+        if company_chunk_count > 0:
+            return company_chunk_count
+
+        try:
+            username = _require_username(request)
+        except HTTPException:
+            return 0
+
+        profile = _load_company_profile(username)
+        if not profile or not profile.get("documents"):
+            return 0
+
+        docs_dir = _company_profile_dir(username) / "documents"
+        if not docs_dir.exists():
+            return 0
+
+        parser = DocumentParser()
+        total_injected = 0
+
+        for doc in profile["documents"]:
+            if total_injected >= _MAX_TOTAL_INJECT_CHUNKS:
+                break
+            if not isinstance(doc, dict):
+                continue
+            doc_id = doc.get("id", "")
+            if not _DOC_ID_RE.fullmatch(doc_id):
+                logger.warning("Skipping invalid doc_id=%r for user=%s", doc_id, username)
+                continue
+
+            for f in docs_dir.glob(f"{doc_id}_*"):
+                if not f.resolve().is_relative_to(docs_dir.resolve()):
+                    continue
+                try:
+                    parsed = parser.parse(str(f))
+                    text = parsed.full_text[:8000]
+                    doc_chunks = [text[i:i + 1000] for i in range(0, len(text), 800)]
+                    for chunk in doc_chunks[:_MAX_CHUNKS_PER_DOC]:
+                        if total_injected >= _MAX_TOTAL_INJECT_CHUNKS:
+                            break
+                        session.rag_engine.add_text_directly(chunk, source_name="company_profile")
+                        total_injected += 1
+                except Exception:
+                    logger.warning("Failed to parse company doc %s for user=%s", f.name, username)
+
+        if total_injected > 0:
+            logger.info("Auto-injected company profile docs for user=%s (%d chunks)", username, total_injected)
+
+        return company_chunk_count + total_injected
 
 
 @app.get("/api/company/profile")

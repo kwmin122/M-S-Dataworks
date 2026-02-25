@@ -510,6 +510,8 @@ async def download_attachment(file_url: str, dest_dir: str, fallback_name: str =
         # 확장자를 보존하면서 파일명만 sanitize
         stem, ext = os.path.splitext(filename)
         safe_stem = re.sub(r"[^0-9A-Za-z._\-가-힣]", "_", stem).strip("_")
+        # 연속 점(..) 제거 — 파일 서빙 시 path traversal 차단 방지
+        safe_stem = re.sub(r"\.{2,}", ".", safe_stem)
         safe_name = f"{safe_stem}{ext}"
         local_path = dest_path / safe_name
 

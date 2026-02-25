@@ -161,6 +161,14 @@ class DocumentParser:
             return self._parse_txt(path)
         if ext == ".hwp":
             return self._parse_hwp(path)
+        if ext == ".hwpx":
+            return self._parse_hwpx(path)
+        if ext in (".xlsx", ".xls"):
+            return self._parse_excel(path)
+        if ext == ".csv":
+            return self._parse_csv(path)
+        if ext in (".pptx", ".ppt"):
+            return self._parse_pptx(path)
 
         raise ValueError(f"지원하지 않는 파일 형식입니다: {ext}")
 
@@ -240,6 +248,167 @@ class DocumentParser:
             text=normalized,
             pages=pages,
             metadata={"file_type": "hwp"},
+        )
+
+    def _parse_hwpx(self, path: Path) -> ParsedDocument:
+        """HWPX 파일 파싱 (OOXML 기반, zipfile + xml)."""
+        import zipfile
+        from xml.etree import ElementTree as ET
+
+        if not zipfile.is_zipfile(str(path)):
+            raise ValueError("유효한 HWPX 파일이 아닙니다.")
+
+        paragraphs: list[str] = []
+        with zipfile.ZipFile(str(path), "r") as zf:
+            # Contents/section*.xml 에 본문이 있음
+            section_files = sorted(
+                [n for n in zf.namelist() if n.startswith("Contents/section") and n.endswith(".xml")]
+            )
+            if not section_files:
+                # 대안: Contents/ 내 모든 xml
+                section_files = sorted(
+                    [n for n in zf.namelist() if n.startswith("Contents/") and n.endswith(".xml")]
+                )
+
+            for section_file in section_files:
+                try:
+                    xml_data = zf.read(section_file)
+                    root = ET.fromstring(xml_data)
+                    # 모든 텍스트 노드 추출
+                    for elem in root.iter():
+                        if elem.text and elem.text.strip():
+                            paragraphs.append(elem.text.strip())
+                        if elem.tail and elem.tail.strip():
+                            paragraphs.append(elem.tail.strip())
+                except Exception:
+                    continue
+
+        text = "\n".join(paragraphs)
+        normalized = self.chunker._normalize_text(text)
+        pages = [normalized] if normalized else []
+        return ParsedDocument(
+            filename=path.name,
+            text=normalized,
+            pages=pages,
+            metadata={"file_type": "hwpx"},
+        )
+
+    def _parse_excel(self, path: Path) -> ParsedDocument:
+        """Excel (.xlsx, .xls) 파싱 (openpyxl)."""
+        try:
+            import openpyxl
+        except ImportError as exc:
+            raise ImportError("openpyxl 미설치: pip install openpyxl") from exc
+
+        if path.suffix.lower() == ".xls":
+            raise ValueError(
+                "구형 Excel(.xls) 형식은 지원하지 않습니다. "
+                ".xlsx로 변환 후 업로드해주세요."
+            )
+
+        wb = openpyxl.load_workbook(str(path), read_only=True, data_only=True)
+        sheets_text: list[str] = []
+
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            rows: list[str] = []
+            for row in ws.iter_rows(values_only=True):
+                cells = [str(cell or "").strip() for cell in row]
+                line = "\t".join(cells).strip()
+                if line.replace("\t", ""):
+                    rows.append(line)
+            if rows:
+                sheets_text.append(f"[시트: {sheet_name}]\n" + "\n".join(rows))
+
+        wb.close()
+        text = "\n\n".join(sheets_text)
+        normalized = self.chunker._normalize_text(text)
+        pages = [normalized] if normalized else []
+        return ParsedDocument(
+            filename=path.name,
+            text=normalized,
+            pages=pages,
+            metadata={"file_type": "excel"},
+        )
+
+    def _parse_csv(self, path: Path) -> ParsedDocument:
+        """CSV 파일 파싱."""
+        import csv
+
+        rows: list[str] = []
+        for encoding in ("utf-8", "cp949", "euc-kr"):
+            try:
+                with open(str(path), "r", encoding=encoding, errors="strict") as f:
+                    reader = csv.reader(f)
+                    for row in reader:
+                        line = "\t".join(cell.strip() for cell in row).strip()
+                        if line.replace("\t", ""):
+                            rows.append(line)
+                break
+            except (UnicodeDecodeError, UnicodeError):
+                rows = []
+                continue
+
+        text = "\n".join(rows)
+        normalized = self.chunker._normalize_text(text)
+        pages = [normalized] if normalized else []
+        return ParsedDocument(
+            filename=path.name,
+            text=normalized,
+            pages=pages,
+            metadata={"file_type": "csv"},
+        )
+
+    def _parse_pptx(self, path: Path) -> ParsedDocument:
+        """PowerPoint (.pptx) 파싱 (python-pptx)."""
+        try:
+            from pptx import Presentation
+        except ImportError as exc:
+            raise ImportError("python-pptx 미설치: pip install python-pptx") from exc
+
+        if path.suffix.lower() == ".ppt":
+            raise ValueError(
+                "구형 PowerPoint(.ppt) 형식은 지원하지 않습니다. "
+                ".pptx로 변환 후 업로드해주세요."
+            )
+
+        prs = Presentation(str(path))
+        slides_text: list[str] = []
+
+        for slide_idx, slide in enumerate(prs.slides, start=1):
+            texts: list[str] = []
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    for para in shape.text_frame.paragraphs:
+                        line = para.text.strip()
+                        if line:
+                            texts.append(line)
+                if shape.has_table:
+                    table = shape.table
+                    for row in table.rows:
+                        cells = [cell.text.strip() for cell in row.cells]
+                        line = "\t".join(cells).strip()
+                        if line.replace("\t", ""):
+                            texts.append(line)
+            if texts:
+                slides_text.append(f"[슬라이드 {slide_idx}]\n" + "\n".join(texts))
+
+        text = "\n\n".join(slides_text)
+        normalized = self.chunker._normalize_text(text)
+        # 슬라이드별 페이지 분할
+        pages = []
+        for slide_text in slides_text:
+            norm_slide = self.chunker._normalize_text(slide_text)
+            if norm_slide:
+                pages.append(norm_slide)
+        if not pages and normalized:
+            pages = [normalized]
+
+        return ParsedDocument(
+            filename=path.name,
+            text=normalized,
+            pages=pages,
+            metadata={"file_type": "pptx"},
         )
 
     def _parse_txt(self, path: Path) -> ParsedDocument:
