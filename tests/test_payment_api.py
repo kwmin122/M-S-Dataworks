@@ -428,3 +428,42 @@ class TestBillingKeyFormat:
                 cookies=_auth_cookie(),
             )
             assert resp.status_code == 503
+
+
+# ── 기존 보안 취약점 수정 테스트 ──
+
+
+class TestSendAlertNowAuth:
+    def test_send_alert_now_requires_auth(self):
+        """인증 없이 send-now 호출 시 401."""
+        resp = client.post(
+            "/api/alerts/send-now",
+            json={"session_id": "some-session"},
+        )
+        assert resp.status_code == 401
+
+    @patch("services.web_app.main.resolve_user_from_session", return_value=_TEST_USERNAME)
+    def test_send_alert_now_with_auth_needs_session(self, _mock):
+        """인증 후에도 session_id가 없으면 400."""
+        resp = client.post(
+            "/api/alerts/send-now",
+            json={},
+            cookies=_auth_cookie(),
+        )
+        assert resp.status_code == 400
+
+
+class TestUploadFilenameTraversal:
+    @patch("services.web_app.main.resolve_user_from_session", return_value=_TEST_USERNAME)
+    def test_safe_filename_strips_path(self, _mock):
+        """경로 구성요소가 포함된 파일명에서 basename만 사용."""
+        import io
+        malicious_name = "../../../etc/passwd.pdf"
+        file_content = b"%PDF-fake content"
+        resp = client.post(
+            "/api/company/profile",
+            files=[("files", (malicious_name, io.BytesIO(file_content), "application/pdf"))],
+            cookies=_auth_cookie(),
+        )
+        # os.path.basename이 적용되어 정상 처리됨
+        assert resp.status_code == 200

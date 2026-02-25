@@ -2386,8 +2386,10 @@ async def upload_company_profile_docs(
             raise HTTPException(status_code=400, detail=f"파일 크기 초과 (최대 10MB): {f.filename}")
 
         doc_id = f"doc_{uuid.uuid4().hex[:8]}"
-        safe_name = f.filename or "document"
+        safe_name = os.path.basename(f.filename or "document")
         save_path = docs_dir / f"{doc_id}_{safe_name}"
+        if not save_path.resolve().is_relative_to(docs_dir.resolve()):
+            raise HTTPException(status_code=400, detail=f"잘못된 파일명: {f.filename}")
         save_path.write_bytes(content)
 
         saved_docs.append({
@@ -2613,8 +2615,9 @@ def _send_alert_email(to_email: str, subject: str, bids: list[dict]) -> bool:
 
 
 @app.post("/api/alerts/send-now")
-async def send_alert_now(payload: dict) -> dict[str, Any]:
+async def send_alert_now(request: Request, payload: dict) -> dict[str, Any]:
     """알림 설정 기반으로 즉시 공고 검색 + 이메일 발송."""
+    _require_username(request)
     session_id = payload.get("session_id", "").strip()
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id가 필요합니다.")
