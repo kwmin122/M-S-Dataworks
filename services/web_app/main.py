@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 from engine import RAGEngine  # noqa: E402
 from nara_api import (  # noqa: E402
     search_bids as nara_search_bids,
+    search_order_plans as nara_search_order_plans,
     get_bid_detail_attachments as nara_get_bid_detail_attachments,
     get_bid_attachments as nara_get_bid_attachments,
     download_attachment as nara_download_attachment,
@@ -1566,6 +1567,43 @@ def serve_uploaded_file(session_id: str, bucket: str, filename: str) -> FileResp
     )
 
 
+@app.get("/api/preview/text")
+def serve_file_text_preview(session_id: str, bucket: str, filename: str) -> dict[str, Any]:
+    """HWP/DOCX 등 비PDF 문서의 텍스트 추출 (미리보기용).
+
+    Query params: ?session_id=...&bucket=...&filename=...
+    """
+    session_id = _sanitize_session_id(session_id)
+    if bucket not in ("company", "target"):
+        raise HTTPException(status_code=400, detail="유효하지 않은 버킷입니다.")
+
+    safe_filename = Path(filename).name
+    if not safe_filename or "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="유효하지 않은 파일명입니다.")
+
+    file_path = ROOT_DIR / "data" / "web_uploads" / session_id / bucket / safe_filename
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
+
+    try:
+        file_path.resolve().relative_to((ROOT_DIR / "data" / "web_uploads").resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="접근이 허용되지 않은 경로입니다.")
+
+    try:
+        from document_parser import DocumentParser
+        parser = DocumentParser()
+        parsed = parser.parse(str(file_path))
+        # parsed.pages is list[str] — each element is a page's text
+        if parsed.pages:
+            pages = [{"page_number": i + 1, "text": text.strip()} for i, text in enumerate(parsed.pages)]
+        else:
+            pages = [{"page_number": 1, "text": parsed.text.strip()}]
+        return {"fileName": safe_filename, "totalPages": len(pages), "pages": pages}
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"텍스트 추출 실패: {exc}") from exc
+
+
 # ── Phase 3: 공고 첨부파일 자동분석 ──
 
 
@@ -1955,6 +1993,54 @@ async def delete_alert_settings(session_id: str = "") -> dict[str, Any]:
     return {"ok": True}
 
 
+# ── 알림 규칙 기반 설정 (Alert Config) ──
+
+ALERT_CONFIG_DIR = ROOT_DIR / "data" / "alert_configs"
+
+
+@app.post("/api/alerts/config")
+async def save_alert_config(payload: dict) -> dict[str, Any]:
+    """다중 규칙 기반 알림 설정 저장."""
+    session_id = payload.get("session_id", "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id가 필요합니다.")
+
+    config = {
+        "enabled": payload.get("enabled", True),
+        "email": payload.get("email", "").strip(),
+        "schedule": payload.get("schedule", "daily_1"),
+        "hours": payload.get("hours", []),
+        "rules": payload.get("rules", []),
+    }
+
+    if not config["email"]:
+        raise HTTPException(status_code=400, detail="이메일 주소가 필요합니다.")
+
+    ALERT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    config_path = ALERT_CONFIG_DIR / f"{session_id}.json"
+    config_path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    return {"ok": True}
+
+
+@app.get("/api/alerts/config")
+async def get_alert_config(session_id: str = "") -> dict[str, Any]:
+    """다중 규칙 기반 알림 설정 조회."""
+    session_id = session_id.strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id가 필요합니다.")
+
+    config_path = ALERT_CONFIG_DIR / f"{session_id}.json"
+    if not config_path.exists():
+        return {"enabled": True, "email": "", "schedule": "daily_1", "hours": [], "rules": []}
+
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        return data
+    except Exception:
+        return {"enabled": True, "email": "", "schedule": "daily_1", "hours": [], "rules": []}
+
+
 # ── Dashboard Summary + Smart Fit Score ──
 
 
@@ -2104,46 +2190,339 @@ async def get_popular_agencies() -> dict[str, Any]:
 
 @app.get("/api/forecast/{org_name}")
 async def get_org_forecast(org_name: str) -> dict[str, Any]:
-    """기관별 입찰 공고 패턴 데이터 반환."""
+    """기관별 입찰 공고 패턴 + 발주계획 데이터 반환."""
     try:
-        results_3m = await nara_search_bids(
+        # 12개월 공고 데이터 조회
+        results_12m = await nara_search_bids(
             keywords=org_name,
             category="all",
-            period="3m",
+            period="12m",
             exclude_expired=False,
             page=1,
-            page_size=100,
+            page_size=500,
         )
 
-        # 월별 집계
+        notices = results_12m.get("notices", [])
+
+        # 월별 집계 (건수 + 금액)
         monthly: dict[str, dict[str, Any]] = {}
-        for bid in results_3m.get("notices", []):
+        for bid in notices:
             deadline = bid.get("deadlineAt") or ""
             if deadline:
                 month_key = deadline[:7]  # "2026-02"
                 if month_key not in monthly:
                     monthly[month_key] = {"count": 0, "totalAmt": 0}
                 monthly[month_key]["count"] += 1
+                # estimatedPrice: "1,234,567원" → 정수
+                raw_price = bid.get("estimatedPrice") or ""
+                if raw_price:
+                    try:
+                        amt = int(re.sub(r"[^0-9]", "", raw_price))
+                        monthly[month_key]["totalAmt"] += amt
+                    except ValueError:
+                        pass
+
+        # 카테고리 분포 집계
+        category_counts: dict[str, int] = {}
+        for bid in notices:
+            cat = bid.get("category", "기타")
+            category_counts[cat] = category_counts.get(cat, 0) + 1
+
+        # 발주계획(사전공개) 데이터 조회
+        order_plans: list[dict[str, Any]] = []
+        try:
+            plan_result = await nara_search_order_plans(org_name=org_name)
+            all_plans = plan_result.get("plans", [])
+            # 아직 입찰공고가 안 나온 사업만 필터
+            order_plans = [
+                p for p in all_plans
+                if not p.get("bidNtceNoList") or p.get("ntcePblancYn") != "Y"
+            ]
+        except Exception as plan_exc:
+            logger.warning("발주계획 조회 실패 (org=%s): %s", org_name, plan_exc)
+
+        total = results_12m.get("total", 0)
 
         return {
             "orgName": org_name,
             "monthlyPattern": monthly,
-            "recentBids": results_3m.get("notices", [])[:10],
+            "categoryBreakdown": category_counts,
+            "recentBids": notices[:20],
+            "orderPlans": order_plans,
             "aiInsight": (
-                f"{org_name}의 최근 3개월 입찰 공고 패턴입니다. "
+                f"{org_name}의 최근 12개월 입찰 공고 패턴입니다. "
                 "이 데이터는 참고용이며 실제 발주 계획과 다를 수 있습니다."
             ),
-            "total": results_3m.get("total", 0),
+            "total": total,
         }
     except Exception as exc:
         logger.warning("발주예측 조회 실패 (org=%s): %s", org_name, exc)
         return {
             "orgName": org_name,
             "monthlyPattern": {},
+            "categoryBreakdown": {},
             "recentBids": [],
+            "orderPlans": [],
             "aiInsight": "데이터를 불러오는 중 오류가 발생했습니다.",
             "total": 0,
         }
+
+
+# ────────────────────────────────────────────────────────────────
+# 회사 프로필 CRUD API
+# ────────────────────────────────────────────────────────────────
+
+def _require_username(request: Request) -> str:
+    """쿠키에서 username 추출. 미인증 시 401."""
+    token = str(request.cookies.get(_auth_cookie_name(), "") or "")
+    username = str(resolve_user_from_session(token) or "")
+    if not username:
+        raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
+    return username
+
+
+_COMPANY_PROFILES_DIR = ROOT_DIR / "data" / "company_profiles"
+
+
+def _company_profile_dir(username: str) -> Path:
+    safe = username.replace("/", "_").replace("..", "_")
+    return _COMPANY_PROFILES_DIR / safe
+
+
+def _load_company_profile(username: str) -> dict | None:
+    path = _company_profile_dir(username) / "profile.json"
+    if not path.exists():
+        return None
+    return json.loads(path.read_text("utf-8"))
+
+
+def _save_company_profile(username: str, profile: dict) -> None:
+    dirp = _company_profile_dir(username)
+    dirp.mkdir(parents=True, exist_ok=True)
+    profile["updatedAt"] = datetime.now(timezone.utc).isoformat()
+    (dirp / "profile.json").write_text(json.dumps(profile, ensure_ascii=False, indent=2), "utf-8")
+
+
+async def _extract_company_info_llm(text: str) -> dict:
+    """OpenAI를 사용하여 문서에서 회사 정보 추출."""
+    import openai
+    client = openai.OpenAI()
+
+    response = client.chat.completions.create(
+        model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+        messages=[
+            {"role": "system", "content": (
+                "다음 문서에서 회사 정보를 추출하세요. JSON으로 반환하세요.\n"
+                "필드: companyName, businessType, businessNumber, certifications(배열), "
+                "regions(배열), employeeCount(숫자), annualRevenue(문자열), "
+                "keyExperience(배열), specializations(배열), summary(한줄 요약)"
+            )},
+            {"role": "user", "content": text[:12000]},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0,
+    )
+    return json.loads(response.choices[0].message.content or "{}")
+
+
+def _add_company_docs_to_vectordb(username: str, text: str) -> None:
+    """유저별 영구 벡터 컬렉션에 회사 문서 추가."""
+    if not text.strip():
+        return
+    safe = username.replace("/", "_").replace("..", "_")
+    collection_name = f"company_{safe}"
+    engine = RAGEngine(
+        persist_directory=str(ROOT_DIR / "data" / "vectordb"),
+        collection_name=collection_name,
+    )
+    # Split text into chunks and add
+    chunks = [text[i:i + 1000] for i in range(0, len(text), 800)]
+    for chunk in chunks[:50]:  # Cap at 50 chunks
+        engine.add_text_directly(chunk, source_name="company_profile")
+
+
+@app.get("/api/company/profile")
+def get_company_profile(request: Request) -> dict[str, Any]:
+    username = _require_username(request)
+    profile = _load_company_profile(username)
+    if not profile:
+        return {"ok": True, "profile": None}
+    return {"ok": True, "profile": profile}
+
+
+@app.post("/api/company/profile")
+async def upload_company_profile_docs(
+    request: Request,
+    files: list[UploadFile] = File(...),
+) -> dict[str, Any]:
+    username = _require_username(request)
+    dirp = _company_profile_dir(username)
+    docs_dir = dirp / "documents"
+    docs_dir.mkdir(parents=True, exist_ok=True)
+
+    profile = _load_company_profile(username) or {
+        "companyName": "",
+        "businessType": "",
+        "businessNumber": "",
+        "certifications": [],
+        "regions": [],
+        "employeeCount": None,
+        "annualRevenue": "",
+        "keyExperience": [],
+        "specializations": [],
+        "documents": [],
+        "aiExtraction": None,
+        "lastAnalyzedAt": None,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+    MAX_SIZE = 10 * 1024 * 1024  # 10MB (무료)
+    allowed_ext = {".pdf", ".doc", ".docx", ".txt", ".md", ".hwp", ".hwpx", ".xlsx", ".xls", ".csv", ".pptx", ".ppt"}
+    saved_docs: list[dict] = []
+    all_text = ""
+
+    for f in files:
+        ext = Path(f.filename or "").suffix.lower()
+        if ext not in allowed_ext:
+            raise HTTPException(status_code=400, detail=f"허용되지 않는 파일 형식: {ext}")
+        content = await f.read()
+        if len(content) > MAX_SIZE:
+            raise HTTPException(status_code=400, detail=f"파일 크기 초과 (최대 10MB): {f.filename}")
+
+        doc_id = f"doc_{uuid.uuid4().hex[:8]}"
+        safe_name = f.filename or "document"
+        save_path = docs_dir / f"{doc_id}_{safe_name}"
+        save_path.write_bytes(content)
+
+        saved_docs.append({
+            "id": doc_id,
+            "name": safe_name,
+            "uploadedAt": datetime.now(timezone.utc).isoformat(),
+            "size": len(content),
+        })
+
+        # Extract text using existing DocumentParser
+        try:
+            parser = DocumentParser()
+            parsed = parser.parse(str(save_path))
+            text = parsed.full_text
+            all_text += f"\n--- {safe_name} ---\n{text[:8000]}\n"
+        except Exception:
+            pass
+
+    profile["documents"] = profile.get("documents", []) + saved_docs
+
+    # LLM extraction
+    if all_text.strip():
+        try:
+            extraction = await _extract_company_info_llm(all_text)
+            profile["aiExtraction"] = {
+                "summary": extraction.get("summary", ""),
+                "extractedAt": datetime.now(timezone.utc).isoformat(),
+                "raw": extraction,
+            }
+            profile["lastAnalyzedAt"] = datetime.now(timezone.utc).isoformat()
+            # Auto-fill empty fields
+            for key in ("companyName", "businessType", "businessNumber", "annualRevenue"):
+                if not profile.get(key) and extraction.get(key):
+                    profile[key] = extraction[key]
+            for key in ("certifications", "regions", "keyExperience", "specializations"):
+                existing = set(profile.get(key, []))
+                for v in extraction.get(key, []):
+                    existing.add(v)
+                profile[key] = list(existing)
+            if not profile.get("employeeCount") and extraction.get("employeeCount"):
+                profile["employeeCount"] = extraction["employeeCount"]
+        except Exception as e:
+            logger.warning("Company profile LLM extraction failed: %s", e)
+
+    _save_company_profile(username, profile)
+
+    # Also add to permanent vector DB for RAG
+    try:
+        _add_company_docs_to_vectordb(username, all_text)
+    except Exception as e:
+        logger.warning("Company vectordb update failed: %s", e)
+
+    return {"ok": True, "profile": profile}
+
+
+@app.put("/api/company/profile")
+async def update_company_profile(request: Request) -> dict[str, Any]:
+    username = _require_username(request)
+    body = await request.json()
+    profile = _load_company_profile(username)
+    if not profile:
+        raise HTTPException(status_code=404, detail="회사 프로필이 없습니다.")
+
+    editable = ("companyName", "businessType", "businessNumber", "certifications",
+                "regions", "employeeCount", "annualRevenue", "keyExperience", "specializations")
+    for key in editable:
+        if key in body:
+            profile[key] = body[key]
+
+    _save_company_profile(username, profile)
+    return {"ok": True, "profile": profile}
+
+
+@app.delete("/api/company/profile")
+def delete_company_profile(request: Request) -> dict[str, Any]:
+    username = _require_username(request)
+    dirp = _company_profile_dir(username)
+    if dirp.exists():
+        shutil.rmtree(dirp, ignore_errors=True)
+    return {"ok": True}
+
+
+@app.delete("/api/company/documents/{doc_id}")
+def delete_company_document(request: Request, doc_id: str) -> dict[str, Any]:
+    username = _require_username(request)
+    profile = _load_company_profile(username)
+    if not profile:
+        raise HTTPException(status_code=404, detail="프로필 없음")
+
+    profile["documents"] = [d for d in profile.get("documents", []) if d["id"] != doc_id]
+
+    # Delete actual file
+    docs_dir = _company_profile_dir(username) / "documents"
+    for f in docs_dir.glob(f"{doc_id}_*"):
+        f.unlink(missing_ok=True)
+
+    _save_company_profile(username, profile)
+    return {"ok": True, "profile": profile}
+
+
+@app.post("/api/company/reanalyze")
+async def reanalyze_company_profile(request: Request) -> dict[str, Any]:
+    username = _require_username(request)
+    profile = _load_company_profile(username)
+    if not profile or not profile.get("documents"):
+        raise HTTPException(status_code=400, detail="등록된 문서가 없습니다.")
+
+    docs_dir = _company_profile_dir(username) / "documents"
+    all_text = ""
+    for doc in profile["documents"]:
+        for f in docs_dir.glob(f"{doc['id']}_*"):
+            try:
+                parser = DocumentParser()
+                parsed = parser.parse(str(f))
+                text = parsed.full_text
+                all_text += f"\n--- {doc['name']} ---\n{text[:8000]}\n"
+            except Exception:
+                pass
+
+    if not all_text.strip():
+        raise HTTPException(status_code=400, detail="문서에서 텍스트를 추출할 수 없습니다.")
+
+    extraction = await _extract_company_info_llm(all_text)
+    profile["aiExtraction"] = {
+        "summary": extraction.get("summary", ""),
+        "extractedAt": datetime.now(timezone.utc).isoformat(),
+        "raw": extraction,
+    }
+    profile["lastAnalyzedAt"] = datetime.now(timezone.utc).isoformat()
+    _save_company_profile(username, profile)
+    return {"ok": True, "profile": profile}
 
 
 @app.get("/{path_name:path}")
