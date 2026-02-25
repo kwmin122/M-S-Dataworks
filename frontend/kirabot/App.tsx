@@ -19,6 +19,7 @@ import AlertSettingsPage from './components/settings/AlertSettingsPage';
 import SettingsPage from './components/settings/SettingsPage';
 import SettingsGeneral from './components/settings/SettingsGeneral';
 import SettingsAccount from './components/settings/SettingsAccount';
+import SettingsCompany from './components/settings/SettingsCompany';
 import ForecastPage from './components/forecast/ForecastPage';
 import type { User } from './types';
 import { trackPageView } from './utils/analytics';
@@ -29,10 +30,6 @@ import {
   signInWithGoogle,
   signOutGoogleUser,
 } from './services/authService';
-
-function SettingsCompanyPlaceholder() {
-  return <div className="text-slate-500 text-sm">회사 정보 (준비 중)</div>;
-}
 
 function AppRoutes() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -189,7 +186,7 @@ function AppRoutes() {
           <Route path="/settings" element={<SettingsPage />}>
             <Route index element={<Navigate to="general" replace />} />
             <Route path="general" element={<SettingsGeneral user={user} />} />
-            <Route path="company" element={<SettingsCompanyPlaceholder />} />
+            <Route path="company" element={<SettingsCompany />} />
             <Route path="usage" element={<DashboardPage />} />
             <Route path="account" element={<SettingsAccount user={user} onLogout={() => void handleLogout()} />} />
           </Route>
