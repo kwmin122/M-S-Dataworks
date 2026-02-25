@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Paperclip, Building2, FileSearch, Search, FileText, Bell } from 'lucide-react';
+import KiraBotLogo from '../KiraBotLogo';
 import { useAutoResize } from '../../hooks/useAutoResize';
 import { useChatContext } from '../../context/ChatContext';
 import type { MessageAction, User } from '../../types';
@@ -60,7 +61,10 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ user, onSendText, onActio
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-4">
       <div className="w-full max-w-2xl text-center">
-        {/* Greeting */}
+        {/* Kira Logo + Greeting */}
+        <div className="mb-4 flex justify-center">
+          <KiraBotLogo size={52} />
+        </div>
         <h1 className="text-3xl font-bold text-slate-800">
           안녕하세요, {displayName}님
         </h1>

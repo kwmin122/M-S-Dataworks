@@ -634,7 +634,11 @@ export function useConversationFlow() {
               } as AnalysisResultMessage);
 
               trackEvent('document_analyzed', { doc_type: 'analysis', analysis_type: result.analysis?.document_type });
-              pushText('분석이 완료되었습니다! 결과에 대해 자유롭게 질문해주세요. 상단의 버튼으로 추가 분석이나 회사 문서 추가가 가능합니다.');
+              if (conversation.companyProfile?.companyName) {
+                pushText(`🏢 ${conversation.companyProfile.companyName} 정보와 함께 비교 분석이 완료되었습니다! 결과에 대해 자유롭게 질문해주세요.`);
+              } else {
+                pushText('📄 문서 분석이 완료되었습니다! 결과에 대해 자유롭게 질문해주세요. 💡 설정 > 회사 정보를 등록하면 맞춤 비교 분석이 가능합니다.');
+              }
               setPhase('doc_chat');
               updateConv({ title: result.analysis?.title || '문서 분석' });
             } catch (error) {
@@ -688,14 +692,14 @@ export function useConversationFlow() {
 
           if (conversation.phase === 'alert_notification') {
             // 모든 단계의 값을 모아서 저장
-            const keywords = ((conversation as Record<string, unknown>)._alertKeywords as string || '')
+            const keywords = ((conversation as unknown as Record<string, unknown>)._alertKeywords as string || '')
               .split(',').map((k: string) => k.trim()).filter(Boolean);
-            const categoriesRaw = (conversation as Record<string, unknown>)._alertCategories as string || '전체';
+            const categoriesRaw = (conversation as unknown as Record<string, unknown>)._alertCategories as string || '전체';
             const categories = categoriesRaw === '전체' ? ['all'] : [CATEGORY_MAP[categoriesRaw] || categoriesRaw];
-            const regions = ((conversation as Record<string, unknown>)._alertRegions as string || '')
+            const regions = ((conversation as unknown as Record<string, unknown>)._alertRegions as string || '')
               .split(',').map((r: string) => r.trim()).filter(Boolean);
-            const minAmtStr = (conversation as Record<string, unknown>)._alertMinAmt as string || '';
-            const maxAmtStr = (conversation as Record<string, unknown>)._alertMaxAmt as string || '';
+            const minAmtStr = (conversation as unknown as Record<string, unknown>)._alertMinAmt as string || '';
+            const maxAmtStr = (conversation as unknown as Record<string, unknown>)._alertMaxAmt as string || '';
 
             const scheduleMap: Record<string, 'realtime' | 'daily_1' | 'daily_2' | 'daily_3'> = {
               '공고 등록 즉시': 'realtime',

@@ -1,67 +1,92 @@
 import React from 'react';
-import { Upload, MessageSquareText, Highlighter, Scale, LayoutDashboard } from 'lucide-react';
+import { Search, FileCheck, BarChart3, Bell, FileSpreadsheet, MessagesSquare } from 'lucide-react';
 
 const features = [
   {
-    name: '문서 업로드 & 분석',
-    description: 'PDF, DOCX, TXT 문서를 업로드하면 자동으로 구조화합니다.',
-    icon: Upload,
+    icon: Search,
+    name: '나라장터 실시간 검색',
+    description: '키워드, 업무구분, 지역, 금액 조건으로 최대 6개월 공고를 한 번에 검색합니다.',
+    iconBg: 'bg-blue-50',
+    iconColor: 'text-blue-600',
+    hoverBg: 'group-hover:bg-blue-100',
   },
   {
-    name: 'PDF 기반 질의응답',
-    description: '업로드한 문서에 대해 자연어로 질문하면 관련 내용을 찾아 답변합니다.',
-    icon: MessageSquareText,
+    icon: FileCheck,
+    name: '자격요건 자동 추출',
+    description: '공고서에서 참가 자격, 기술 인력, 실적 조건, 결격사유를 AI가 자동 추출합니다.',
+    iconBg: 'bg-violet-50',
+    iconColor: 'text-violet-600',
+    hoverBg: 'group-hover:bg-violet-100',
   },
   {
-    name: '근거 하이라이트',
-    description: '답변의 근거를 원본 문서에서 직접 확인할 수 있습니다.',
-    icon: Highlighter,
+    icon: BarChart3,
+    name: 'GO/NO-GO 판단',
+    description: '회사 역량과 공고 요건을 매칭하여 입찰 참여 여부를 근거와 함께 추천합니다.',
+    iconBg: 'bg-emerald-50',
+    iconColor: 'text-emerald-600',
+    hoverBg: 'group-hover:bg-emerald-100',
   },
   {
-    name: '의견 모드',
-    description: '보수적 / 균형 / 공격적 — 상황에 맞는 톤으로 AI 의견을 제공합니다.',
-    icon: Scale,
+    icon: Bell,
+    name: '맞춤 공고 알림',
+    description: '관심 키워드와 조건을 설정하면 새 공고를 이메일로 알려드립니다.',
+    iconBg: 'bg-amber-50',
+    iconColor: 'text-amber-600',
+    hoverBg: 'group-hover:bg-amber-100',
   },
   {
-    name: '관리자 대시보드',
-    description: '사용 현황, 문서 통계, 시스템 상태를 한 화면에서 확인합니다.',
-    icon: LayoutDashboard,
+    icon: FileSpreadsheet,
+    name: '일괄 평가 & 리포트',
+    description: '여러 공고를 한 번에 평가하고 결과를 CSV로 내려받아 팀과 공유하세요.',
+    iconBg: 'bg-sky-50',
+    iconColor: 'text-sky-600',
+    hoverBg: 'group-hover:bg-sky-100',
+  },
+  {
+    icon: MessagesSquare,
+    name: '문서 기반 Q&A',
+    description: '분석된 문서에 대해 자유롭게 질문하면 원문 근거와 페이지를 표시합니다.',
+    iconBg: 'bg-rose-50',
+    iconColor: 'text-rose-600',
+    hoverBg: 'group-hover:bg-rose-100',
   },
 ];
 
 const Features: React.FC = () => {
   return (
-    <div id="product" className="bg-white py-24 sm:py-32">
+    <section id="product" className="bg-white py-28 sm:py-36">
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
-        <div className="mx-auto max-w-2xl lg:text-center">
-          <h2 className="text-base font-semibold leading-7 text-primary-600">Product</h2>
-          <p className="mt-2 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl font-sans">
-            문서를 업로드하면,<br/>
-            <span className="text-primary-600">근거</span>와 함께 AI가 읽고 답합니다.
-          </p>
+
+        {/* Header — 토스 스타일 큰 텍스트 */}
+        <div className="mb-20">
+          <p className="text-sm font-semibold text-primary-600 tracking-wide mb-4">주요 기능</p>
+          <h2 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-slate-900 leading-tight font-sans">
+            입찰 성공률을 높이는<br />
+            <span className="text-primary-600">6가지 AI 기능</span>
+          </h2>
         </div>
-        <div className="mx-auto mt-16 max-w-2xl sm:mt-20 lg:mt-24 lg:max-w-none">
-          <dl className="grid max-w-xl grid-cols-1 gap-x-8 gap-y-16 lg:max-w-none lg:grid-cols-3">
-            {features.map((feature) => (
-              <div key={feature.name} className="flex flex-col bg-slate-50 rounded-2xl p-8 transition-colors hover:bg-slate-100">
-                <dt className="flex items-center gap-x-3 text-lg font-bold leading-7 text-slate-900 mb-4">
-                  <div className="p-2 bg-white rounded-lg shadow-sm text-primary-600">
-                    <feature.icon className="h-6 w-6" aria-hidden="true" />
-                  </div>
-                  {feature.name}
-                </dt>
-                <dd className="flex flex-auto flex-col text-base leading-7 text-slate-600">
-                  <p className="flex-auto">{feature.description}</p>
-                </dd>
+
+        {/* 2x3 Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {features.map((f) => (
+            <div
+              key={f.name}
+              className="group rounded-2xl border border-slate-200 p-8 transition-all duration-200 hover:border-slate-300 hover:shadow-lg hover:-translate-y-0.5"
+            >
+              <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${f.iconBg} ${f.iconColor} ${f.hoverBg} mb-6 transition-colors duration-200`}>
+                <f.icon size={22} strokeWidth={1.8} />
               </div>
-            ))}
-          </dl>
-          <p className="text-center text-xs text-slate-400 mt-12">
-            * AI 응답은 참고용이며, 최종 판단은 사용자의 책임입니다.
-          </p>
+              <h3 className="text-lg font-bold text-slate-900 mb-3 font-sans">{f.name}</h3>
+              <p className="text-sm text-slate-500 leading-relaxed">{f.description}</p>
+            </div>
+          ))}
         </div>
+
+        <p className="text-center text-xs text-slate-400 mt-16">
+          * AI 응답은 참고용이며, 최종 판단은 사용자의 책임입니다.
+        </p>
       </div>
-    </div>
+    </section>
   );
 };
 

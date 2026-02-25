@@ -15,6 +15,7 @@ import {
 import type { CompanyProfile } from '../../types';
 import EmptyState from '../shared/EmptyState';
 import { pageTransition } from '../../utils/animations';
+import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 
 // ── 유틸 ──
 
@@ -89,6 +90,7 @@ function computeInsights(data: ForecastOrgData) {
 // ── 컴포넌트 ──
 
 const ForecastPage: React.FC = () => {
+  useDocumentTitle('발주예측');
   const navigate = useNavigate();
   const [agencies, setAgencies] = useState<string[]>([]);
   const [recentOrgs, setRecentOrgs] = useState<string[]>(getRecentOrgs());
@@ -136,7 +138,7 @@ const ForecastPage: React.FC = () => {
     if (!data) return [];
     return Object.entries(data.monthlyPattern)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([month, val]) => ({
+      .map(([month, val]: [string, { count: number; totalAmt: number }]) => ({
         month,
         label: `${parseInt(month.slice(5))}월`,
         count: val.count,

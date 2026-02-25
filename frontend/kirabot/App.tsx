@@ -127,8 +127,17 @@ function AppRoutes() {
 
   const scrollToSection = useCallback((id: string) => {
     const element = document.getElementById(id);
-    if (element) element.scrollIntoView({ behavior: 'smooth' });
-  }, []);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth' });
+    } else if (window.location.pathname !== '/') {
+      navigate('/');
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+      });
+    }
+  }, [navigate]);
 
   // Landing page component
   const LandingPage = (

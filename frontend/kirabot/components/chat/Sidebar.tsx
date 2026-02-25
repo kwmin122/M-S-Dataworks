@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, MessageSquare, Bell, TrendingUp } from 'lucide-react';
+import { MessageSquare, Bell, TrendingUp } from 'lucide-react';
 import { useChatContext } from '../../context/ChatContext';
 import { useConversationFlow } from '../../hooks/useConversationFlow';
 import SidebarHeader from './SidebarHeader';
@@ -16,7 +16,6 @@ interface SidebarProps {
 
 const navItems = [
   { path: '/chat', label: '채팅', icon: MessageSquare },
-  { path: '/dashboard', label: '대시보드', icon: LayoutDashboard },
   { path: '/settings/alerts', label: '알림 설정', icon: Bell },
   { path: '/forecast', label: '발주예측', icon: TrendingUp },
 ];
@@ -30,14 +29,17 @@ const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, onHome }) => {
 
   return (
     <div
-      className={`flex flex-col bg-sidebar transition-all duration-300 ${
+      className={`flex flex-col bg-sidebar shrink-0 transition-all duration-300 ${
         collapsed ? 'w-[60px]' : 'w-60'
       }`}
     >
       <SidebarHeader
         collapsed={collapsed}
         onToggle={() => dispatch({ type: 'SET_SIDEBAR_COLLAPSED', value: !collapsed })}
-        onNewChat={startNewConversation}
+        onNewChat={() => {
+          startNewConversation();
+          if (location.pathname !== '/chat') navigate('/chat');
+        }}
         onHome={onHome}
       />
       {/* Navigation */}
@@ -67,7 +69,10 @@ const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, onHome }) => {
         conversations={state.conversations}
         activeId={state.activeConversationId}
         collapsed={collapsed}
-        onSelect={(id) => dispatch({ type: 'SET_ACTIVE', id })}
+        onSelect={(id) => {
+          dispatch({ type: 'SET_ACTIVE', id });
+          if (location.pathname !== '/chat') navigate('/chat');
+        }}
         onDelete={(id) => dispatch({ type: 'DELETE_CONVERSATION', id })}
         onRename={(id, newTitle) => dispatch({ type: 'UPDATE_CONVERSATION', conversationId: id, updates: { title: newTitle } })}
       />

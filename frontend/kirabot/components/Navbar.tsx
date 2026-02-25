@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Layers, Menu, X, LogOut } from 'lucide-react';
+import { Menu, X, LogOut } from 'lucide-react';
+import KiraBotLogo from './KiraBotLogo';
 import Button from './Button';
 import type { User } from '../types';
 
@@ -26,17 +27,15 @@ const Navbar: React.FC<NavbarProps> = ({ user, onNavigate, onLoginClick, onLogou
           className="flex items-center gap-2 cursor-pointer"
           onClick={() => onNavigate('/')}
         >
-          <div className="flex h-8 min-w-[42px] items-center justify-center rounded-lg bg-primary-700 px-2 text-white">
-            <Layers size={20} />
-          </div>
-          <span className="text-xl font-extrabold tracking-tight text-slate-900">M&S Solutions</span>
+          <KiraBotLogo size={36} className="shrink-0" />
+          <span className="text-xl font-extrabold tracking-tight text-slate-900">M&S SOLUTIONS</span>
         </div>
 
         {/* Desktop nav */}
         <div className="hidden md:flex items-center gap-8">
-          <button onClick={() => scrollToSection('product')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">Product</button>
-          <button onClick={() => scrollToSection('solutions')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">Solutions</button>
-          <button onClick={() => scrollToSection('pricing')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">Pricing</button>
+          <button onClick={() => scrollToSection('product')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">제품소개</button>
+          <button onClick={() => scrollToSection('solutions')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">활용사례</button>
+          <button onClick={() => scrollToSection('pricing')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">요금제</button>
         </div>
 
         <div className="flex items-center gap-3">
@@ -70,7 +69,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, onNavigate, onLoginClick, onLogou
                  로그인
                </span>
                <Button onClick={onLoginClick} size="sm" className="hidden sm:inline-flex">
-                 Kira bot 실행하기
+                 Kira 시작하기
                </Button>
             </>
           )}
@@ -89,9 +88,9 @@ const Navbar: React.FC<NavbarProps> = ({ user, onNavigate, onLoginClick, onLogou
       {/* Mobile dropdown */}
       {mobileOpen && (
         <div className="md:hidden border-t border-slate-200 bg-white/95 backdrop-blur-md px-4 pb-4 pt-3 space-y-3">
-          <button onClick={() => scrollToSection('product')} className="block w-full text-left text-sm font-medium text-slate-700 py-2 hover:text-primary-700">Product</button>
-          <button onClick={() => scrollToSection('solutions')} className="block w-full text-left text-sm font-medium text-slate-700 py-2 hover:text-primary-700">Solutions</button>
-          <button onClick={() => scrollToSection('pricing')} className="block w-full text-left text-sm font-medium text-slate-700 py-2 hover:text-primary-700">Pricing</button>
+          <button onClick={() => scrollToSection('product')} className="block w-full text-left text-sm font-medium text-slate-700 py-2 hover:text-primary-700">제품소개</button>
+          <button onClick={() => scrollToSection('solutions')} className="block w-full text-left text-sm font-medium text-slate-700 py-2 hover:text-primary-700">활용사례</button>
+          <button onClick={() => scrollToSection('pricing')} className="block w-full text-left text-sm font-medium text-slate-700 py-2 hover:text-primary-700">요금제</button>
           <div className="border-t border-slate-100 pt-3 space-y-2">
             {user ? (
               <>
@@ -109,7 +108,7 @@ const Navbar: React.FC<NavbarProps> = ({ user, onNavigate, onLoginClick, onLogou
               </>
             ) : (
               <Button onClick={() => { setMobileOpen(false); onLoginClick(); }} size="sm" className="w-full">
-                Kira bot 실행하기
+                Kira 시작하기
               </Button>
             )}
           </div>

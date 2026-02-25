@@ -1,5 +1,6 @@
 import React from 'react';
-import { X, Layers } from 'lucide-react';
+import { X } from 'lucide-react';
+import KiraBotLogo from './KiraBotLogo';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -38,14 +39,15 @@ const LoginModal: React.FC<LoginModalProps> = ({
         </button>
 
         <div className="flex flex-col items-center text-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary-600 text-white mb-6">
-            <Layers size={28} />
+          <div className="mb-6">
+            <KiraBotLogo size={48} />
           </div>
-          
-          <h2 className="text-2xl font-bold text-slate-900 mb-2">문서 분석 시작하기</h2>
+
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">Kira 시작하기</h2>
           <p className="text-slate-600 mb-8">
             로그인하고 복잡한 문서 업무를<br/>AI로 쉽고 빠르게 처리하세요.
           </p>
+          <p className="text-xs text-slate-400 mb-4">Powered by M&S SOLUTIONS</p>
 
           <button
             onClick={onLogin}
@@ -80,9 +82,9 @@ const LoginModal: React.FC<LoginModalProps> = ({
 
           <p className="mt-8 text-xs text-slate-400 leading-relaxed max-w-xs">
             계속하면{' '}
-            <button type="button" onClick={onOpenTerms} className="underline hover:text-slate-600">이용약관</button>
+            <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline hover:text-slate-600">이용약관</a>
             {' '}및{' '}
-            <button type="button" onClick={onOpenPrivacy} className="underline hover:text-slate-600">개인정보처리방침</button>
+            <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline hover:text-slate-600">개인정보처리방침</a>
             {' '}에 동의하는 것으로 간주합니다.
           </p>
         </div>

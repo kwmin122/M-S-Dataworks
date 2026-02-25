@@ -48,9 +48,10 @@ const tiers = [
 interface PricingProps {
   onSelectPro?: () => void;
   onStart?: () => void;
+  onEnterprise?: () => void;
 }
 
-const Pricing: React.FC<PricingProps> = ({ onSelectPro, onStart }) => {
+const Pricing: React.FC<PricingProps> = ({ onSelectPro, onStart, onEnterprise }) => {
   return (
     <div id="pricing" className="py-24 bg-white border-t border-slate-200">
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
@@ -101,6 +102,10 @@ const Pricing: React.FC<PricingProps> = ({ onSelectPro, onStart }) => {
                 onClick={() => {
                   if (tier.name === 'Pro' && onSelectPro) onSelectPro();
                   else if (tier.name === 'Free' && onStart) onStart();
+                  else if (tier.name === 'Enterprise') {
+                    if (onEnterprise) onEnterprise();
+                    else window.location.href = 'mailto:contact@mssolutions.kr?subject=Enterprise 플랜 문의';
+                  }
                 }}
               >
                 {tier.cta}

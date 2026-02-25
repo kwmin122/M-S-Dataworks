@@ -132,6 +132,9 @@ const ChatInput: React.FC<Props> = ({ onSendText, onAction }) => {
           <Send size={18} />
         </button>
       </div>
+      <p className="mt-1.5 text-center text-[11px] text-slate-400">
+        Kira는 실수할 수 있습니다. 중요한 정보는 반드시 원문을 확인하세요.
+      </p>
     </div>
   );
 };

@@ -1,52 +1,64 @@
 import React from 'react';
 import Button from './Button';
+import { trackEvent } from '../utils/analytics';
 
 interface HeroProps {
   onStart: () => void;
+  onAlertSetup?: () => void;
 }
 
-const Hero: React.FC<HeroProps> = ({ onStart }) => {
+const Hero: React.FC<HeroProps> = ({ onStart, onAlertSetup }) => {
   return (
     <section className="relative w-full overflow-hidden bg-slate-50 lg:h-screen min-h-[800px] flex flex-col justify-center">
-      
+
       {/* 3D Background Layer */}
       <div className="absolute inset-0 w-full h-full z-0">
-         <iframe 
-            src='https://my.spline.design/interactiveaiwebsite-WIBfsJZbIYpUeijSVLawHWPr/' 
-            frameBorder='0' 
-            width='100%' 
+         <iframe
+            src='https://my.spline.design/interactiveaiwebsite-WIBfsJZbIYpUeijSVLawHWPr/'
+            frameBorder='0'
+            width='100%'
             height='100%'
-            className="w-full h-full lg:scale-105 lg:translate-x-24 transition-transform duration-1000" 
+            className="w-full h-full lg:scale-105 lg:translate-x-24 transition-transform duration-1000"
             title="Inference Search 3D"
         ></iframe>
       </div>
 
       {/* Gradient Overlay */}
       <div className="absolute inset-0 bg-gradient-to-r from-slate-50 via-slate-50/95 to-transparent pointer-events-none lg:w-[65%] z-0"></div>
-      
+
       {/* Content Layer */}
       <div className="relative z-10 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 w-full pointer-events-none h-full flex flex-col justify-center">
-          
+
           <div className="max-w-4xl pt-20 lg:pt-0 pointer-events-auto">
-            
-            <h1 className="text-5xl sm:text-7xl font-extrabold tracking-tight text-slate-900 font-sans mb-6 leading-[1.15]">
-              복잡한 RFx 분석,<br />
-              <span className="block sm:whitespace-nowrap bg-gradient-to-r from-[#1a4df5] to-[#5e94ff] bg-clip-text text-transparent">
-                KiraBot으로 빠르고 정확하게.
+
+            <p className="text-sm font-semibold text-primary-600 tracking-wide mb-4">공공조달 입찰 AI 분석</p>
+
+            <h1 className="text-3xl sm:text-5xl lg:text-7xl font-extrabold tracking-tight text-slate-900 font-sans mb-6 leading-[1.15]">
+              100페이지 공고서,<br />
+              <span className="block bg-gradient-to-r from-[#1a4df5] to-[#5e94ff] bg-clip-text text-transparent">
+                AI가 3분 만에 읽어줍니다.
               </span>
             </h1>
-            
-            <p className="mt-6 text-xl text-slate-600 leading-relaxed max-w-xl font-sans font-medium">
-              회사 문서와 분석 문서를 업로드하면 요건 매칭, GAP 분석, 근거 기반 의견까지 한 번에 제공합니다.
-              입찰 공고부터 제안요청서까지 페이지 이동 없이 실무 판단을 끝내세요.
+
+            <p className="mt-6 text-xl text-slate-500 leading-relaxed max-w-lg font-sans">
+              공고서를 올리면 자격요건 추출부터 GO/NO-GO 판단까지.<br />
+              더 이상 공고서를 직접 읽을 필요가 없습니다.
             </p>
-            
+
             <div className="mt-10 flex flex-col sm:flex-row items-start sm:items-center gap-4">
-              <div className="flex flex-col gap-2 w-full sm:w-auto">
-                <Button onClick={onStart} size="lg" className="rounded-full px-10 h-14 text-lg font-bold shadow-xl shadow-primary-900/10 w-full">
-                  Kira bot 실행하기
-                </Button>
-              </div>
+              <Button onClick={() => { trackEvent('landing_cta_clicked', { button: 'kirabot_start' }); onStart(); }} size="lg" className="rounded-full px-10 h-14 text-lg font-bold shadow-xl shadow-primary-900/10">
+                무료로 시작하기
+              </Button>
+              {onAlertSetup && (
+                <button
+                  type="button"
+                  onClick={() => { trackEvent('landing_cta_clicked', { button: 'alert_setup' }); onAlertSetup?.(); }}
+                  className="group flex items-center gap-2 text-base font-medium text-slate-500 hover:text-slate-900 transition-colors duration-200"
+                >
+                  맞춤 공고 알림 설정
+                  <span className="inline-block transition-transform duration-200 group-hover:translate-x-1">&rarr;</span>
+                </button>
+              )}
             </div>
           </div>
       </div>

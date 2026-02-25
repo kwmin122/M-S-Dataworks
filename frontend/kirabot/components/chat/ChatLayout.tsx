@@ -1,23 +1,25 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { useChatContext } from '../../context/ChatContext';
+import { ChatProvider, useChatContext } from '../../context/ChatContext';
 import { usePersistedConversations } from '../../hooks/usePersistedConversations';
-import { useDocumentTitle } from '../../hooks/useDocumentTitle';
+import Sidebar from './Sidebar';
 import ChatArea from './ChatArea';
 import ContextPanel from './ContextPanel';
 import type { User } from '../../types';
 
-interface ChatPageProps {
+interface ChatLayoutProps {
   user: User | null;
+  onLogout: () => void;
+  onNavigateHome: () => void;
+  initialMode?: 'default' | 'alert';
 }
 
-const ChatPage: React.FC<ChatPageProps> = ({ user }) => {
-  useDocumentTitle('채팅');
+function ChatLayoutInner({ user, onLogout, onNavigateHome }: ChatLayoutProps) {
   usePersistedConversations();
 
   const { state } = useChatContext();
   const hasPanelContent = state.contextPanel.type !== 'none';
 
-  // Panel ratio (0~1, default 0.5 = 50/50)
+  // 패널 비율 (0~1, 기본 0.5 = 반반)
   const [panelRatio, setPanelRatio] = useState(0.5);
   const isDragging = useRef(false);
 
@@ -51,31 +53,39 @@ const ChatPage: React.FC<ChatPageProps> = ({ user }) => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [state.sidebarCollapsed]);
+  }, []);
 
   return (
-    <>
-      {/* Chat area */}
-      <div
-        style={hasPanelContent ? { flex: `${1 - panelRatio}` } : undefined}
-        className={hasPanelContent ? 'min-w-0 h-full overflow-hidden' : 'flex-1 min-w-0 h-full overflow-hidden'}
-      >
-        <ChatArea user={user} />
+    <div className="flex h-screen overflow-hidden bg-slate-50">
+      <Sidebar user={user} onLogout={onLogout} onHome={onNavigateHome} />
+      <div className="flex flex-1 min-w-0 h-full overflow-hidden">
+        {/* Chat area */}
+        <div style={hasPanelContent ? { flex: `${1 - panelRatio}` } : undefined} className={hasPanelContent ? 'min-w-0 h-full overflow-hidden' : 'flex-1 min-w-0 h-full overflow-hidden'}>
+          <ChatArea user={user} />
+        </div>
+        {/* Context panel */}
+        {hasPanelContent && (
+          <>
+            <div
+              className="w-1 shrink-0 cursor-col-resize bg-slate-200 hover:bg-primary-300 active:bg-primary-400 transition-colors"
+              onMouseDown={handleMouseDown}
+            />
+            <div style={{ flex: `${panelRatio}` }} className="min-w-0 h-full">
+              <ContextPanel />
+            </div>
+          </>
+        )}
       </div>
-      {/* Context panel */}
-      {hasPanelContent && (
-        <>
-          <div
-            className="w-1 shrink-0 cursor-col-resize bg-slate-200 hover:bg-primary-300 active:bg-primary-400 transition-colors"
-            onMouseDown={handleMouseDown}
-          />
-          <div style={{ flex: `${panelRatio}` }} className="min-w-0 h-full">
-            <ContextPanel />
-          </div>
-        </>
-      )}
-    </>
+    </div>
+  );
+}
+
+const ChatLayout: React.FC<ChatLayoutProps> = (props) => {
+  return (
+    <ChatProvider>
+      <ChatLayoutInner {...props} />
+    </ChatProvider>
   );
 };
 
-export default ChatPage;
+export default ChatLayout;

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Bot, User as UserIcon } from 'lucide-react';
+import { User as UserIcon } from 'lucide-react';
+import KiraBotLogo from '../KiraBotLogo';
 import type { ChatMessage, MessageAction } from '../../types';
 import TextMessageView from './messages/TextMessageView';
 import ButtonChoiceView from './messages/ButtonChoiceView';
@@ -41,8 +42,8 @@ const MessageBubble: React.FC<Props> = ({ message, onAction }) => {
   return (
     <div className={`flex ${isBot ? 'justify-start' : 'justify-end'}`}>
       {isBot && (
-        <div className="mr-2 mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-kira-100 border border-kira-200">
-          <Bot className="h-4 w-4 text-kira-600" />
+        <div className="mr-2 mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full">
+          <KiraBotLogo size={28} />
         </div>
       )}
       <div

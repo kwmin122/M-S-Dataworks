@@ -1,5 +1,6 @@
-import React from 'react';
-import { LogOut, Home } from 'lucide-react';
+import React, { useState } from 'react';
+import { ChevronUp } from 'lucide-react';
+import ProfilePopover from '../sidebar/ProfilePopover';
 import type { User } from '../../types';
 
 interface SidebarFooterProps {
@@ -10,60 +11,61 @@ interface SidebarFooterProps {
 }
 
 const SidebarFooter: React.FC<SidebarFooterProps> = ({ user, collapsed, onLogout, onHome }) => {
+  const [popoverOpen, setPopoverOpen] = useState(false);
+
   if (collapsed) {
     return (
-      <div className="border-t border-white/10 p-2 space-y-1">
+      <div className="relative border-t border-white/10 p-2">
         <button
           type="button"
-          onClick={onHome}
+          onClick={() => setPopoverOpen(!popoverOpen)}
           className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-sidebar-hover hover:text-white"
-          title="홈으로"
+          title={user?.name || '사용자'}
         >
-          <Home size={16} />
+          {user?.avatarUrl ? (
+            <img src={user.avatarUrl} alt="" className="h-7 w-7 rounded-full" />
+          ) : (
+            <span className="text-xs">{user?.name?.charAt(0) || '?'}</span>
+          )}
         </button>
-        <button
-          type="button"
-          onClick={onLogout}
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-sidebar-hover hover:text-white"
-          title="로그아웃"
-        >
-          <LogOut size={16} />
-        </button>
+        <ProfilePopover
+          open={popoverOpen}
+          onClose={() => setPopoverOpen(false)}
+          email={user?.email || ''}
+          onLogout={onLogout}
+          onHome={onHome}
+        />
       </div>
     );
   }
 
   return (
-    <div className="border-t border-white/10 p-3 space-y-2">
-      <div className="flex items-center gap-2">
+    <div className="relative border-t border-white/10 p-3">
+      <button
+        type="button"
+        onClick={() => setPopoverOpen(!popoverOpen)}
+        className="flex w-full items-center gap-2 rounded-lg px-1 py-1.5 hover:bg-sidebar-hover transition-colors"
+      >
         {user?.avatarUrl ? (
-          <img src={user.avatarUrl} alt="" className="h-8 w-8 rounded-full" />
+          <img src={user.avatarUrl} alt="" className="h-8 w-8 rounded-full shrink-0" />
         ) : (
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sidebar-hover text-xs text-white">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sidebar-hover text-xs text-white shrink-0">
             {user?.name?.charAt(0) || '?'}
           </div>
         )}
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 text-left">
           <p className="truncate text-sm font-medium text-white">{user?.name || '사용자'}</p>
           <p className="truncate text-xs text-slate-400">{user?.email || ''}</p>
         </div>
-      </div>
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onHome}
-          className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-white/10 px-2 py-1.5 text-xs text-slate-300 hover:bg-sidebar-hover"
-        >
-          <Home size={12} /> 홈
-        </button>
-        <button
-          type="button"
-          onClick={onLogout}
-          className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-white/10 px-2 py-1.5 text-xs text-slate-300 hover:bg-sidebar-hover"
-        >
-          <LogOut size={12} /> 로그아웃
-        </button>
-      </div>
+        <ChevronUp size={14} className={`text-slate-400 transition-transform shrink-0 ${popoverOpen ? '' : 'rotate-180'}`} />
+      </button>
+      <ProfilePopover
+        open={popoverOpen}
+        onClose={() => setPopoverOpen(false)}
+        email={user?.email || ''}
+        onLogout={onLogout}
+        onHome={onHome}
+      />
     </div>
   );
 };

@@ -69,6 +69,7 @@ export interface AnalysisPayload {
   issuing_org: string;
   document_type: string;
   is_rfx_like: boolean;
+  deadline?: string;
 }
 
 export interface AnalyzeResponse {

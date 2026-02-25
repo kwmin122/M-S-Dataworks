@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { FileSearch, Clock, CheckCircle2, BarChart3, FileText, Bell, BellOff, Settings } from 'lucide-react';
+import { FileSearch, Clock, CheckCircle2, BarChart3, Bell, BellOff, Settings } from 'lucide-react';
 import { useChatContext } from '../../context/ChatContext';
 import SummaryCard from './SummaryCard';
-import EmptyState from '../shared/EmptyState';
 import { getDashboardSummary, getAlertConfig, saveAlertConfig, type DashboardSummary, type AlertConfig } from '../../services/kiraApiService';
 import { staggerContainer, pageTransition } from '../../utils/animations';
 
@@ -60,19 +59,14 @@ const DashboardPage: React.FC = () => {
     );
   }
 
-  if (!sessionId || !summary) {
-    return (
-      <div className="flex-1">
-        <EmptyState
-          icon={FileText}
-          title="아직 분석한 공고가 없어요"
-          description="공고를 검색하고 분석하면 대시보드에 요약 정보가 표시됩니다."
-          actionLabel="공고 검색 시작"
-          onAction={() => navigate('/chat')}
-        />
-      </div>
-    );
-  }
+  const displaySummary: DashboardSummary = summary || {
+    newMatches: 0,
+    deadlineSoon: 0,
+    goCount: 0,
+    totalAnalyzed: 0,
+    recentSearches: [],
+    smartFitTop5: [],
+  };
 
   return (
     <motion.div
@@ -95,7 +89,7 @@ const DashboardPage: React.FC = () => {
           <SummaryCard
             icon={FileSearch}
             label="새 맞춤 공고"
-            value={summary.newMatches}
+            value={displaySummary.newMatches}
             color="text-kira-600"
             bgColor="bg-kira-50"
             actionLabel="검색하기"
@@ -104,21 +98,21 @@ const DashboardPage: React.FC = () => {
           <SummaryCard
             icon={Clock}
             label="마감 임박"
-            value={summary.deadlineSoon}
+            value={displaySummary.deadlineSoon}
             color="text-amber-600"
             bgColor="bg-amber-50"
           />
           <SummaryCard
             icon={CheckCircle2}
             label="GO 판정"
-            value={summary.goCount}
+            value={displaySummary.goCount}
             color="text-green-600"
             bgColor="bg-green-50"
           />
           <SummaryCard
             icon={BarChart3}
             label="분석 완료"
-            value={summary.totalAnalyzed}
+            value={displaySummary.totalAnalyzed}
             color="text-purple-600"
             bgColor="bg-purple-50"
           />

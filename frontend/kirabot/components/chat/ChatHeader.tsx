@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { Bot, PanelRight, PanelRightOpen, FileText, Building2 } from 'lucide-react';
+import { PanelLeft, PanelRight, PanelRightOpen, FileText, Building2 } from 'lucide-react';
 import { useActiveConversation } from '../../hooks/useActiveConversation';
 import { useChatContext } from '../../context/ChatContext';
 import type { ConversationPhase, DocumentTab, MessageAction } from '../../types';
@@ -69,9 +69,18 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ onAction }) => {
   return (
     <div className="flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4">
       <div className="flex items-center gap-2 min-w-0">
-        <Bot className="h-5 w-5 text-kira-600 shrink-0" />
+        {state.sidebarCollapsed && (
+          <button
+            type="button"
+            onClick={() => dispatch({ type: 'SET_SIDEBAR_COLLAPSED', value: false })}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 shrink-0"
+            title="사이드바 펼치기"
+          >
+            <PanelLeft size={18} />
+          </button>
+        )}
         <h3 className="text-sm font-bold text-slate-800 truncate">
-          {conversation?.title || 'Kira Bot'}
+          {conversation?.title || 'Kira'}
         </h3>
         {conversation?.companyProfile?.companyName && (
           <span className="flex items-center gap-1 rounded-full bg-kira-50 border border-kira-200 px-2.5 py-0.5 text-xs text-kira-700 shrink-0">
