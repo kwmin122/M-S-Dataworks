@@ -146,5 +146,25 @@ frontend/kirabot/dist/
 # Allow TypeScript source lib directories
 !web_saas/src/lib/
 
+# Runtime data (user uploads, vectordb, sessions)
+data/web_uploads/
+data/vectordb_web/
+data/vectordb/
+data/user_store/
+data/alert_configs/
+data/company_profiles/
+services/web_app/data/
+rag_engine/data/
+
+# Reports (runtime generated)
+reports/*.json
+
+# OS files
+.DS_Store
+frontend/.DS_Store
+
+# Local env files
+frontend/kirabot/.env.local
+
 # Git worktrees
 .worktrees/

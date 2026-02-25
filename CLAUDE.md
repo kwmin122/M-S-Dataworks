@@ -19,19 +19,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 실행 명령어
 
-### Python 레거시 백엔드 (FastAPI, 루트)
+### Python 백엔드 (FastAPI, 루트)
 ```bash
 pip install -r requirements.txt
-python services/web_app/main.py   # 포트 8010
-streamlit run app.py              # 레거시 UI, 포트 8501
+python services/web_app/main.py   # 포트 8000 (uvicorn)
 ```
 
-### React 프론트엔드 (레거시 대시보드)
+### React 프론트엔드 (Chat UI)
 ```bash
 cd frontend/kirabot
 npm install
-npm run dev    # 포트 5173 (Vite)
-npm run build  # dist/ 번들
+npm run dev    # 포트 5173 (Vite) → 백엔드 http://localhost:8000
+npm run build  # dist/ 번들 → 백엔드가 서빙
 ```
 
 ### SaaS 스택
@@ -75,22 +74,30 @@ python scripts/run_railway_predeploy_checklist.py --base-url https://your-domain
 
 ## 아키텍처
 
-### 레거시 Kira Bot (루트)
+### Kira Bot (루트) — 현재 활성 스택
 
 ```
-frontend/kirabot/    ← React 19 + Vite + TypeScript
-        ↓ HTTP (port 8010)
-services/web_app/main.py   ← FastAPI: 업로드, 세션, 채팅, 분석
+frontend/kirabot/              ← React 19 + Vite + TypeScript
+  App.tsx                      ← 랜딩페이지 ↔ ChatLayout 전환 (AppView FSM)
+  components/chat/ChatLayout.tsx ← Sidebar + ChatArea + ContextPanel (리사이즈 가능)
+  context/ChatContext.tsx      ← useReducer 기반 대화 상태 관리
+  hooks/useConversationFlow.ts ← 대화 FSM (greeting→검색→분석→채팅) + 모든 액션 핸들러
+  services/kiraApiService.ts   ← 백엔드 API 클라이언트 (API_BASE_URL 자동 감지)
+        ↓ HTTP (port 8000)
+services/web_app/main.py      ← FastAPI: 업로드, 세션, 채팅, 분석, 공고검색, 일괄평가
+services/web_app/nara_api.py   ← 나라장터 Open API 클라이언트 (검색, 첨부파일, 다운로드)
         ↓ Python import
   engine.py          ← ChromaDB + BM25 하이브리드 벡터 검색
   rfx_analyzer.py    ← LLM 기반 자격요건 추출 (멀티패스 + Structured Outputs)
   matcher.py         ← ConstraintEvaluator (결정론 우선) + LLM GO/NO-GO
   chat_router.py     ← 인텐트 분류 + 오프토픽 차단
-  document_parser.py ← PDF/DOCX/HWP 파싱 및 청킹
-services/auth_gateway/main.py  ← Supabase JWT → HttpOnly 쿠키 세션 (레거시 전용)
+  document_parser.py ← PDF/DOCX/HWP/Excel/PPT 파싱 및 청킹
+services/auth_gateway/main.py  ← Supabase JWT → HttpOnly 쿠키 세션
 
-data/vectordb/  ← ChromaDB 영구 저장소
-data/user_store/ ← 세션 + 사용량 JSON
+data/vectordb/       ← ChromaDB 영구 저장소
+data/web_uploads/    ← 세션별 업로드 파일 (company/ + target/)
+data/user_store/     ← 세션 + 사용량 JSON
+docs/dummy/          ← 테스트용 더미 문서 (PDF/HWP/HWPX)
 ```
 
 ### SaaS 스택 (Phase 1-8 완료)
@@ -152,14 +159,29 @@ n8n g2b_bid_crawler
       HMAC 락 획득 → consumeQuotaIfNeeded($tx) → FastAPI analyze-bid → SCORED → Resend 이메일
 ```
 
-### 프론트엔드 워크스페이스 구조
+### 프론트엔드 Chat UI 구조 (현재)
 
-`frontend/kirabot/components/Dashboard.tsx`:
-- `WorkspaceMode = 'rfx' | 'search' | 'multi' | 'proposal'` — 4탭 구조
-- `rfx`: 기존 RFx 분석 채팅 흐름 (보존 필수)
-- `search`: `SearchPanel.tsx` — 폼/인터뷰 모드 공고 검색
-- `multi`: `MultiAnalysisPanel.tsx` — 다중 평가 + xlsx 다운로드
-- `proposal`: `ProposalPanel.tsx` — 제안서 초안 생성
+`Dashboard.tsx` + 워크스페이스 4탭 구조는 **삭제됨**. 대신 대화형 Chat UI로 전환:
+
+```
+ChatLayout.tsx ← 전체 레이아웃 (Sidebar + ChatArea + ContextPanel)
+  ├── Sidebar.tsx ← 대화 목록 + 새 대화 + 이름 변경/삭제
+  ├── ChatArea.tsx ← 메시지 스트림 + 입력창
+  │   ├── ChatHeader.tsx ← "다른 문서 분석" / "회사 문서 추가" 버튼
+  │   ├── MessageList.tsx → MessageBubble.tsx → 7종 메시지 뷰
+  │   └── ChatInput.tsx ← 자유 텍스트 입력
+  └── ContextPanel.tsx ← 우측 패널 (문서 미리보기, 공고 상세, 제안서)
+      └── DocumentViewer.tsx ← PDF(iframe) + 비PDF(다운로드) 뷰어, 탭 지원
+```
+
+대화 FSM (`ConversationPhase`):
+```
+greeting → bid_search_input → bid_search_results → bid_analyzing → doc_chat
+         → doc_upload_company → doc_upload_target → doc_analyzing → doc_chat
+         → bid_eval_running → bid_eval_results
+```
+
+메시지 타입: `text`, `button_choice`, `bid_card_list`, `analysis_result`, `inline_form`, `file_upload`, `status`
 
 ---
 
@@ -203,10 +225,17 @@ web_saas/prisma/migrations/YYYYMMDDHHMMSS_<name>/migration.sql
 `npx prisma generate`는 DATABASE_URL 없이도 가능.
 
 ### 프론트엔드 제약
-- `frontend/kirabot/` CSS·레이아웃 **전면 변경 금지**
 - 기존 Tailwind 클래스 재사용, 신규 className 최소화
-- `WorkspaceMode = 'rfx'` 탭의 기존 채팅 흐름 보존 필수
 - JSX 다중 형제 조건부 렌더링: `{condition && (<>...</>)}` Fragment 필수
+- `useConversationFlow.ts`의 FSM 전환 순서 보존 필수
+- `ChatContext.tsx` dispatch 기반 상태 관리 — 직접 state 변경 금지
+
+### 나라장터 API 제약
+- `DATA_GO_KR_API_KEY`로 검색(5개 카테고리 엔드포인트) + 첨부파일 조회 정상 동작
+- 첨부파일 API(`getBidPblancListInfoEorderAtchFileInfo`)는 **`inqryDiv=2` (공고번호 기준) 필수** — 누락 시 404
+- 모든 공고에 e발주 첨부파일이 있는 건 아님 — 없으면 수동 업로드 폴백 UI 제공
+- 첨부파일 다운로드 URL은 g2b.go.kr 도메인 (로그인 불필요, 직접 다운로드 가능)
+- g2b.go.kr 공고 페이지 링크 클릭 시 나라장터 로그인 필요 (SSO 리다이렉트)
 
 ---
 
@@ -242,6 +271,7 @@ moduleNameMapper:
 | `RESEND_API_KEY` | 이메일 알림 |
 | `OPENAI_STRICT_JSON_ONLY` | `1` = Structured Outputs 전용 |
 | `RAG_HYBRID_ENABLED` | `1` = BM25+벡터 하이브리드 |
+| `DATA_GO_KR_API_KEY` | 나라장터 공공데이터포털 API 키 (레거시 공고 검색) |
 
 ---
 
@@ -278,6 +308,36 @@ moduleNameMapper:
 | `lib/search/__tests__/buildSearchQuery.test.ts` | `lib/search/buildSearchQuery.ts` |
 | `lib/search/__tests__/ftsSearch.test.ts` | `lib/search/ftsSearch.ts` |
 | `lib/export/__tests__/buildEvaluationExcel.test.ts` | `lib/export/buildEvaluationExcel.ts` |
+
+---
+
+## 기능 구현 현황 (2026-02-24)
+
+### 동작 중 (레거시 백엔드 + Chat UI)
+| 기능 | 상태 | 비고 |
+|------|------|------|
+| 나라장터 공고 검색 | **동작** | 키워드, 업무구분, 기간, 지역, 금액 필터 |
+| 문서 업로드 분석 | **동작** | PDF/DOCX/HWP/Excel/PPT (회사문서 없이도 분석 가능) |
+| 자격요건 추출 (rfx_analyzer) | **동작** | 멀티패스 + 결격사유/자격요건 구분 규칙 적용 |
+| GO/NO-GO 판단 (matcher) | **동작** | 회사문서 등록 시에만 매칭 수행 |
+| 문서 기반 Q&A 채팅 | **동작** | RAG 하이브리드 검색 + 참조 페이지 표시 |
+| 일괄 공고 평가 | **동작** | 레거시 백엔드에서 순차 분석 (첨부파일 자동 다운로드) |
+| 검색 결과 CSV 다운로드 | **동작** | 클라이언트 사이드 생성 |
+| 컨텍스트 패널 (문서 미리보기) | **동작** | PDF iframe + 탭(분석문서/회사문서) + 하이라이트 |
+| 대화 이름 변경/삭제 | **동작** | Sidebar 인라인 편집 |
+| 의견 모드 | **부분** | balanced 기본값만 사용 중, UI에서 선택 미구현 |
+| 리사이즈 가능 컨텍스트 패널 | **동작** | 드래그로 280~600px 조절 |
+
+### 미구현 / 제한
+| 기능 | 상태 | 비고 |
+|------|------|------|
+| 공고 첨부파일 자동 다운로드+분석 | **동작** | e발주 첨부파일 자동 다운로드 → 파싱 → GO/NO-GO 분석 |
+| 제안서 초안 생성 | **SaaS only** | rag_engine의 proposal_generator 존재, 레거시 연동 미완 |
+| 관심 공고 자동 알림 | **미구현** | SaaS n8n 워크플로우로만 가능 |
+| 엑셀 평가 리포트 다운로드 | **SaaS only** | web_saas의 buildEvaluationExcel, 레거시 미연동 |
+| 강점 카드 | **SaaS only** | web_saas의 buildStrengthCard |
+| Google OAuth 로그인 | **환경변수 필요** | VITE_GOOGLE_LOGIN_URL 미설정 시 오류 표시 |
+| 의견 모드 UI 선택기 | **미구현** | 타입/로직 존재, UI 컴포넌트 미구현 |
 
 ---
 
