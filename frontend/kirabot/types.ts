@@ -363,3 +363,18 @@ export interface CompanyProfile {
   createdAt: string;
   updatedAt?: string;
 }
+
+// ── Payment / Subscription ──
+export interface Subscription {
+  username?: string;
+  plan: 'free' | 'pro';
+  status: 'none' | 'active' | 'cancelled';
+  billingKey?: string;
+  cardLast4?: string;
+  priceKrw?: number;
+  createdAt?: string;
+  currentPeriodStart?: string;
+  currentPeriodEnd?: string;
+  cancelledAt?: string;
+  updatedAt?: string;
+}
