@@ -330,3 +330,35 @@ export type MessageAction =
   | { type: 'confirm_alert'; settings: AlertSettings }
   | { type: 'welcome_action'; value: string }
   | { type: 'generate_proposal'; bidNoticeId: string; bidTitle: string };
+
+// ── 회사 프로필 ──
+
+export interface CompanyDocument {
+  id: string;
+  name: string;
+  uploadedAt: string;
+  size: number;
+}
+
+export interface AiExtraction {
+  summary: string;
+  extractedAt: string;
+  raw: Record<string, unknown>;
+}
+
+export interface CompanyProfile {
+  companyName: string;
+  businessType: string;
+  businessNumber: string;
+  certifications: string[];
+  regions: string[];
+  employeeCount: number | null;
+  annualRevenue: string;
+  keyExperience: string[];
+  specializations: string[];
+  documents: CompanyDocument[];
+  aiExtraction: AiExtraction | null;
+  lastAnalyzedAt: string | null;
+  createdAt: string;
+  updatedAt?: string;
+}

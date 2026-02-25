@@ -4,6 +4,7 @@ import {
   BidNotice,
   BidSearchResponse,
   ChatResponse,
+  CompanyProfile,
   EvalBatchResponse,
   EvalJob,
   NaraAttachment,
@@ -18,12 +19,21 @@ const API_BASE_URL = (
     : 'http://localhost:8000')
 ).replace(/\/+$/, '');
 
-async function fetchWithError(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+async function fetchWithError(input: RequestInfo | URL, init?: RequestInit & { timeoutMs?: number }): Promise<Response> {
+  const { timeoutMs, ...fetchInit } = (init || {}) as RequestInit & { timeoutMs?: number };
+  const controller = new AbortController();
+  const timeout = timeoutMs ?? 120_000; // 기본 2분
+  const timer = setTimeout(() => controller.abort(), timeout);
+
   try {
-    return await fetch(input, init);
+    return await fetch(input, { ...fetchInit, signal: controller.signal });
   } catch (error) {
-    const reason = error instanceof Error ? error.message : '네트워크 오류';
-    throw new Error(`API 서버 연결 실패 (${API_BASE_URL}): ${reason}`);
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('서버 응답 시간이 초과되었습니다. 잠시 후 다시 시도해주세요.');
+    }
+    throw new Error('서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.');
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -89,6 +99,7 @@ export async function analyzeDocument(sessionId: string, file: File): Promise<An
   const response = await fetchWithError(`${API_BASE_URL}/api/analyze/upload`, {
     method: 'POST',
     body: form,
+    timeoutMs: 180_000, // 3분 — 파일 업로드 + AI 분석 소요
   });
   return parseJson<AnalyzeResponse>(response);
 }
@@ -162,6 +173,7 @@ export async function analyzeBidFromNara(sessionId: string, bidNtceNo: string, b
       bid_ntce_ord: bidNtceOrd || '00',
       category: category || '',
     }),
+    timeoutMs: 180_000, // 3분 — 첨부파일 다운로드 + AI 분석 소요
   });
   return parseJson<AnalyzeResponse>(res);
 }
@@ -305,10 +317,40 @@ export async function saveAlertConfig(sessionId: string, config: AlertConfig): P
 
 // ── Forecast APIs ──
 
+export interface OrderPlan {
+  id: string;
+  bizNm: string;
+  orderInsttNm: string;
+  orderYear: string;
+  orderMnth: string;
+  orderAmt: number;
+  sumOrderAmt: number;
+  prcrmntMethd: string;
+  cntrctMthdNm: string;
+  deptNm: string;
+  ofclNm: string;
+  telNo: string;
+  category: string;
+  bidNtceNoList: string;
+  ntcePblancYn: string;
+  bsnsTyNm: string;
+  jrsdctnDivNm: string;
+  totlmngInsttNm: string;
+  cnstwkRgnNm: string;
+  usgCntnts: string;
+  specCntnts: string;
+  rmrkCntnts: string;
+  nticeDt: string;
+  chgDt: string;
+  prdctClsfcNoNm: string;
+}
+
 export interface ForecastOrgData {
   orgName: string;
   monthlyPattern: Record<string, { count: number; totalAmt: number }>;
+  categoryBreakdown: Record<string, number>;
   recentBids: BidNotice[];
+  orderPlans: OrderPlan[];
   aiInsight: string;
   total: number;
 }
@@ -321,4 +363,89 @@ export async function getPopularAgencies(): Promise<{ agencies: string[] }> {
 export async function getOrgForecast(orgName: string): Promise<ForecastOrgData> {
   const response = await fetchWithError(`${API_BASE_URL}/api/forecast/${encodeURIComponent(orgName)}`);
   return parseJson<ForecastOrgData>(response);
+}
+
+// ── 문서 텍스트 미리보기 ──
+
+export interface TextPreviewPage {
+  page_number: number;
+  text: string;
+}
+
+export interface TextPreviewResponse {
+  fileName: string;
+  totalPages: number;
+  pages: TextPreviewPage[];
+}
+
+export async function getFileTextPreview(fileUrl: string): Promise<TextPreviewResponse> {
+  // fileUrl is like /api/files/{session}/{bucket}/{filename}
+  // Extract session_id, bucket, filename from the path
+  const match = fileUrl.match(/\/api\/files\/([^/]+)\/([^/]+)\/(.+)$/);
+  if (!match) throw new Error('Invalid file URL format');
+  const [, sessionId, bucket, filename] = match;
+  const params = new URLSearchParams({ session_id: sessionId, bucket, filename: decodeURIComponent(filename) });
+  const response = await fetchWithError(`${API_BASE_URL}/api/preview/text?${params}`);
+  return parseJson<TextPreviewResponse>(response);
+}
+
+// ── 회사 프로필 API ──
+
+export async function getCompanyProfile(): Promise<CompanyProfile | null> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/company/profile`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+  const data = await parseJson<{ profile: CompanyProfile | null }>(res);
+  return data.profile;
+}
+
+export async function uploadCompanyProfileDocs(files: File[]): Promise<CompanyProfile> {
+  const form = new FormData();
+  files.forEach((f) => form.append('files', f));
+  const res = await fetchWithError(`${API_BASE_URL}/api/company/profile`, {
+    method: 'POST',
+    credentials: 'include',
+    body: form,
+    timeoutMs: 180_000,
+  });
+  const data = await parseJson<{ profile: CompanyProfile }>(res);
+  return data.profile;
+}
+
+export async function updateCompanyProfile(updates: Partial<CompanyProfile>): Promise<CompanyProfile> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/company/profile`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+  const data = await parseJson<{ profile: CompanyProfile }>(res);
+  return data.profile;
+}
+
+export async function deleteCompanyProfile(): Promise<void> {
+  await fetchWithError(`${API_BASE_URL}/api/company/profile`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+}
+
+export async function deleteCompanyDocument(docId: string): Promise<CompanyProfile> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/company/documents/${docId}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  const data = await parseJson<{ profile: CompanyProfile }>(res);
+  return data.profile;
+}
+
+export async function reanalyzeCompanyProfile(): Promise<CompanyProfile> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/company/reanalyze`, {
+    method: 'POST',
+    credentials: 'include',
+    timeoutMs: 180_000,
+  });
+  const data = await parseJson<{ profile: CompanyProfile }>(res);
+  return data.profile;
 }
