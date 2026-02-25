@@ -7,7 +7,6 @@ Streamlit UI 없이 웹 랜딩(index.html)에서 Kira 분석 엔진을 직접 �
 from __future__ import annotations
 
 import base64
-import fcntl
 import hashlib
 import hmac as hmac_mod
 import json
@@ -2225,7 +2224,11 @@ def _safe_username_for_path(username: str) -> str:
 
 
 def _subscription_path(username: str) -> Path:
-    return _SUBSCRIPTIONS_DIR / f"{_safe_username_for_path(username)}.json"
+    path = _SUBSCRIPTIONS_DIR / f"{_safe_username_for_path(username)}.json"
+    resolved = path.resolve()
+    if not resolved.is_relative_to(_SUBSCRIPTIONS_DIR.resolve()):
+        raise HTTPException(status_code=400, detail="잘못된 사용자명")
+    return path
 
 
 def _load_subscription(username: str) -> dict | None:
@@ -2242,24 +2245,18 @@ def _save_subscription(username: str, sub: dict) -> None:
     _SUBSCRIPTIONS_DIR.mkdir(parents=True, exist_ok=True)
     path = _subscription_path(username)
     sub["updatedAt"] = datetime.now(timezone.utc).isoformat()
-    data = json.dumps(sub, ensure_ascii=False, indent=2).encode("utf-8")
-    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        os.ftruncate(fd, 0)
-        os.lseek(fd, 0, os.SEEK_SET)
-        os.write(fd, data)
-    finally:
-        fcntl.flock(fd, fcntl.LOCK_UN)
-        os.close(fd)
+    data = json.dumps(sub, ensure_ascii=False, indent=2)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(data, "utf-8")
+    os.replace(str(tmp), str(path))  # POSIX atomic rename
 
 
 def _public_subscription(sub: dict) -> dict:
-    """클라이언트 응답용: billingKey 제거."""
-    return {k: v for k, v in sub.items() if k != "billingKey"}
+    """클라이언트 응답용: 민감 정보 제거."""
+    return {k: v for k, v in sub.items() if k not in ("billingKey", "username")}
 
 
-_BILLING_KEY_RE = re.compile(r"^billing-key-[a-zA-Z0-9_\-]{8,128}$")
+_BILLING_KEY_RE = re.compile(r"^[a-zA-Z0-9_-]{4,256}$")
 
 
 async def _verify_billing_key_with_portone(billing_key: str) -> bool:

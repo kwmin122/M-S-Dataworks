@@ -378,23 +378,29 @@ class TestWebhook:
 
 
 class TestBillingKeyFormat:
-    def test_valid_format(self):
+    def test_valid_billing_key(self):
         assert _BILLING_KEY_RE.match("billing-key-abcde12345")
 
-    def test_valid_format_with_hyphens(self):
-        assert _BILLING_KEY_RE.match("billing-key-abc-def-12345678")
+    def test_valid_short_key(self):
+        assert _BILLING_KEY_RE.match("bk_test_123")
 
-    def test_invalid_prefix(self):
-        assert not _BILLING_KEY_RE.match("bk_test_123")
+    def test_valid_alphanumeric(self):
+        assert _BILLING_KEY_RE.match("abcd1234")
 
     def test_path_traversal_rejected(self):
-        assert not _BILLING_KEY_RE.match("billing-key-../../../etc/passwd")
+        assert not _BILLING_KEY_RE.match("../../../etc/passwd")
 
     def test_too_short(self):
-        assert not _BILLING_KEY_RE.match("billing-key-abc")
+        assert not _BILLING_KEY_RE.match("ab")
 
     def test_empty(self):
         assert not _BILLING_KEY_RE.match("")
+
+    def test_spaces_rejected(self):
+        assert not _BILLING_KEY_RE.match("billing key with spaces")
+
+    def test_slashes_rejected(self):
+        assert not _BILLING_KEY_RE.match("key/../../etc")
 
     @patch("services.web_app.main.resolve_user_from_session", return_value=_TEST_USERNAME)
     def test_bad_format_billing_key_returns_400(self, _mock_auth):
