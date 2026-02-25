@@ -158,6 +158,7 @@ rag_engine/data/
 
 # Reports (runtime generated)
 reports/*.json
+reports/*.jsonl
 
 # OS files
 .DS_Store

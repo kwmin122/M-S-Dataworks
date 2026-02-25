@@ -138,139 +138,167 @@ const SettingsCompany: React.FC = () => {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold text-slate-900 mb-1">회사 정보 관리</h2>
-        <p className="text-sm text-slate-500 mb-6">
+        <p className="text-sm text-slate-500">
           회사 정보를 등록하면 입찰 분석, 발주예측, 알림 설정에서 자동으로 활용됩니다.
         </p>
       </div>
 
-      {/* 프로필 폼 */}
-      <div className="rounded-xl border border-slate-200 p-5 space-y-4">
-        <h3 className="text-base font-semibold text-slate-800">회사 프로필</h3>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* ─── 좌측: 문서 등록 (Primary CTA) ─── */}
+        <div className="space-y-4">
+          <div className="rounded-xl border border-slate-200 p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <FileText size={18} className="text-kira-600" />
+              <h3 className="text-base font-semibold text-slate-800">회사 문서 등록</h3>
+            </div>
+            <p className="text-sm text-slate-500">
+              사업자등록증, 실적증명, 자격증 등을 업로드하면 AI가 자동으로 프로필을 채웁니다.
+            </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">회사명</label>
-            <input value={companyName} onChange={e => setCompanyName(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-kira-500 focus:ring-2 focus:ring-kira-200 outline-none" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">업종</label>
-            <input value={businessType} onChange={e => setBusinessType(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-kira-500 focus:ring-2 focus:ring-kira-200 outline-none" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">사업자번호</label>
-            <input value={businessNumber} onChange={e => setBusinessNumber(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-kira-500 focus:ring-2 focus:ring-kira-200 outline-none" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">연매출</label>
-            <input value={annualRevenue} onChange={e => setAnnualRevenue(e.target.value)} placeholder="예: 30억" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-kira-500 focus:ring-2 focus:ring-kira-200 outline-none" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">직원 수</label>
-            <input type="number" value={employeeCount} onChange={e => setEmployeeCount(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-kira-500 focus:ring-2 focus:ring-kira-200 outline-none" />
-          </div>
-        </div>
-
-        {/* ChipInput fields -- ChipInput uses "chips" prop and renders its own label */}
-        <ChipInput label="자격증/인증" chips={certifications} onChange={setCertifications} placeholder="자격증 입력 후 Enter" />
-        <ChipInput label="활동 지역" chips={regions} onChange={setRegions} placeholder="지역 입력 후 Enter" />
-        <ChipInput label="전문 분야" chips={specializations} onChange={setSpecializations} placeholder="전문 분야 입력 후 Enter" />
-        <ChipInput label="주요 경험" chips={keyExperience} onChange={setKeyExperience} placeholder="주요 경험 입력 후 Enter" />
-
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={handleSave} disabled={saving}
-            className="rounded-lg bg-kira-600 px-5 py-2 text-sm font-medium text-white hover:bg-kira-700 disabled:opacity-50 transition-colors">
-            {saving ? '저장 중...' : '프로필 저장'}
-          </button>
-          {saveMsg && <span className="text-sm text-emerald-600">{saveMsg}</span>}
-        </div>
-      </div>
-
-      {/* 문서 목록 + 업로드 */}
-      <div className="rounded-xl border border-slate-200 p-5 space-y-4">
-        <h3 className="text-base font-semibold text-slate-800">등록 문서</h3>
-
-        {profile?.documents && profile.documents.length > 0 && (
-          <div className="space-y-2">
-            {profile.documents.map((doc) => (
-              <div key={doc.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <FileText size={16} className="text-slate-400 shrink-0" />
-                  <span className="text-sm text-slate-700 truncate">{doc.name}</span>
-                  <span className="text-xs text-slate-400 shrink-0">{formatBytes(doc.size)}</span>
+            {/* 업로드 영역 */}
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (e.dataTransfer.files.length) handleUpload(e.dataTransfer.files); }}
+              className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 hover:border-kira-400 py-8 cursor-pointer transition-colors"
+            >
+              {uploading ? (
+                <div className="flex gap-1">
+                  <span className="typing-dot h-2 w-2 rounded-full bg-kira-500" />
+                  <span className="typing-dot h-2 w-2 rounded-full bg-kira-500" />
+                  <span className="typing-dot h-2 w-2 rounded-full bg-kira-500" />
                 </div>
-                <button type="button" onClick={() => handleDeleteDoc(doc.id)}
-                  className="text-slate-400 hover:text-red-500 transition-colors shrink-0">
-                  <Trash2 size={14} />
+              ) : (
+                <>
+                  <Upload size={24} className="text-slate-400 mb-2" />
+                  <p className="text-sm text-slate-600 font-medium">파일을 드래그하거나 클릭하여 업로드</p>
+                  <p className="text-xs text-slate-400 mt-1">PDF, DOCX, HWP, TXT, MD, PPT (최대 10MB)</p>
+                </>
+              )}
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".pdf,.doc,.docx,.txt,.md,.hwp,.hwpx,.xlsx,.xls,.csv,.pptx,.ppt"
+              onChange={(e) => { if (e.target.files?.length) handleUpload(e.target.files); e.target.value = ''; }}
+              className="hidden"
+            />
+
+            {/* 업로드된 문서 목록 */}
+            {profile?.documents && profile.documents.length > 0 && (
+              <div className="space-y-2">
+                {profile.documents.map((doc) => (
+                  <div key={doc.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileText size={16} className="text-slate-400 shrink-0" />
+                      <span className="text-sm text-slate-700 truncate">{doc.name}</span>
+                      <span className="text-xs text-slate-400 shrink-0">{formatBytes(doc.size)}</span>
+                    </div>
+                    <button type="button" onClick={() => handleDeleteDoc(doc.id)}
+                      className="text-slate-400 hover:text-red-500 transition-colors shrink-0">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 등록 시 제공 기능 안내 */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+            <h4 className="text-sm font-semibold text-slate-700 mb-3">문서 등록 시 제공 기능</h4>
+            <ul className="space-y-2 text-sm text-slate-600">
+              <li className="flex items-start gap-2"><span className="text-kira-600 mt-0.5">•</span>입찰 자격요건 vs 회사 역량 비교 분석</li>
+              <li className="flex items-start gap-2"><span className="text-kira-600 mt-0.5">•</span>강점·약점 매칭 및 적합도 점수</li>
+              <li className="flex items-start gap-2"><span className="text-kira-600 mt-0.5">•</span>발주 예측 맞춤 매칭</li>
+              <li className="flex items-start gap-2"><span className="text-kira-600 mt-0.5">•</span>프로필 자동 채우기 (AI 추출)</li>
+            </ul>
+          </div>
+
+          {/* AI 추출 요약 */}
+          {profile?.aiExtraction && (
+            <div className="rounded-xl border border-kira-200 bg-kira-50/50 p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <Sparkles size={16} className="text-kira-600" />
+                <h3 className="text-base font-semibold text-slate-800">AI 추출 역량 요약</h3>
+              </div>
+              <p className="text-sm text-slate-700">{profile.aiExtraction.summary || '요약 정보가 없습니다.'}</p>
+              <div className="flex gap-2">
+                <button type="button" onClick={handleReanalyze} disabled={reanalyzing}
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+                  <RefreshCw size={14} className={reanalyzing ? 'animate-spin' : ''} />
+                  재분석
+                </button>
+                <button type="button" onClick={handleApplyAi}
+                  className="flex items-center gap-1.5 rounded-lg bg-kira-600 px-3 py-1.5 text-sm text-white hover:bg-kira-700">
+                  <Sparkles size={14} />
+                  프로필에 반영
                 </button>
               </div>
-            ))}
-          </div>
-        )}
-
-        {/* 업로드 영역 */}
-        <div
-          onClick={() => fileInputRef.current?.click()}
-          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-          onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (e.dataTransfer.files.length) handleUpload(e.dataTransfer.files); }}
-          className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 hover:border-kira-400 py-8 cursor-pointer transition-colors"
-        >
-          {uploading ? (
-            <div className="flex gap-1">
-              <span className="typing-dot h-2 w-2 rounded-full bg-kira-500" />
-              <span className="typing-dot h-2 w-2 rounded-full bg-kira-500" />
-              <span className="typing-dot h-2 w-2 rounded-full bg-kira-500" />
             </div>
-          ) : (
-            <>
-              <Upload size={24} className="text-slate-400 mb-2" />
-              <p className="text-sm text-slate-600 font-medium">파일을 드래그하거나 클릭하여 업로드</p>
-              <p className="text-xs text-slate-400 mt-1">PDF, DOCX, HWP, TXT, MD, PPT (최대 10MB)</p>
-            </>
+          )}
+
+          {/* 미등록 안내 (문서 없을 때) */}
+          {!profile && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 text-center">
+              <Upload size={32} className="text-slate-300 mx-auto mb-3" />
+              <p className="text-sm text-slate-500">회사 문서를 업로드하면 AI가 자동으로 정보를 추출합니다.</p>
+            </div>
           )}
         </div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept=".pdf,.doc,.docx,.txt,.md,.hwp,.hwpx,.xlsx,.xls,.csv,.pptx,.ppt"
-          onChange={(e) => { if (e.target.files?.length) handleUpload(e.target.files); e.target.value = ''; }}
-          className="hidden"
-        />
+
+        {/* ─── 우측: 프로필 폼 ─── */}
+        <div className="rounded-xl border border-slate-200 p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-semibold text-slate-800">회사 프로필</h3>
+            {profile?.aiExtraction && (
+              <span className="text-xs text-kira-600 bg-kira-50 px-2 py-0.5 rounded-full">
+                문서 등록 시 자동 채움
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">회사명</label>
+              <input value={companyName} onChange={e => setCompanyName(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-kira-500 focus:ring-2 focus:ring-kira-200 outline-none" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">업종</label>
+              <input value={businessType} onChange={e => setBusinessType(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-kira-500 focus:ring-2 focus:ring-kira-200 outline-none" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">사업자번호</label>
+              <input value={businessNumber} onChange={e => setBusinessNumber(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-kira-500 focus:ring-2 focus:ring-kira-200 outline-none" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">연매출</label>
+              <input value={annualRevenue} onChange={e => setAnnualRevenue(e.target.value)} placeholder="예: 30억" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-kira-500 focus:ring-2 focus:ring-kira-200 outline-none" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">직원 수</label>
+              <input type="number" value={employeeCount} onChange={e => setEmployeeCount(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-kira-500 focus:ring-2 focus:ring-kira-200 outline-none" />
+            </div>
+          </div>
+
+          <ChipInput label="자격증/인증" chips={certifications} onChange={setCertifications} placeholder="자격증 입력 후 Enter" />
+          <ChipInput label="활동 지역" chips={regions} onChange={setRegions} placeholder="지역 입력 후 Enter" />
+          <ChipInput label="전문 분야" chips={specializations} onChange={setSpecializations} placeholder="전문 분야 입력 후 Enter" />
+          <ChipInput label="주요 경험" chips={keyExperience} onChange={setKeyExperience} placeholder="주요 경험 입력 후 Enter" />
+
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={handleSave} disabled={saving}
+              className="rounded-lg bg-kira-600 px-5 py-2 text-sm font-medium text-white hover:bg-kira-700 disabled:opacity-50 transition-colors">
+              {saving ? '저장 중...' : '프로필 저장'}
+            </button>
+            {saveMsg && <span className="text-sm text-emerald-600">{saveMsg}</span>}
+          </div>
+        </div>
       </div>
-
-      {/* AI 추출 요약 */}
-      {profile?.aiExtraction && (
-        <div className="rounded-xl border border-kira-200 bg-kira-50/50 p-5 space-y-3">
-          <div className="flex items-center gap-2">
-            <Sparkles size={16} className="text-kira-600" />
-            <h3 className="text-base font-semibold text-slate-800">AI 추출 역량 요약</h3>
-          </div>
-          <p className="text-sm text-slate-700">{profile.aiExtraction.summary || '요약 정보가 없습니다.'}</p>
-          <div className="flex gap-2">
-            <button type="button" onClick={handleReanalyze} disabled={reanalyzing}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50">
-              <RefreshCw size={14} className={reanalyzing ? 'animate-spin' : ''} />
-              재분석
-            </button>
-            <button type="button" onClick={handleApplyAi}
-              className="flex items-center gap-1.5 rounded-lg bg-kira-600 px-3 py-1.5 text-sm text-white hover:bg-kira-700">
-              <Sparkles size={14} />
-              프로필에 반영
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 미등록 안내 */}
-      {!profile && (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 text-center">
-          <Upload size={32} className="text-slate-300 mx-auto mb-3" />
-          <p className="text-sm text-slate-500">회사 문서를 업로드하면 AI가 자동으로 정보를 추출합니다.</p>
-        </div>
-      )}
     </div>
   );
 };

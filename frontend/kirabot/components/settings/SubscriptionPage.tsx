@@ -11,12 +11,16 @@ const SubscriptionPage: React.FC = () => {
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState('');
 
-  useEffect(() => {
+  const fetchSubscription = () => {
+    setLoading(true);
+    setError('');
     getSubscription()
       .then(setSub)
       .catch((e) => setError(e instanceof Error ? e.message : '구독 정보를 불러오지 못했습니다.'))
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { fetchSubscription(); }, []);
 
   const handleCancel = async () => {
     setCancelError('');
@@ -50,7 +54,7 @@ const SubscriptionPage: React.FC = () => {
         title="오류가 발생했습니다"
         description={error}
         actionLabel="다시 시도"
-        onAction={() => window.location.reload()}
+        onAction={fetchSubscription}
       />
     );
   }

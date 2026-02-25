@@ -1,8 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Bell, Plus, Trash2, Save } from 'lucide-react';
 import { useChatContext } from '../../context/ChatContext';
+import { getApiBaseUrl } from '../../services/kiraApiService';
 import ChipInput from '../shared/ChipInput';
 import Toggle from '../shared/Toggle';
 import EmptyState from '../shared/EmptyState';
@@ -52,6 +53,7 @@ const AlertSettingsPage: React.FC = () => {
   const [rules, setRules] = useState<AlertRule[]>([createEmptyRule()]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveMsg, setSaveMsg] = useState('');
 
   const addRule = () => setRules(prev => [...prev, createEmptyRule()]);
   const removeRule = (id: string) => setRules(prev => prev.filter(r => r.id !== id));
@@ -59,14 +61,74 @@ const AlertSettingsPage: React.FC = () => {
     setRules(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
   }, []);
 
+  // Load existing config on mount
+  useEffect(() => {
+    if (!sessionId) return;
+    fetch(`${getApiBaseUrl()}/api/alerts/config?session_id=${sessionId}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.email) setEmail(data.email);
+        if (data.schedule) setSchedule(data.schedule);
+        if (typeof data.enabled === 'boolean') setGlobalEnabled(data.enabled);
+        if (Array.isArray(data.rules) && data.rules.length > 0) {
+          setRules(data.rules.map((r: any, i: number) => ({
+            id: `rule_${i}`,
+            keywords: r.keywords || [],
+            excludeKeywords: r.excludeKeywords || [],
+            categories: r.categories || [],
+            regions: r.regions || [],
+            minAmt: r.minAmt ? String(r.minAmt) : '',
+            maxAmt: r.maxAmt ? String(r.maxAmt) : '',
+            enabled: r.enabled ?? true,
+          })));
+        }
+      })
+      .catch(() => {});
+  }, [sessionId]);
+
   const handleSave = async () => {
+    if (!email.trim()) {
+      alert('수신 이메일을 입력해주세요.');
+      return;
+    }
     setSaving(true);
     setSaved(false);
-    // For now just simulate save
-    await new Promise(resolve => setTimeout(resolve, 800));
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+    setSaveMsg('');
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/api/alerts/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          enabled: globalEnabled,
+          email: email.trim(),
+          schedule,
+          hours: [],
+          rules: rules.map(r => ({
+            keywords: r.keywords,
+            excludeKeywords: r.excludeKeywords,
+            categories: r.categories,
+            regions: r.regions,
+            minAmt: r.minAmt ? Number(r.minAmt) : undefined,
+            maxAmt: r.maxAmt ? Number(r.maxAmt) : undefined,
+            enabled: r.enabled,
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || '저장 실패');
+      setSaved(true);
+      if (data.emailSent) {
+        setSaveMsg(`저장 완료! ${email}으로 확인 이메일을 보내드렸습니다.`);
+      } else {
+        setSaveMsg('저장 완료!');
+      }
+      setTimeout(() => { setSaved(false); setSaveMsg(''); }, 5000);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : '저장 실패');
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!sessionId) {
@@ -190,10 +252,11 @@ const AlertSettingsPage: React.FC = () => {
           <button type="button" onClick={addRule} className="flex items-center gap-1.5 text-sm font-medium text-kira-600 hover:text-kira-700">
             <Plus size={16} /> 규칙 추가
           </button>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-3">
             <button type="button" onClick={handleSave} disabled={saving} className="flex items-center gap-1.5 rounded-lg bg-kira-600 px-4 py-2 text-sm font-medium text-white hover:bg-kira-700 disabled:opacity-50 transition-colors">
               <Save size={16} /> {saving ? '저장 중...' : saved ? '저장됨!' : '저장'}
             </button>
+            {saveMsg && <span className="text-sm text-emerald-600">{saveMsg}</span>}
           </div>
         </div>
       </div>
