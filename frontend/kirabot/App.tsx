@@ -21,6 +21,8 @@ import SettingsGeneral from './components/settings/SettingsGeneral';
 import SettingsAccount from './components/settings/SettingsAccount';
 import SettingsCompany from './components/settings/SettingsCompany';
 import ForecastPage from './components/forecast/ForecastPage';
+import PaymentModal from './components/PaymentModal';
+import SubscriptionPage from './components/settings/SubscriptionPage';
 import type { User } from './types';
 import { trackPageView } from './utils/analytics';
 import {
@@ -33,6 +35,7 @@ import {
 
 function AppRoutes() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [authError, setAuthError] = useState('');
   const navigate = useNavigate();
@@ -142,7 +145,16 @@ function AppRoutes() {
         <HowItWorks />
         <Solutions />
         <Features />
-        <Pricing />
+        <Pricing
+          onSelectPro={() => {
+            if (user) {
+              setIsPaymentModalOpen(true);
+            } else {
+              setIsLoginModalOpen(true);
+            }
+          }}
+          onStart={handleStart}
+        />
       </main>
       <Footer onNavigate={(path: string) => navigate(path)} onNavigateSection={scrollToSection} />
     </div>
@@ -188,6 +200,7 @@ function AppRoutes() {
             <Route path="general" element={<SettingsGeneral user={user} />} />
             <Route path="company" element={<SettingsCompany />} />
             <Route path="usage" element={<DashboardPage />} />
+            <Route path="subscription" element={<SubscriptionPage />} />
             <Route path="account" element={<SettingsAccount user={user} onLogout={() => void handleLogout()} />} />
           </Route>
 
@@ -206,6 +219,15 @@ function AppRoutes() {
         authError={authError}
         onOpenPrivacy={() => { setIsLoginModalOpen(false); navigate('/privacy'); }}
         onOpenTerms={() => { setIsLoginModalOpen(false); navigate('/terms'); }}
+      />
+
+      <PaymentModal
+        isOpen={isPaymentModalOpen}
+        onClose={() => setIsPaymentModalOpen(false)}
+        onSuccess={(sub) => {
+          console.log('Subscription activated:', sub);
+        }}
+        plan="pro"
       />
     </>
   );
