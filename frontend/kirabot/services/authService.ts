@@ -2,10 +2,12 @@ import { User } from '../types';
 
 const API_BASE_URL = (
   import.meta.env.VITE_KIRA_API_BASE_URL?.trim()
-  || 'http://localhost:8000'
+  || (typeof window !== 'undefined' && window.location.origin !== 'http://localhost:5173'
+    ? window.location.origin
+    : 'http://localhost:8000')
 ).replace(/\/+$/, '');
 
-const GOOGLE_LOGIN_URL = import.meta.env.VITE_GOOGLE_LOGIN_URL?.trim() || `${API_BASE_URL}/auth/google/login`;
+const GOOGLE_LOGIN_URL = import.meta.env.VITE_GOOGLE_LOGIN_URL?.trim() || `${API_BASE_URL}/api/auth/google/login`;
 const AUTH_ME_URL = import.meta.env.VITE_AUTH_ME_URL?.trim() || `${API_BASE_URL}/auth/me`;
 const AUTH_LOGOUT_URL = import.meta.env.VITE_AUTH_LOGOUT_URL?.trim() || `${API_BASE_URL}/auth/logout`;
 
@@ -38,7 +40,8 @@ function mapAuthUser(payload: AuthMeResponse['user']): User | null {
 }
 
 export function isGoogleOAuthConfigured(): boolean {
-  return Boolean(import.meta.env.VITE_GOOGLE_LOGIN_URL?.trim());
+  // In production (same-origin), always configured via API_BASE_URL fallback
+  return Boolean(GOOGLE_LOGIN_URL);
 }
 
 export async function signInWithGoogle(): Promise<void> {

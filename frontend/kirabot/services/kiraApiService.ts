@@ -15,8 +15,8 @@ import {
 
 const API_BASE_URL = (
   import.meta.env.VITE_KIRA_API_BASE_URL?.trim()
-  || (typeof window !== 'undefined'
-    ? `${window.location.protocol}//${window.location.hostname}:8000`
+  || (typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+    ? window.location.origin
     : 'http://localhost:8000')
 ).replace(/\/+$/, '');
 
