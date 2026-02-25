@@ -17,7 +17,7 @@ const tiers = [
   },
   {
     name: "Pro",
-    price: "150,000",
+    price: "99,000",
     unit: "원/월",
     features: [
       "사용자 5명",
@@ -45,7 +45,12 @@ const tiers = [
   }
 ];
 
-const Pricing: React.FC = () => {
+interface PricingProps {
+  onSelectPro?: () => void;
+  onStart?: () => void;
+}
+
+const Pricing: React.FC<PricingProps> = ({ onSelectPro, onStart }) => {
   return (
     <div id="pricing" className="py-24 bg-white border-t border-slate-200">
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
@@ -89,10 +94,14 @@ const Pricing: React.FC = () => {
                   ))}
                 </ul>
               </div>
-              <Button 
+              <Button
                 variant={tier.featured ? 'secondary' : 'primary'}
                 className={`mt-8 w-full ${tier.featured ? 'bg-white text-slate-900 hover:bg-slate-100' : ''}`}
                 size="md"
+                onClick={() => {
+                  if (tier.name === 'Pro' && onSelectPro) onSelectPro();
+                  else if (tier.name === 'Free' && onStart) onStart();
+                }}
               >
                 {tier.cta}
               </Button>
