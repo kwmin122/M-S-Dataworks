@@ -168,7 +168,9 @@ git commit -m "feat(security): cap input limits, fix prisma log level in product
 ## 에이전트/도구 활용 방법 (Claude Code 전용)
 
 이 저장소는 Claude Code의 **Subagent-Driven Development** 방식으로 작업 중이었다.
-Codex가 Claude Code를 사용한다면 동일 방식을 따를 것. 아닌 경우 아래를 참고.
+Codex가 Claude Code를 사용한다면 동일 방식을 따를 것. 아닌 
+
+경우 아래를 참고.
 
 ### 작업 방식 (Claude Code 사용 시)
 
