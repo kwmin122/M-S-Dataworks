@@ -140,8 +140,8 @@ function AppRoutes() {
       <main className="flex-grow">
         <Hero onStart={handleStart} onAlertSetup={handleAlertSetup} />
         <HowItWorks />
-        <Features />
         <Solutions />
+        <Features />
         <Pricing />
       </main>
       <Footer onNavigate={(path: string) => navigate(path)} onNavigateSection={scrollToSection} />
