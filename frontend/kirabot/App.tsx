@@ -16,6 +16,9 @@ import AppShell from './components/layout/AppShell';
 import ChatPage from './components/chat/ChatPage';
 import DashboardPage from './components/dashboard/DashboardPage';
 import AlertSettingsPage from './components/settings/AlertSettingsPage';
+import SettingsPage from './components/settings/SettingsPage';
+import SettingsGeneral from './components/settings/SettingsGeneral';
+import SettingsAccount from './components/settings/SettingsAccount';
 import ForecastPage from './components/forecast/ForecastPage';
 import type { User } from './types';
 import { trackPageView } from './utils/analytics';
@@ -26,6 +29,10 @@ import {
   signInWithGoogle,
   signOutGoogleUser,
 } from './services/authService';
+
+function SettingsCompanyPlaceholder() {
+  return <div className="text-slate-500 text-sm">회사 정보 (준비 중)</div>;
+}
 
 function AppRoutes() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -175,9 +182,20 @@ function AppRoutes() {
           </ProtectedRoute>
         }>
           <Route path="/chat" element={<ChatPage user={user} />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/settings/alerts" element={<AlertSettingsPage />} />
           <Route path="/forecast" element={<ForecastPage />} />
+
+          {/* Settings nested routes */}
+          <Route path="/settings" element={<SettingsPage />}>
+            <Route index element={<Navigate to="general" replace />} />
+            <Route path="general" element={<SettingsGeneral user={user} />} />
+            <Route path="company" element={<SettingsCompanyPlaceholder />} />
+            <Route path="usage" element={<DashboardPage />} />
+            <Route path="account" element={<SettingsAccount user={user} onLogout={() => void handleLogout()} />} />
+          </Route>
+
+          {/* Legacy redirect */}
+          <Route path="/dashboard" element={<Navigate to="/settings/usage" replace />} />
         </Route>
 
         {/* 404 -> redirect to landing */}
