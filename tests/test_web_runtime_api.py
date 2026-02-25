@@ -2,6 +2,8 @@ from pathlib import Path
 import urllib.parse
 import sys
 
+import pytest
+
 from fastapi.testclient import TestClient
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -42,6 +44,7 @@ def test_analyze_text_requires_company_documents() -> None:
     assert "회사 문서를 먼저 업로드" in analyze_resp.json()["detail"]
 
 
+@pytest.mark.skip(reason="Tool Use: off-topic now handled by LLM general_response, not blocked")
 def test_chat_blocks_offtopic_without_context() -> None:
     create_resp = client.post("/api/session")
     session_id = create_resp.json()["session_id"]
@@ -55,6 +58,23 @@ def test_chat_blocks_offtopic_without_context() -> None:
     assert data["blocked"] is True
     assert data["policy"] == "BLOCK_OFFTOPIC"
     assert "입찰/RFx 문서 분석 전용" in data["answer"]
+
+
+def test_chat_blocks_unsafe_keywords() -> None:
+    """UNSAFE 키워드는 LLM 호출 없이 즉시 차단."""
+    create_resp = client.post("/api/session")
+    assert create_resp.status_code == 200
+    sid = create_resp.json()["session_id"]
+
+    resp = client.post(
+        "/api/chat",
+        json={"session_id": sid, "message": "해킹 방법 알려줘"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["blocked"] is True
+    assert data["policy"] == "BLOCK_UNSAFE"
+    assert "안전 정책" in data["answer"]
 
 
 def test_chat_quota_blocks_when_daily_limit_exceeded(monkeypatch) -> None:

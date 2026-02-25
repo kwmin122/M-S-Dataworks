@@ -53,12 +53,13 @@ from nara_api import (  # noqa: E402
 from matcher import MatchStatus, MatchingResult, QualificationMatcher  # noqa: E402
 from rfx_analyzer import RFxAnalysisResult, RFxAnalyzer  # noqa: E402
 from document_parser import DocumentParser  # noqa: E402
+from chat_tools import CHAT_TOOLS, TOOL_USE_SYSTEM_PROMPT, parse_tool_call_result  # noqa: E402
 from chat_router import (  # noqa: E402
     ChatPolicy,
-    apply_context_policy,
-    build_policy_response,
+    RouteDecision,
+    RouteIntent,
+    UNSAFE_KEYWORDS,
     default_router_log_path,
-    route_user_query,
     write_router_telemetry,
 )
 from user_store import (  # noqa: E402
@@ -85,54 +86,6 @@ ALLOWED_UPLOAD_EXTENSIONS = {
 DEFAULT_SESSION_TTL_HOURS = 12
 FRONTEND_DIR = ROOT_DIR / "frontend" / "kirabot"
 FRONTEND_DIST_DIR = FRONTEND_DIR / "dist"
-CHAT_RESPONSE_JSON_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "additionalProperties": False,
-    "properties": {
-        "answer": {"type": "string"},
-        "references": {
-            "type": "array",
-            "maxItems": 5,
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "page": {"type": "integer", "minimum": 1},
-                    "text": {"type": "string"},
-                },
-                "required": ["page", "text"],
-            },
-        },
-    },
-    "required": ["answer", "references"],
-}
-
-QUESTION_HINT_KEYWORDS: tuple[str, ...] = (
-    "요건",
-    "자격",
-    "평가",
-    "근거",
-    "문서",
-    "공고",
-    "입찰",
-    "rfx",
-    "rfp",
-    "준비",
-    "체크리스트",
-    "미충족",
-    "가점",
-    "마감",
-    "회사",
-)
-
-GENERIC_QUESTION_PATTERNS: tuple[str, ...] = (
-    "업무와 관련된 질문",
-    "최근 프로젝트",
-    "이야기해볼까요",
-    "무엇을 도와",
-    "도움이 필요",
-)
-
 GAP_QUERY_KEYWORDS: tuple[str, ...] = (
     "부족",
     "미충족",
@@ -167,12 +120,6 @@ DEFAULT_SUGGESTIONS_WITH_ANALYSIS: list[str] = [
     "점수에 가장 큰 영향을 주는 항목 3개를 알려줘",
 ]
 
-DEFAULT_SUGGESTIONS_OFFTOPIC: list[str] = [
-    "이 공고 필수요건 3개만 먼저 요약해줘",
-    "우리 회사 기준으로 미충족 항목을 알려줘",
-    "근거 페이지와 함께 핵심 리스크를 정리해줘",
-    "마감 전 준비 순서를 체크리스트로 보여줘",
-]
 OAUTH_STATE_TTL_SECONDS = 600
 DEFAULT_CHAT_DAILY_LIMIT = 20
 DEFAULT_ANALYZE_MONTHLY_LIMIT = 30
@@ -508,39 +455,6 @@ def _fetch_google_userinfo(access_token: str) -> dict[str, Any]:
     return payload
 
 
-def _is_business_suggestion(text: str) -> bool:
-    normalized = str(text or "").strip().lower()
-    if not normalized:
-        return False
-    if any(pattern in normalized for pattern in GENERIC_QUESTION_PATTERNS):
-        return False
-    return any(keyword in normalized for keyword in QUESTION_HINT_KEYWORDS)
-
-
-def _merge_suggestions(primary: list[str], fallback: list[str], limit: int = 4) -> list[str]:
-    merged: list[str] = []
-    for value in primary + fallback:
-        normalized = str(value or "").strip()
-        if not normalized or normalized in merged:
-            continue
-        merged.append(normalized)
-        if len(merged) >= limit:
-            break
-    return merged
-
-
-def _build_suggested_questions(session: WebRuntimeSession, decision_questions: list[str], blocked_offtopic: bool) -> list[str]:
-    if blocked_offtopic:
-        base = DEFAULT_SUGGESTIONS_OFFTOPIC
-    elif session.latest_matching_result is not None:
-        base = DEFAULT_SUGGESTIONS_WITH_ANALYSIS
-    elif session.rag_engine.collection.count() > 0:
-        base = DEFAULT_SUGGESTIONS_COMPANY_ONLY
-    else:
-        base = DEFAULT_SUGGESTIONS_NO_CONTEXT
-
-    filtered = [item for item in decision_questions if _is_business_suggestion(item)]
-    return _merge_suggestions(filtered, base, limit=4)
 
 
 def _sanitize_session_id(session_id: str) -> str:
@@ -871,108 +785,120 @@ def _build_chat_context(session: WebRuntimeSession, message: str) -> tuple[str, 
     return company_context_text, rfx_context_text, fallback_refs
 
 
-def _generate_chat_answer(
+
+# ── Tool Use helpers ──
+
+UNSAFE_RESPONSE_TEXT = "해당 요청은 안전 정책상 처리할 수 없습니다."
+
+
+def _contains_unsafe_keywords(message: str) -> bool:
+    """LLM 호출 전 안전 키워드 사전 검사."""
+    normalized = " ".join((message or "").strip().lower().split())
+    return any(kw in normalized for kw in UNSAFE_KEYWORDS)
+
+
+def _build_suggested_questions_simple(session: WebRuntimeSession) -> list[str]:
+    """Tool Use용 간소화된 추천 질문."""
+    if session.latest_matching_result is not None:
+        return list(DEFAULT_SUGGESTIONS_WITH_ANALYSIS)
+    elif session.rag_engine.collection.count() > 0:
+        return list(DEFAULT_SUGGESTIONS_COMPANY_ONLY)
+    else:
+        return list(DEFAULT_SUGGESTIONS_NO_CONTEXT)
+
+
+def _write_tool_telemetry(
+    *,
+    message: str,
+    tool_name: str,
+    has_context: bool,
+    company_scores: list[float],
+    rfx_scores: list[float],
+) -> None:
+    """Tool Use 텔레메트리 (기존 write_router_telemetry 어댑터)."""
+    tool_map = {
+        "document_qa": RouteIntent.DOMAIN_RFX,
+        "general_response": RouteIntent.SMALL_TALK_OFFTOPIC,
+        "bid_search": RouteIntent.DOMAIN_RFX,
+        "bid_analyze": RouteIntent.DOMAIN_RFX,
+        "unsafe_precheck": RouteIntent.UNSAFE,
+    }
+    intent = tool_map.get(tool_name, RouteIntent.UNKNOWN)
+    decision = RouteDecision(
+        intent=intent,
+        confidence=1.0,
+        policy=ChatPolicy.BLOCK_UNSAFE if intent == RouteIntent.UNSAFE else ChatPolicy.ALLOW,
+        reason=f"tool_use:{tool_name}",
+        source="tool_use",
+        llm_called=(tool_name != "unsafe_precheck"),
+    )
+    rel = max(company_scores + rfx_scores) if (company_scores + rfx_scores) else 0.0
+    write_router_telemetry(
+        log_path=default_router_log_path(),
+        message=message,
+        decision=decision,
+        company_scores=company_scores,
+        rfx_scores=rfx_scores,
+        relevance_score=rel,
+        min_relevance_score=0.0,
+        has_context=has_context,
+    )
+
+
+
+def _generate_chat_answer_with_tools(
     *,
     api_key: str,
     message: str,
     company_context_text: str,
     rfx_context_text: str,
     session: WebRuntimeSession,
-) -> tuple[str, list[dict[str, Any]]]:
+) -> tuple[str, str, list[dict[str, Any]]]:
+    """Tool Use 단일 호출로 라우팅 + 응답 생성. Returns (tool_name, answer, references)."""
     from openai import OpenAI
 
     matching_context = ""
     if session.latest_matching_result:
-        match_result = session.latest_matching_result
+        m = session.latest_matching_result
         matching_context = (
-            f"- 종합 적합도: {match_result.overall_score:.0f}%\n"
-            f"- 추천: {match_result.recommendation}\n"
-            f"- 충족/부분/미충족: {match_result.met_count}/{match_result.partially_met_count}/{match_result.not_met_count}"
+            f"적합도: {m.overall_score:.0f}%, 추천: {m.recommendation}, "
+            f"충족/부분/미충족: {m.met_count}/{m.partially_met_count}/{m.not_met_count}"
         )
 
-    rfx_context = ""
+    rfx_meta = ""
     if session.latest_rfx_analysis:
-        analysis = session.latest_rfx_analysis
-        rfx_context = (
-            f"- 공고명: {analysis.title}\n"
-            f"- 발주기관: {analysis.issuing_org}\n"
-            f"- 마감일: {analysis.deadline}\n"
-            f"- 문서유형: {analysis.document_type}"
-        )
+        a = session.latest_rfx_analysis
+        rfx_meta = f"공고명: {a.title}, 발주기관: {a.issuing_org}, 마감일: {a.deadline}"
 
-    system_prompt = """당신은 입찰/RFx 문서 분석 보조 어시스턴트입니다.
-반드시 JSON 객체로만 응답하세요.
-스키마:
-{
-  "answer": "한국어 답변",
-  "references": [
-    {"page": 3, "text": "RFx 원문에서 그대로 발췌한 구절"}
-  ]
-}
+    ctx_parts: list[str] = []
+    if company_context_text:
+        ctx_parts.append(f"\n### 회사 정보\n{company_context_text}")
+    if rfx_context_text:
+        ctx_parts.append(f"\n### RFx 원문\n{rfx_context_text}")
+    if rfx_meta:
+        ctx_parts.append(f"\n### RFx 메타\n{rfx_meta}")
+    if matching_context:
+        ctx_parts.append(f"\n### 매칭 요약\n{matching_context}")
+    if not ctx_parts:
+        ctx_parts.append("\n### 문서 컨텍스트: 없음")
 
-규칙:
-1) references.page는 RFx 원문 실제 페이지 번호만 사용
-2) references.text는 RFx 원문 문구를 그대로 사용 (의역 금지)
-3) references는 최대 5개
-4) 회사 정보 문구는 references에 넣지 말 것
-5) 근거가 부족하면 답변에 부족하다고 명확히 쓸 것
-6) 질문이 회사명/인증/실적/강점 등 회사 정보라면 회사 정보 컨텍스트를 우선 사용
-7) 회사 정보 기반 답변은 references를 빈 배열로 둘 수 있음
-"""
-
-    user_prompt = f"""질문: {message}
-
-[회사 정보 (RAG 검색 결과)]
-{company_context_text or '없음'}
-
-[RFx 원문 (RAG 검색 결과)]
-{rfx_context_text or '없음'}
-
-[RFx 분석 메타]
-{rfx_context or '없음'}
-
-[매칭 요약]
-{matching_context or '없음'}
-"""
+    full_system = TOOL_USE_SYSTEM_PROMPT + "\n".join(ctx_parts)
 
     model = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
     client = OpenAI(api_key=api_key)
-
     response = client.chat.completions.create(
         model=model,
         max_tokens=2048,
         temperature=0.3,
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "kira_chat_response",
-                "strict": True,
-                "schema": CHAT_RESPONSE_JSON_SCHEMA,
-            },
-        },
+        tools=CHAT_TOOLS,
+        tool_choice="required",
         messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
+            {"role": "system", "content": full_system},
+            {"role": "user", "content": message},
         ],
     )
-    content = (response.choices[0].message.content or "").strip()
-    payload = json.loads(content)
-    answer = str(payload.get("answer", "")).strip()
-    raw_refs = payload.get("references", [])
-    references: list[dict[str, Any]] = []
-    if isinstance(raw_refs, list):
-        for ref in raw_refs[:5]:
-            if not isinstance(ref, dict):
-                continue
-            try:
-                page = int(ref.get("page", 0))
-            except (TypeError, ValueError):
-                page = 0
-            if page <= 0:
-                continue
-            text = str(ref.get("text", "")).strip()
-            references.append({"page": page, "text": text})
-    return answer, references
+    return parse_tool_call_result(response.choices[0].message)
+
 
 
 def _index_rfx_document(session: WebRuntimeSession, file_path: str, original_name: str) -> None:
@@ -1384,110 +1310,108 @@ def chat_with_references(payload: ChatPayload, request: Request) -> dict[str, An
         metadata={"path": "/api/chat"},
     )
 
-    router_model = os.getenv("CHAT_ROUTER_MODEL", os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"))
-    confidence_threshold = _safe_float_env("CHAT_ROUTER_CONFIDENCE_THRESHOLD", 0.65)
-    min_relevance_score = _safe_float_env("CHAT_MIN_RELEVANCE_SCORE", 0.0)
-    enforce_relevance = _safe_bool_env("CHAT_RELEVANCE_ENFORCE", False)
-    offtopic_strict = _safe_bool_env("CHAT_OFFTOPIC_STRICT", True)
-
-    decision = route_user_query(
-        message=message,
-        api_key=os.getenv("OPENAI_API_KEY", "").strip(),
-        model=router_model,
-        confidence_threshold=confidence_threshold,
-        offtopic_strict=offtopic_strict,
-    )
-    suggested_questions = _build_suggested_questions(
-        session=session,
-        decision_questions=decision.suggested_questions,
-        blocked_offtopic=False,
-    )
-
-    company_scores, rfx_scores = _collect_rag_scores(session, message)
-    relevance_score = _max_relevance_score(company_scores, rfx_scores)
-    has_context = bool(
-        (session.rag_engine.collection.count() > 0)
-        or (session.rfx_rag_engine.collection.count() > 0)
-    )
-    min_score = min_relevance_score if enforce_relevance else 0.0
-    decision = apply_context_policy(
-        decision=decision,
-        has_context=has_context,
-        relevance_score=relevance_score,
-        min_relevance_score=min_score,
-    )
-
-    write_router_telemetry(
-        log_path=default_router_log_path(),
-        message=message,
-        decision=decision,
-        company_scores=company_scores,
-        rfx_scores=rfx_scores,
-        relevance_score=relevance_score,
-        min_relevance_score=min_score,
-        has_context=has_context,
-    )
-
-    if decision.policy != ChatPolicy.ALLOW:
-        if decision.policy == ChatPolicy.BLOCK_OFFTOPIC:
-            suggested_questions = _build_suggested_questions(
-                session=session,
-                decision_questions=decision.suggested_questions,
-                blocked_offtopic=True,
-            )
+    # ── Step 0: UNSAFE 키워드 사전 검사 (LLM 호출 전 비용 절약) ──
+    if _contains_unsafe_keywords(message):
+        _write_tool_telemetry(
+            message=message,
+            tool_name="unsafe_precheck",
+            has_context=False,
+            company_scores=[],
+            rfx_scores=[],
+        )
         return {
             "ok": True,
             "blocked": True,
-            "policy": decision.policy.value,
-            "intent": decision.intent.value,
-            "reason": decision.reason,
-            "answer": build_policy_response(decision),
+            "policy": "BLOCK_UNSAFE",
+            "intent": "UNSAFE",
+            "reason": "안전 키워드 감지",
+            "answer": UNSAFE_RESPONSE_TEXT,
             "references": [],
-            "suggested_questions": suggested_questions,
+            "suggested_questions": _build_suggested_questions_simple(session),
             "quota": quota,
         }
 
-    deterministic_gap = _build_gap_answer_from_latest_matching(session=session, message=message)
+    # ── Step 1: 결정론적 갭 답변 가드 (매칭 결과 모순 방지) ──
+    deterministic_gap = _build_gap_answer_from_latest_matching(
+        session=session, message=message,
+    )
     if deterministic_gap is not None:
         answer, references = deterministic_gap
         return {
             "ok": True,
             "blocked": False,
-            "policy": decision.policy.value,
-            "intent": decision.intent.value,
-            "reason": f"{decision.reason} | latest_matching_guard",
+            "policy": "ALLOW",
+            "intent": "document_qa",
+            "reason": "latest_matching_guard",
             "answer": answer,
             "references": references,
-            "suggested_questions": suggested_questions,
+            "suggested_questions": _build_suggested_questions_simple(session),
             "quota": quota,
         }
 
+    # ── Step 2: RAG 컨텍스트 구축 ──
     api_key = _openai_api_key()
-    company_context_text, rfx_context_text, fallback_refs = _build_chat_context(session, message)
-
-    answer, references = _generate_chat_answer(
-        api_key=api_key,
-        message=message,
-        company_context_text=company_context_text,
-        rfx_context_text=rfx_context_text,
-        session=session,
+    company_context_text, rfx_context_text, fallback_refs = _build_chat_context(
+        session, message,
+    )
+    company_scores, rfx_scores = _collect_rag_scores(session, message)
+    has_context = bool(
+        (session.rag_engine.collection.count() > 0)
+        or (session.rfx_rag_engine.collection.count() > 0)
     )
 
-    references = [ref for ref in references if _is_grounded_in_rfx(ref, rfx_context_text)]
-    if not references and fallback_refs:
-        references = fallback_refs[:3]
+    # ── Step 3: LLM Tool Use 단일 호출 (라우팅 + 응답 생성) ──
+    try:
+        tool_name, answer, references = _generate_chat_answer_with_tools(
+            api_key=api_key,
+            message=message,
+            company_context_text=company_context_text,
+            rfx_context_text=rfx_context_text,
+            session=session,
+        )
+    except Exception as exc:
+        logger.error("Tool Use LLM 호출 실패: %s", exc)
+        return {
+            "ok": True,
+            "blocked": False,
+            "policy": "ALLOW",
+            "intent": "error_fallback",
+            "reason": str(exc),
+            "answer": "죄송합니다, 답변 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
+            "references": [],
+            "suggested_questions": _build_suggested_questions_simple(session),
+            "quota": quota,
+        }
+
+    # ── Step 4: document_qa 참조 그라운딩 ──
+    if tool_name == "document_qa":
+        references = [
+            r for r in references if _is_grounded_in_rfx(r, rfx_context_text)
+        ]
+        if not references and fallback_refs:
+            references = fallback_refs[:3]
+
+    # ── Step 5: 텔레메트리 ──
+    _write_tool_telemetry(
+        message=message,
+        tool_name=tool_name,
+        has_context=has_context,
+        company_scores=company_scores,
+        rfx_scores=rfx_scores,
+    )
 
     return {
         "ok": True,
         "blocked": False,
-        "policy": decision.policy.value,
-        "intent": decision.intent.value,
-        "reason": decision.reason,
+        "policy": "ALLOW",
+        "intent": tool_name,
+        "reason": f"tool_use:{tool_name}",
         "answer": answer,
         "references": references,
-        "suggested_questions": suggested_questions,
+        "suggested_questions": _build_suggested_questions_simple(session),
         "quota": quota,
     }
+
 
 
 # ── Phase 1: 공고 검색 (나라장터 Open API) ──
