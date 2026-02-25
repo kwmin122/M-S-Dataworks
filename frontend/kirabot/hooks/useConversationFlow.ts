@@ -6,6 +6,7 @@ import { trackEvent } from '../utils/analytics';
 import type {
   AlertSettings,
   ChatMessage,
+  CompanyProfile,
   MessageAction,
   ConversationPhase,
   TextChatMessage,
@@ -227,6 +228,18 @@ export function useConversationFlow() {
   const startNewConversation = useCallback(() => {
     const conv = createNewConversation();
     dispatch({ type: 'CREATE_CONVERSATION', conversation: conv });
+
+    // Load company profile and store in conversation
+    api.getCompanyProfile().then((profile: CompanyProfile | null) => {
+      if (profile && profile.companyName) {
+        dispatch({
+          type: 'UPDATE_CONVERSATION',
+          conversationId: conv.id,
+          updates: { companyProfile: profile },
+        });
+      }
+    }).catch(() => {});
+
     return conv.id;
   }, [dispatch]);
 
@@ -244,13 +257,13 @@ export function useConversationFlow() {
         text,
       } as TextChatMessage);
 
-      // Auto-title: set conversation title from first meaningful user text
-      if (conversation.title === '새 대화') {
+      trackEvent('chat_message_sent', { message_length: text.length, conversation_id: conversationId });
+
+      // Auto-title for non-greeting phases
+      if (conversation.phase !== 'greeting' && conversation.title === 'KiraBot') {
         const autoTitle = text.length > 20 ? text.slice(0, 20) + '...' : text;
         updateConv({ title: autoTitle });
       }
-
-      trackEvent('chat_message_sent', { message_length: text.length, conversation_id: conversationId });
 
       // If in doc_chat phase, send to chat API
       if (conversation.phase === 'doc_chat' && conversation.sessionId) {
@@ -292,13 +305,17 @@ export function useConversationFlow() {
 
       // greeting phase: 텍스트 입력
       if (conversation.phase === 'greeting') {
-        // 인사말 감지 → 봇 인사 응답 + phase 유지 (WelcomeScreen 유지)
+        // 인사말 감지 → 봇 인사 응답 + phase 유지 (WelcomeScreen 유지, 타이틀 변경 없음)
         if (GREETING_PATTERN.test(text)) {
           pushText('안녕하세요! 공고 키워드를 입력하거나 아래 기능을 선택해주세요.');
           return;
         }
 
-        // 비인사 텍스트 → 일반 챗봇 모드로 전환
+        // 비인사 텍스트 → 일반 챗봇 모드로 전환 + 자동 타이틀 설정
+        if (conversation.title === 'KiraBot') {
+          const autoTitle = text.length > 20 ? text.slice(0, 20) + '...' : text;
+          updateConv({ title: autoTitle });
+        }
         setPhase('free_chat');
         // free_chat으로 fall-through
       }
@@ -331,7 +348,7 @@ export function useConversationFlow() {
         return;
       }
     },
-    [conversationId, conversation, push, pushText, pushStatus, removeLastStatus, setProcessing, dispatch, state.contextPanel],
+    [conversationId, conversation, push, pushText, pushStatus, removeLastStatus, setProcessing, setPhase, updateConv, dispatch, state.contextPanel],
   );
 
   // ── Shared FSM transition for feature selection ──
@@ -342,23 +359,42 @@ export function useConversationFlow() {
 
       if (value === 'doc_analysis') {
         trackEvent('chat_started', { mode: 'document_analysis' });
-        pushText('회사 문서를 먼저 등록하면 자격 매칭 비교가 가능합니다. 문서만 분석할 수도 있습니다.');
-        setPhase('doc_upload_company');
-        push({
-          id: msgId(),
-          role: 'bot',
-          type: 'button_choice',
-          timestamp: Date.now(),
-          text: '',
-          choices: [
-            { label: '회사 문서 먼저 등록', value: 'start_company_upload' },
-            { label: '바로 문서 분석', value: 'skip_to_target' },
-          ],
-        } as ButtonChoiceMessage);
+
+        if (conversation.companyProfile?.companyName) {
+          // Company profile exists — skip company upload choice, go to target upload
+          pushText(`🏢 ${conversation.companyProfile.companyName} 정보가 연동되어 있습니다. 분석할 문서를 업로드해주세요.`);
+          setPhase('doc_upload_target');
+          push({
+            id: msgId(),
+            role: 'bot',
+            type: 'file_upload',
+            timestamp: Date.now(),
+            text: '분석할 문서(RFP/입찰공고)를 업로드해주세요.',
+            accept: UPLOAD_ACCEPT,
+            multiple: false,
+          } as FileUploadMessage);
+        } else {
+          // No company profile — show original choice with settings hint
+          pushText('회사 문서를 먼저 등록하면 자격 매칭 비교가 가능합니다. 문서만 분석할 수도 있습니다.\n\n💡 설정 > 회사 정보에서 등록하면 매번 업로드 없이 자동 분석됩니다.');
+          setPhase('doc_upload_company');
+          push({
+            id: msgId(),
+            role: 'bot',
+            type: 'button_choice',
+            timestamp: Date.now(),
+            text: '',
+            choices: [
+              { label: '회사 문서 먼저 등록', value: 'start_company_upload' },
+              { label: '바로 문서 분석', value: 'skip_to_target' },
+            ],
+          } as ButtonChoiceMessage);
+        }
       } else if (value === 'bid_search') {
         trackEvent('chat_started', { mode: 'bid_search' });
-        if (!conversation.companyChunks || conversation.companyChunks <= 0) {
-          pushText('💡 회사 소개서를 먼저 등록하면, 검색된 공고에 대해 자동 맞춤 분석과 GO/NO-GO 판정을 받을 수 있어요. 상단의 "회사 문서 추가" 버튼으로 언제든 등록할 수 있습니다.');
+        if (conversation.companyProfile?.companyName) {
+          pushText(`🏢 ${conversation.companyProfile.companyName} 정보가 연동되어 공고 분석 시 자동 활용됩니다.`);
+        } else if (!conversation.companyChunks || conversation.companyChunks <= 0) {
+          pushText('💡 설정 > 회사 정보에서 등록하면 검색된 공고에 대해 자동 맞춤 분석과 GO/NO-GO 판정을 받을 수 있어요.');
         }
         setPhase('bid_search_input');
         push({
@@ -777,6 +813,12 @@ export function useConversationFlow() {
               const result = await api.searchBids(conditions);
               removeLastStatus();
 
+              // Auto-title from search keywords
+              if (conversation.title === 'KiraBot' && values.keywords) {
+                const kw = values.keywords.length > 20 ? values.keywords.slice(0, 20) + '...' : values.keywords;
+                updateConv({ title: `검색: ${kw}` });
+              }
+
               if (result.notices.length > 0) {
                 push({
                   id: msgId(),
@@ -894,22 +936,7 @@ export function useConversationFlow() {
             }
           }
 
-          pushStatus('loading', `나라장터에 접속하여 "${bid.title}" 공고를 조회하고 있어요...`);
-
-          // 단계별 상태 메시지 타이머
-          const stepTimers: ReturnType<typeof setTimeout>[] = [];
-          stepTimers.push(setTimeout(() => {
-            removeLastStatus();
-            pushStatus('loading', '첨부파일을 자동으로 다운로드하고 있어요...');
-          }, 4000));
-          stepTimers.push(setTimeout(() => {
-            removeLastStatus();
-            pushStatus('loading', 'KiraBot이 문서를 AI로 분석하고 있어요... 잠시만 기다려주세요.');
-          }, 10000));
-          stepTimers.push(setTimeout(() => {
-            removeLastStatus();
-            pushStatus('loading', '자격요건을 추출하고 회사 역량과 매칭하고 있어요...');
-          }, 20000));
+          pushStatus('loading', `"${bid.title}" 공고를 분석하고 있어요...`);
 
           try {
             const result = await api.analyzeBidFromNara(
@@ -918,7 +945,6 @@ export function useConversationFlow() {
               bid.bidNtceOrd || undefined,
               bid.category || undefined,
             );
-            stepTimers.forEach(clearTimeout);
             removeLastStatus();
 
             // 회사 문서 미등록 시 안내 메시지 추가
@@ -959,7 +985,6 @@ export function useConversationFlow() {
             setPhase('doc_chat');
             updateConv({ title: bid.title || result.analysis?.title || '공고 분석' });
           } catch (error) {
-            stepTimers.forEach(clearTimeout);
             removeLastStatus();
             const msg = error instanceof Error ? error.message : '알 수 없는 오류';
 
@@ -1198,8 +1223,8 @@ export function useConversationFlow() {
             text: welcomeLabel[action.value] || action.value,
           } as TextChatMessage);
           // Auto-title from welcome action
-          if (conversation.title === '새 대화') {
-            updateConv({ title: welcomeLabel[action.value] || '새 대화' });
+          if (conversation.title === 'KiraBot') {
+            updateConv({ title: welcomeLabel[action.value] || 'KiraBot' });
           }
           handleFeatureSelection(action.value);
           break;

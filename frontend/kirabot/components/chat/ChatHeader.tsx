@@ -73,6 +73,12 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ onAction }) => {
         <h3 className="text-sm font-bold text-slate-800 truncate">
           {conversation?.title || 'Kira Bot'}
         </h3>
+        {conversation?.companyProfile?.companyName && (
+          <span className="flex items-center gap-1 rounded-full bg-kira-50 border border-kira-200 px-2.5 py-0.5 text-xs text-kira-700 shrink-0">
+            <Building2 size={12} />
+            {conversation.companyProfile.companyName}
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {showActionButtons && (

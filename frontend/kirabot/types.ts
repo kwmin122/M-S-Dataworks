@@ -276,6 +276,7 @@ export interface Conversation {
   uploadedFileUrl?: string;
   uploadedFileName?: string;
   companyDocUrls?: { name: string; url: string }[];
+  companyProfile?: CompanyProfile | null;
 }
 
 // ── 컨텍스트 패널 ──
