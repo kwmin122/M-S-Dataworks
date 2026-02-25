@@ -1,0 +1,30 @@
+# Git
+.git
+.gitignore
+.worktrees/
+
+# Node (built in Docker)
+frontend/kirabot/node_modules/
+frontend/kirabot/dist/
+
+# Runtime data (mounted as volume in production)
+data/web_uploads/
+data/vectordb/
+data/vectordb_web/
+data/user_store/
+data/alert_configs/
+data/company_profiles/
+services/web_app/data/
+
+# Dev/docs
+docs/
+reports/
+.claude/
+*.md
+*.png
+*.svg
+__pycache__/
+.pytest_cache/
+.vscode/
+.env
+.env.local

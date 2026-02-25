@@ -201,7 +201,7 @@ app.add_middleware(
         ).split(",")
         if origin.strip()
     ],
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^https://.*\.up\.railway\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -931,6 +931,11 @@ def _index_rfx_document(session: WebRuntimeSession, file_path: str, original_nam
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"ok": "true", "time": _utc_now().isoformat()}
+
+
+@app.get("/api/health")
+def health_check() -> dict[str, str]:
+    return {"status": "ok"}
 
 
 @app.get("/")
@@ -2926,8 +2931,9 @@ if __name__ == "__main__":
 
     host = os.getenv("WEB_API_HOST", "0.0.0.0").strip() or "0.0.0.0"
     try:
-        port = int(os.getenv("WEB_API_PORT", "8010").strip())
+        # Railway sets PORT; fallback to WEB_API_PORT for local dev
+        port = int(os.getenv("PORT", os.getenv("WEB_API_PORT", "8000")).strip())
     except ValueError:
-        port = 8010
+        port = 8000
 
     uvicorn.run("main:app", host=host, port=port, reload=False)
