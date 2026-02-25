@@ -145,3 +145,6 @@ frontend/kirabot/dist/
 
 # Allow TypeScript source lib directories
 !web_saas/src/lib/
+
+# Git worktrees
+.worktrees/
