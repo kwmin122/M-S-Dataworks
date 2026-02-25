@@ -8,6 +8,7 @@ import hmac
 import json
 import shutil
 import sys
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -19,6 +20,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from services.web_app.main import (
+    _BILLING_KEY_RE,
     _safe_username_for_path,
     _SUBSCRIPTIONS_DIR,
     app,
@@ -312,6 +314,7 @@ class TestWebhook:
 
     def test_webhook_invalid_signature_returns_401(self):
         """잘못된 서명 시 401."""
+        wh_ts = str(int(time.time()))
         with patch.dict(
             "os.environ", {"PORTONE_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA=="}, clear=False
         ):
@@ -320,7 +323,7 @@ class TestWebhook:
                 json={"type": "Transaction.Paid"},
                 headers={
                     "webhook-id": "msg_test",
-                    "webhook-timestamp": "1234567890",
+                    "webhook-timestamp": wh_ts,
                     "webhook-signature": "v1,invalidsignature",
                 },
             )
@@ -333,7 +336,7 @@ class TestWebhook:
         body_str = json.dumps({"type": "Transaction.Paid"})
 
         wh_id = "msg_test_123"
-        wh_ts = "1234567890"
+        wh_ts = str(int(time.time()))
         signed_payload = f"{wh_id}.{wh_ts}.{body_str}".encode()
         expected = base64.b64encode(
             hmac.new(b"testsecret", signed_payload, hashlib.sha256).digest()
@@ -352,3 +355,70 @@ class TestWebhook:
                 },
             )
             assert resp.status_code == 200
+
+    def test_webhook_old_timestamp_rejected(self):
+        """5분 초과 타임스탬프 시 401."""
+        with patch.dict(
+            "os.environ", {"PORTONE_WEBHOOK_SECRET": "whsec_dGVzdHNlY3JldA=="}, clear=False
+        ):
+            resp = client.post(
+                "/api/payments/webhook",
+                json={"type": "Transaction.Paid"},
+                headers={
+                    "webhook-id": "msg_test",
+                    "webhook-timestamp": "1234567890",
+                    "webhook-signature": "v1,anything",
+                },
+            )
+            assert resp.status_code == 401
+            assert "out of range" in resp.json()["detail"]
+
+
+# ── 빌링키 형식 검증 테스트 ──
+
+
+class TestBillingKeyFormat:
+    def test_valid_format(self):
+        assert _BILLING_KEY_RE.match("billing-key-abcde12345")
+
+    def test_valid_format_with_hyphens(self):
+        assert _BILLING_KEY_RE.match("billing-key-abc-def-12345678")
+
+    def test_invalid_prefix(self):
+        assert not _BILLING_KEY_RE.match("bk_test_123")
+
+    def test_path_traversal_rejected(self):
+        assert not _BILLING_KEY_RE.match("billing-key-../../../etc/passwd")
+
+    def test_too_short(self):
+        assert not _BILLING_KEY_RE.match("billing-key-abc")
+
+    def test_empty(self):
+        assert not _BILLING_KEY_RE.match("")
+
+    @patch("services.web_app.main.resolve_user_from_session", return_value=_TEST_USERNAME)
+    def test_bad_format_billing_key_returns_400(self, _mock_auth):
+        """빌링키 형식이 잘못된 경우 _verify가 False 반환 → 400."""
+        with patch.dict("os.environ", {"PORTONE_API_SECRET": "test_secret"}, clear=False):
+            resp = client.post(
+                "/api/payments/billing-key",
+                json={"billingKey": "bk_invalid_format", "plan": "pro", "cardLast4": "1234"},
+                cookies=_auth_cookie(),
+            )
+            assert resp.status_code == 400
+            assert "유효하지 않은 빌링키" in resp.json()["detail"]
+
+    @patch("services.web_app.main.resolve_user_from_session", return_value=_TEST_USERNAME)
+    def test_portone_secret_missing_returns_503(self, _mock_auth):
+        """PORTONE_API_SECRET 미설정 시 503."""
+        with patch.dict("os.environ", {"PORTONE_API_SECRET": ""}, clear=False):
+            resp = client.post(
+                "/api/payments/billing-key",
+                json={
+                    "billingKey": "billing-key-validtest1234",
+                    "plan": "pro",
+                    "cardLast4": "1234",
+                },
+                cookies=_auth_cookie(),
+            )
+            assert resp.status_code == 503

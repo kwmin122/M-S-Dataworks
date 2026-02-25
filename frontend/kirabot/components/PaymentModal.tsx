@@ -1,18 +1,17 @@
 import React, { useState, useCallback } from 'react';
 import { X, CreditCard, Shield, Check } from 'lucide-react';
 import { registerBillingKey, verifyPaymentAmount } from '../services/kiraApiService';
-import type { Subscription } from '../types';
 
 interface PaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (subscription: Subscription) => void;
+  onSuccess: () => void;
   plan: 'pro';
   username?: string;
 }
 
-const STORE_ID = import.meta.env.VITE_PORTONE_STORE_ID || 'store-717397bc-f58e-4eaa-8990-e058537209c5';
-const CHANNEL_KEY = import.meta.env.VITE_PORTONE_CHANNEL_KEY || 'channel-key-3d29ff2f-6b77-4885-845d-b2e224b1b5ab';
+const STORE_ID = import.meta.env.VITE_PORTONE_STORE_ID;
+const CHANNEL_KEY = import.meta.env.VITE_PORTONE_CHANNEL_KEY;
 
 const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSuccess, plan, username }) => {
   const [loading, setLoading] = useState(false);
@@ -25,6 +24,10 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSuccess,
     setStep('processing');
 
     try {
+      if (!STORE_ID || !CHANNEL_KEY) {
+        throw new Error('결제 설정이 완료되지 않았습니다. 관리자에게 문의하세요.');
+      }
+
       // Step 1: 서버사이드 금액 검증
       await verifyPaymentAmount(plan);
 
@@ -51,7 +54,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSuccess,
       }
 
       // Step 3: 백엔드에 빌링키 등록
-      const subscription = await registerBillingKey({
+      await registerBillingKey({
         billingKey,
         plan,
         cardLast4: '',
@@ -59,7 +62,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSuccess,
 
       setStep('done');
       setTimeout(() => {
-        onSuccess(subscription);
+        onSuccess();
         onClose();
       }, 1500);
     } catch (e) {
@@ -68,7 +71,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSuccess,
     } finally {
       setLoading(false);
     }
-  }, [plan, onSuccess, onClose]);
+  }, [plan, onSuccess, onClose, username]);
 
   if (!isOpen) return null;
 

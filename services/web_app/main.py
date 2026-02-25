@@ -2213,7 +2213,6 @@ _COMPANY_PROFILES_DIR = ROOT_DIR / "data" / "company_profiles"
 
 # ── 결제 / 구독 상수 ──
 PLAN_PRICES: dict[str, int] = {"free": 0, "pro": 99_000}
-PORTONE_API_SECRET = os.getenv("PORTONE_API_SECRET", "")
 _SUBSCRIPTIONS_DIR = ROOT_DIR / "data" / "subscriptions"
 
 
@@ -2244,9 +2243,11 @@ def _save_subscription(username: str, sub: dict) -> None:
     path = _subscription_path(username)
     sub["updatedAt"] = datetime.now(timezone.utc).isoformat()
     data = json.dumps(sub, ensure_ascii=False, indent=2).encode("utf-8")
-    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
+        os.ftruncate(fd, 0)
+        os.lseek(fd, 0, os.SEEK_SET)
         os.write(fd, data)
     finally:
         fcntl.flock(fd, fcntl.LOCK_UN)
@@ -2258,17 +2259,24 @@ def _public_subscription(sub: dict) -> dict:
     return {k: v for k, v in sub.items() if k != "billingKey"}
 
 
+_BILLING_KEY_RE = re.compile(r"^billing-key-[a-zA-Z0-9_\-]{8,128}$")
+
+
 async def _verify_billing_key_with_portone(billing_key: str) -> bool:
     """PortOne V2 REST API로 빌링키 실재 여부 확인."""
-    if not PORTONE_API_SECRET:
-        logger.warning("PORTONE_API_SECRET 미설정 — 빌링키 검증 스킵 (테스트 모드)")
-        return True
+    if not _BILLING_KEY_RE.match(billing_key):
+        return False
+    secret = os.getenv("PORTONE_API_SECRET", "")
+    if not secret:
+        raise HTTPException(
+            status_code=503, detail="결제 서비스가 구성되지 않았습니다."
+        )
     import httpx
     url = f"https://api.portone.io/billing-keys/{billing_key}"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(
-                url, headers={"Authorization": f"PortOne {PORTONE_API_SECRET}"}
+                url, headers={"Authorization": f"PortOne {secret}"}
             )
         return resp.status_code == 200
     except Exception:
@@ -2756,6 +2764,15 @@ async def portone_webhook(request: Request) -> dict[str, Any]:
     if not wh_id or not wh_ts or not wh_sig:
         raise HTTPException(status_code=401, detail="Missing webhook headers")
 
+    # 타임스탬프 ±5분 허용 (리플레이 공격 방지)
+    import time as _time
+    try:
+        ts_int = int(wh_ts)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid timestamp")
+    if abs(_time.time() - ts_int) > 300:
+        raise HTTPException(status_code=401, detail="Webhook timestamp out of range")
+
     # webhook_secret이 "whsec_" 접두사로 시작하면 제거 후 base64 디코딩
     secret_raw = webhook_secret
     if secret_raw.startswith("whsec_"):
@@ -2788,6 +2805,7 @@ async def portone_webhook(request: Request) -> dict[str, Any]:
     logger.info("PortOne webhook: type=%s", event_type)
 
     if event_type in ("Transaction.Paid", "BillingKey.Issued"):
+        # TODO: Transaction.Paid → currentPeriodEnd 갱신 (정기결제 집행 구현 후)
         pass
     elif event_type == "Transaction.Failed":
         logger.warning("Payment failed: %s", payload)
