@@ -7,7 +7,7 @@ const API_BASE_URL = (
     : 'http://localhost:8000')
 ).replace(/\/+$/, '');
 
-const GOOGLE_LOGIN_URL = import.meta.env.VITE_GOOGLE_LOGIN_URL?.trim() || `${API_BASE_URL}/api/auth/google/login`;
+const GOOGLE_LOGIN_URL = import.meta.env.VITE_GOOGLE_LOGIN_URL?.trim() || `${API_BASE_URL}/auth/google/login`;
 const AUTH_ME_URL = import.meta.env.VITE_AUTH_ME_URL?.trim() || `${API_BASE_URL}/auth/me`;
 const AUTH_LOGOUT_URL = import.meta.env.VITE_AUTH_LOGOUT_URL?.trim() || `${API_BASE_URL}/auth/logout`;
 
