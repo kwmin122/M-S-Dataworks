@@ -2525,6 +2525,153 @@ async def reanalyze_company_profile(request: Request) -> dict[str, Any]:
     return {"ok": True, "profile": profile}
 
 
+# ── 알림 이메일 엑셀 발송 ──
+
+
+def _build_alert_excel(bids: list[dict]) -> bytes:
+    """알림 공고 목록을 엑셀 바이트로 생성."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    import io
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "공고 알림"
+
+    headers = ["구분", "공고명", "수요처", "부서", "예산금액",
+               "공고 게시일시", "입찰서 제출일시", "입찰서 마감일시", "낙찰방법", "비고"]
+
+    # Header styling
+    header_font = Font(bold=True, size=10)
+    header_fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin"),
+    )
+
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = thin_border
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    for row_idx, bid in enumerate(bids, 2):
+        values = [
+            bid.get("category", ""),
+            bid.get("title", ""),
+            bid.get("demandOrg", bid.get("issuingOrg", "")),
+            bid.get("department", ""),
+            bid.get("estimatedPrice", ""),
+            bid.get("publishedAt", ""),
+            bid.get("submitStartAt", ""),
+            bid.get("deadlineAt", ""),
+            bid.get("awardMethod", ""),
+            bid.get("url", ""),
+        ]
+        for col, val in enumerate(values, 1):
+            cell = ws.cell(row=row_idx, column=col, value=val or "")
+            cell.border = thin_border
+            cell.alignment = Alignment(vertical="center")
+
+    # Auto-width
+    for col in ws.columns:
+        max_len = max(len(str(c.value or "")) for c in col)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 40)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _send_alert_email(to_email: str, subject: str, bids: list[dict]) -> bool:
+    """Resend API로 엑셀 첨부 이메일 발송."""
+    import base64
+    api_key = os.getenv("RESEND_API_KEY", "").strip()
+    from_email = os.getenv("RESEND_FROM_EMAIL", "noreply@kirabot.co.kr").strip()
+    if not api_key:
+        logger.warning("RESEND_API_KEY not set, skipping email")
+        return False
+
+    import resend
+    resend.api_key = api_key
+
+    excel_bytes = _build_alert_excel(bids)
+    today = datetime.now().strftime("%Y%m%d")
+
+    try:
+        resend.Emails.send({
+            "from": from_email,
+            "to": [to_email],
+            "subject": subject,
+            "text": f"키라봇 공고 알림입니다. {len(bids)}건의 매칭 공고를 첨부 엑셀에서 확인해주세요.",
+            "attachments": [{
+                "filename": f"kirabot_alert_{today}.xlsx",
+                "content": base64.b64encode(excel_bytes).decode("utf-8"),
+            }],
+        })
+        return True
+    except Exception as e:
+        logger.error("Alert email send failed: %s", e)
+        return False
+
+
+@app.post("/api/alerts/send-now")
+async def send_alert_now(payload: dict) -> dict[str, Any]:
+    """알림 설정 기반으로 즉시 공고 검색 + 이메일 발송."""
+    session_id = payload.get("session_id", "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id가 필요합니다.")
+
+    config_path = ALERT_CONFIG_DIR / f"{session_id}.json"
+    if not config_path.exists():
+        raise HTTPException(status_code=400, detail="알림 설정이 없습니다.")
+    config = json.loads(config_path.read_text("utf-8"))
+
+    if not config.get("email"):
+        raise HTTPException(status_code=400, detail="수신 이메일이 설정되지 않았습니다.")
+
+    # Search bids for each rule
+    all_bids: list[dict] = []
+    for rule in config.get("rules", []):
+        if not rule.get("enabled", True):
+            continue
+        for kw in rule.get("keywords", [""]):
+            try:
+                results = await nara_search_bids(
+                    keywords=kw,
+                    category="all",
+                    region="",
+                    min_amt=rule.get("minAmt"),
+                    max_amt=rule.get("maxAmt"),
+                    period="1w",
+                    exclude_expired=True,
+                    page=1,
+                    page_size=50,
+                )
+                all_bids.extend(results.get("notices", []))
+            except Exception as e:
+                logger.warning("Alert search failed for keyword '%s': %s", kw, e)
+
+    if not all_bids:
+        return {"ok": True, "sent": False, "reason": "매칭 공고가 없습니다.", "count": 0}
+
+    # Deduplicate by bid ID
+    seen: set[str] = set()
+    unique: list[dict] = []
+    for b in all_bids:
+        bid_id = b.get("id", "")
+        if bid_id and bid_id not in seen:
+            seen.add(bid_id)
+            unique.append(b)
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    subject = f"[키라봇] {today} 맞춤 공고 알림 ({len(unique)}건)"
+    sent = _send_alert_email(config["email"], subject, unique)
+
+    return {"ok": True, "sent": sent, "count": len(unique)}
+
+
 @app.get("/{path_name:path}")
 def frontend_spa(path_name: str) -> FileResponse:
     """
