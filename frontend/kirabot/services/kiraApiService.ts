@@ -10,6 +10,7 @@ import {
   NaraAttachment,
   ProposalSections,
   SessionStats,
+  Subscription,
 } from '../types';
 
 const API_BASE_URL = (
@@ -448,4 +449,51 @@ export async function reanalyzeCompanyProfile(): Promise<CompanyProfile> {
   });
   const data = await parseJson<{ profile: CompanyProfile }>(res);
   return data.profile;
+}
+
+// ── Payment APIs ──
+
+export async function getSubscription(): Promise<Subscription> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/payments/subscription`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+  const data = await parseJson<{ subscription: Subscription }>(res);
+  return data.subscription;
+}
+
+export async function registerBillingKey(params: {
+  billingKey: string;
+  plan: string;
+  cardLast4: string;
+}): Promise<Subscription> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/payments/billing-key`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  const data = await parseJson<{ subscription: Subscription }>(res);
+  return data.subscription;
+}
+
+export async function cancelSubscription(): Promise<Subscription> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/payments/cancel`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  const data = await parseJson<{ subscription: Subscription }>(res);
+  return data.subscription;
+}
+
+export async function verifyPaymentAmount(plan: string): Promise<{ plan: string; amount: number; currency: string }> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/payments/verify-amount`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ plan }),
+  });
+  return parseJson<{ plan: string; amount: number; currency: string }>(res);
 }
