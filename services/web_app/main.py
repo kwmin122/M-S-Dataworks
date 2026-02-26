@@ -208,7 +208,8 @@ app.add_middleware(
 )
 
 SESSIONS: dict[str, WebRuntimeSession] = {}
-OAUTH_STATES: dict[str, datetime] = {}
+# HMAC key for signing OAuth state tokens (survives restarts via env var)
+_OAUTH_STATE_KEY = os.getenv("OAUTH_STATE_SECRET", os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "kira-oauth-fallback-key")).encode()
 
 init_user_store()
 
@@ -388,27 +389,30 @@ def _google_post_login_url() -> str:
     return os.getenv("GOOGLE_OAUTH_POST_LOGIN_URL", "http://localhost:3000/").strip() or "http://localhost:3000/"
 
 
-def _cleanup_oauth_states() -> None:
-    now = _utc_now()
-    expired = [state for state, expires_at in OAUTH_STATES.items() if expires_at <= now]
-    for state in expired:
-        OAUTH_STATES.pop(state, None)
-
-
 def _register_oauth_state() -> str:
-    _cleanup_oauth_states()
-    state = secrets.token_urlsafe(24)
-    OAUTH_STATES[state] = _utc_now() + timedelta(seconds=OAUTH_STATE_TTL_SECONDS)
-    return state
+    """HMAC-signed stateless OAuth state (survives server restarts)."""
+    ts = str(int(_utc_now().timestamp()))
+    nonce = secrets.token_urlsafe(12)
+    payload = f"{ts}.{nonce}"
+    sig = hmac.new(_OAUTH_STATE_KEY, payload.encode(), hashlib.sha256).hexdigest()[:32]
+    return f"{payload}.{sig}"
 
 
 def _validate_oauth_state(state: str) -> None:
-    _cleanup_oauth_states()
+    """Verify HMAC signature and TTL of OAuth state token."""
     state_norm = (state or "").strip()
-    expires_at = OAUTH_STATES.pop(state_norm, None)
-    if not expires_at:
+    parts = state_norm.split(".")
+    if len(parts) != 3:
         raise HTTPException(status_code=400, detail="유효하지 않은 OAuth state입니다.")
-    if expires_at <= _utc_now():
+    ts_str, nonce, sig = parts
+    expected = hmac.new(_OAUTH_STATE_KEY, f"{ts_str}.{nonce}".encode(), hashlib.sha256).hexdigest()[:32]
+    if not hmac.compare_digest(sig, expected):
+        raise HTTPException(status_code=400, detail="유효하지 않은 OAuth state입니다.")
+    try:
+        created = datetime.fromtimestamp(int(ts_str), tz=timezone.utc)
+    except (ValueError, OSError):
+        raise HTTPException(status_code=400, detail="유효하지 않은 OAuth state입니다.")
+    if (_utc_now() - created).total_seconds() > OAUTH_STATE_TTL_SECONDS:
         raise HTTPException(status_code=400, detail="만료된 OAuth state입니다.")
 
 
