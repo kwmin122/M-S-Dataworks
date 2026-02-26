@@ -3372,6 +3372,21 @@ async def _execute_alert_send(config: dict, label: str = "alert") -> dict[str, A
     return {"sent": sent, "count": len(unique), "totalFound": total_found, "summaryCount": len(summaries)}
 
 
+@app.post("/api/debug/send-now-test")
+async def debug_send_now_test(payload: dict) -> dict[str, Any]:
+    """디버그: 인증 없이 알림 즉시 발송 테스트. config를 직접 전달."""
+    config = {
+        "email": payload.get("email", "").strip(),
+        "rules": payload.get("rules", []),
+    }
+    if not config["email"]:
+        return {"ok": False, "error": "email 필요"}
+    if not config["rules"]:
+        return {"ok": False, "error": "rules 필요"}
+    result = await _execute_alert_send(config, label="debug-send-now")
+    return {"ok": True, **result}
+
+
 @app.post("/api/alerts/send-now")
 async def send_alert_now(request: Request, payload: dict) -> dict[str, Any]:
     """알림 설정 기반으로 즉시 공고 검색 + RFP 요약 + 이메일 발송."""
