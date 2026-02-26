@@ -129,17 +129,15 @@ function AppRoutes() {
       setAuthError(message);
       return; // 로그아웃 실패 시 정리/리디렉션 하지 않음
     }
-    // Security: clear user-scoped storage and full reload
+    // Security: clear user-scoped storage (keep legacy keys for migration on next login)
     try {
       const uid = user?.id;
       if (uid) {
         localStorage.removeItem(`kira_conversations_${uid}`);
         localStorage.removeItem(`kira_active_conversation_${uid}`);
       }
-      // Also clear legacy non-scoped keys
-      localStorage.removeItem('kira_conversations');
-      localStorage.removeItem('kira_active_conversation');
-      localStorage.removeItem('kirabot_alert_session_id');
+      // NOTE: Do NOT clear legacy keys (kira_conversations, kirabot_alert_session_id)
+      // They are needed for migration to user-scoped keys on next login.
     } catch { /* ignore */ }
     window.location.replace('/');
   };
