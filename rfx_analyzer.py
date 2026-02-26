@@ -11,12 +11,20 @@ Example:
 """
 
 import os
+import re
 import json
+import time
+import hashlib
+import threading
 from typing import Any, Optional, Literal
 from dataclasses import dataclass, field
 from enum import Enum
 
 from document_parser import DocumentParser, ParsedDocument
+
+# 모듈 레벨 RFP 요약 캐시 (인스턴스 간 공유, Lock으로 스레드 안전 보장)
+_rfp_summary_cache: dict[str, str] = {}
+_rfp_summary_cache_lock = threading.Lock()
 
 
 # ============================================================
@@ -420,9 +428,126 @@ class RFxAnalyzer:
         return analysis
     
     # ============================================================
+    # STEP 3-B: RFP 3-Section 마크다운 요약 생성
+    # ============================================================
+
+    def _trim_for_token_limit(self, text: str, max_chars: int = 80000) -> str:
+        """문서가 너무 길면 별지/부록/서식 제거 후 본문만 남긴다."""
+        if len(text) <= max_chars:
+            return text
+        cut_pattern = re.compile(
+            r'\n\s*(?:붙임|별지|별첨|첨부)\s*\d*\s*[\.:\-\)]',
+            re.IGNORECASE,
+        )
+        match = cut_pattern.search(text)
+        if match and match.start() > max_chars // 2:
+            trimmed = text[:match.start()] + "\n\n[... 별지/부록 이후 생략 ...]"
+        else:
+            trimmed = text
+        trimmed = re.sub(
+            r'\n\s*(?:서식|양식)\s*\d+\s*[\.:\-\)].*?(?=\n\s*(?:서식|양식|제\d+[장조절])|$)',
+            '\n[... 서식 생략 ...]\n',
+            trimmed,
+            flags=re.DOTALL,
+        )
+        if len(trimmed) > max_chars:
+            trimmed = trimmed[:max_chars] + "\n\n[... 이하 생략 (토큰 한계) ...]"
+        return trimmed
+
+    def generate_rfp_summary(self, text: str, model_name: str | None = None) -> str:
+        """RFP 문서에서 3-section 마크다운 요약을 생성한다.
+
+        Sections:
+        1. 사업유형 (사업비, 기간, 계약방법, 공동계약, 하도급)
+        2. 입찰참가 자격조건 (전체 목록)
+        3. 평가방법 및 점수 (평가표 원문 보존)
+        """
+        cache_key = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+        with _rfp_summary_cache_lock:
+            if cache_key in _rfp_summary_cache:
+                print("   ↳ RFP 요약: 캐시 히트")
+                return _rfp_summary_cache[cache_key]
+
+        from rfp_synonyms import generate_prompt_injection
+        synonym_guide = generate_prompt_injection()
+
+        trimmed_text = self._trim_for_token_limit(text)
+        model = model_name or self.model
+
+        prompt = f"""당신은 한국 공공조달 입찰 전문 분석가입니다.
+아래 제안요청서(RFP) 문서를 분석하여, 반드시 아래 3개 섹션 구조로 마크다운 형식 요약을 작성해주세요.
+원문에 기재된 정보만 사용하고, 추측하지 마세요.
+
+{synonym_guide}
+
+## 출력 형식 (마크다운)
+
+### 1. 사업유형
+- **사업비(예산)**: [금액 + VAT 포함/별도 여부. 사업비/총사업비/추정가격/예정가격/배정예산 등 어떤 표현이든 찾아서 기재]
+- **사업기간**: [시작~종료 또는 기간. 사업기간/계약기간/용역기간/수행기간 등 동의어 포함 검색]
+- **계약방법**: [입찰방식 + 낙찰자 결정방식. 예: 제한경쟁입찰 / 협상에 의한 계약]
+- **공동계약(컨소시엄)**: [허용 여부, 방식(공동이행/분담이행/주계약자관리), 최소 지분율]
+- **하도급**: [허용 여부, 제한사항]
+
+### 2. 입찰참가 자격조건
+[문서에 기재된 **모든** 자격요건을 번호 목록으로 빠짐없이 나열.
+ - 결격사유/부정당업자 조항은 제외하고, 업체가 **갖추어야 하는** 조건만 포함.
+ - 하나의 항목에 여러 등록/자격이 나열되어 있으면 각각 별도 항목으로 분리.
+ - 사업실적 요건은 구체적 금액·건수·기간까지 원문 그대로 기재.
+ - 세부품명번호, 업종코드 등 구체적 번호가 있으면 반드시 포함.]
+
+### 3. 평가방법 및 점수
+[평가 구분(기술평가/가격평가), 배점, 세부 항목을 **표(table) 형태**로 원문에 최대한 가깝게 보존.
+ 정량적평가와 정성적평가를 구분하여 작성.
+ 배점이 있으면 반드시 포함.
+ **중요**: 세부 항목 배점의 합이 부문 배점과 반드시 일치해야 합니다.
+ 정성적 평가표는 원문의 부문-세부부문-배점 계층 구조를 그대로 유지하세요.
+ 부문 안에 세부부문이 여러 개 있으면 각각의 배점을 별도 행으로 작성하세요.
+ 절대로 세부부문 배점을 합산하거나 재구성하지 마세요.
+ 배점이 명시되지 않은 항목은 배점 없이 항목명만 기재하세요.]
+
+---
+
+## 분석할 문서:
+{trimmed_text}
+===== 문서 끝 ====="""
+
+        t0 = time.perf_counter()
+        try:
+            raw = self._chat(
+                prompt=prompt,
+                max_tokens=4096,
+                temperature=0.1,
+                model=model,
+            )
+            result = self._postprocess_rfp_summary(raw)
+            elapsed = time.perf_counter() - t0
+            print(f"   ↳ RFP 요약 생성 완료 ({elapsed:.1f}s, {len(result)}자)")
+            with _rfp_summary_cache_lock:
+                _rfp_summary_cache[cache_key] = result
+            return result
+        except Exception as exc:
+            elapsed = time.perf_counter() - t0
+            print(f"   ↳ RFP 요약 생성 실패 ({elapsed:.1f}s): {exc}")
+            return ""
+
+    @staticmethod
+    def _postprocess_rfp_summary(summary: str) -> str:
+        """결격사유/부정당업자 항목을 자격조건 목록에서 자동 제거."""
+        _DISQUALIFY_RE = re.compile(
+            r'부정당\s*업자|결격\s*사유|입찰\s*참가\s*자격\s*제한',
+        )
+        lines = summary.split('\n')
+        filtered = [
+            line for line in lines
+            if not (_DISQUALIFY_RE.search(line) and re.match(r'\s*\d+[\.\)]\s', line))
+        ]
+        return '\n'.join(filtered)
+
+    # ============================================================
     # STEP 4: LLM 기반 정보 추출
     # ============================================================
-    
+
     def _extract_with_llm(
         self,
         text: str,
@@ -900,9 +1025,9 @@ JSON:
         return False
 
     def _validate_parsed_result(self, result: RFxAnalysisResult, require_requirements: bool = True) -> None:
-        """파싱 결과 최소 유효성 검증"""
+        """파싱 결과 최소 유효성 검증 — 요건 0개여도 경고만 남기고 계속 진행."""
         if require_requirements and not result.requirements:
-            raise RFxParseError("자격요건이 1개도 추출되지 않았습니다.")
+            print("   ⚠ 자격요건이 0개 추출됨 (문서에 자격요건 정보가 부족할 수 있습니다)")
 
     def _parse_llm_response(self, response_text: str) -> RFxAnalysisResult:
         """LLM 응답을 파싱하여 RFxAnalysisResult로 변환"""

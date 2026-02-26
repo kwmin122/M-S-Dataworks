@@ -58,7 +58,7 @@ const SettingsGeneral: React.FC<SettingsGeneralProps> = ({ user }) => {
       });
       setAlert(prev => prev ? { ...prev, enabled: false } : null);
     } catch {
-      alert('해제 실패');
+      window.alert('해제 실패');
     }
   };
 

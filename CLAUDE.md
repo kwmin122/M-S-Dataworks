@@ -13,6 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 설계 문서: `docs/plans/2026-02-20-bid-platform-design.md`
 구현 계획: `docs/plans/2026-02-21-bid-platform-impl-plan.md` (Phase 1-7), `docs/plans/2026-02-22-phase8-impl-plan.md` (Phase 8)
 보안 강화: `docs/plans/2026-02-22-security-hardening-design.md` + `2026-02-22-security-hardening-impl-plan.md`
+RFP 요약 리디자인: `docs/plans/2026-02-26-rfp-summary-redesign.md`
 다음 할 일: `docs/plans/다음-할-일.md`
 
 ---
@@ -87,9 +88,11 @@ frontend/kirabot/              ← React 19 + Vite + TypeScript
 services/web_app/main.py      ← FastAPI: 업로드, 세션, 채팅, 분석, 공고검색, 일괄평가
 services/web_app/nara_api.py   ← 나라장터 Open API 클라이언트 (검색, 첨부파일, 다운로드)
         ↓ Python import
-  engine.py          ← ChromaDB + BM25 하이브리드 벡터 검색
-  rfx_analyzer.py    ← LLM 기반 자격요건 추출 (멀티패스 + Structured Outputs)
-  matcher.py         ← ConstraintEvaluator (결정론 우선) + LLM GO/NO-GO
+  engine.py          ← ChromaDB + BM25 하이브리드 벡터 검색 (BM25 Lock 스레드 안전)
+  rfx_analyzer.py    ← LLM 기반 자격요건 추출 (멀티패스 + 병렬 청크 + RFP 요약 생성)
+  matcher.py         ← ConstraintEvaluator (결정론 우선) + LLM GO/NO-GO (병렬 매칭)
+  llm_utils.py       ← LLM 호출 retry + timeout 헬퍼 (call_with_retry)
+  rfp_synonyms.py    ← RFP 동의어 사전 (17개 카테고리, 프롬프트 주입용)
   chat_router.py     ← 인텐트 분류 + 오프토픽 차단
   document_parser.py ← PDF/DOCX/HWP/Excel/PPT 파싱 및 청킹
 services/auth_gateway/main.py  ← Supabase JWT → HttpOnly 쿠키 세션
@@ -211,10 +214,15 @@ greeting → bid_search_input → bid_search_results → bid_analyzing → doc_c
 - `quotaConsumed=true`로 재시도 중복 차감 방지
 - FastAPI 호출 실패해도 쿼터 차감됨 (요청 기반 — 의도된 설계)
 
-### RAG 파이프라인 (레거시)
-- BM25 + 벡터 RRF 하이브리드 (`RAG_HYBRID_ENABLED=1`)
-- `rfx_analyzer.py` 멀티패스 → `RFxAnalysisResult` (constraints)
+### RAG 파이프라인 + 병렬화
+- BM25 + 벡터 RRF 하이브리드 (`RAG_HYBRID_ENABLED=1`), BM25 rebuild `threading.Lock` 보호
+- `rfx_analyzer.py` 멀티패스 → `RFxAnalysisResult` (requirements) + `generate_rfp_summary()` (3섹션 마크다운)
 - `ConstraintEvaluator` 결정론 비교 우선, `FALLBACK_NEEDED` 시 LLM 판단
+- **병렬화 패턴**: `ThreadPoolExecutor`로 청크 추출(max 4), 요건 매칭(max 6) 병렬 실행
+- **비동기 API**: `asyncio.to_thread()`로 FastAPI 이벤트 루프 차단 방지, `asyncio.gather()`로 분석+요약+매칭 동시 실행
+- **일괄 평가**: `asyncio.Semaphore(3)` + `asyncio.gather()`로 동시 3건 제한 병렬 처리
+- **LLM 안정성**: `call_with_retry()` — timeout 60초 + 재시도 2회 (429/500/502/503, 지수 백오프)
+- **동의어 사전**: `rfp_synonyms.py` — 17개 카테고리 동의어(사업비↔예산↔추정가격 등)를 추출 프롬프트에 주입
 
 ### Prisma 마이그레이션 (오프라인)
 DATABASE_URL 없이 스키마 변경 시 수동 SQL 파일 생성:
@@ -311,27 +319,30 @@ moduleNameMapper:
 
 ---
 
-## 기능 구현 현황 (2026-02-24)
+## 기능 구현 현황 (2026-02-26)
 
 ### 동작 중 (레거시 백엔드 + Chat UI)
 | 기능 | 상태 | 비고 |
 |------|------|------|
 | 나라장터 공고 검색 | **동작** | 키워드, 업무구분, 기간, 지역, 금액 필터 |
-| 문서 업로드 분석 | **동작** | PDF/DOCX/HWP/Excel/PPT (회사문서 없이도 분석 가능) |
-| 자격요건 추출 (rfx_analyzer) | **동작** | 멀티패스 + 결격사유/자격요건 구분 규칙 적용 |
-| GO/NO-GO 판단 (matcher) | **동작** | 회사문서 등록 시에만 매칭 수행 |
+| 문서 업로드 분석 | **동작** | PDF/DOCX/HWP/Excel/PPT (회사문서 없이도 분석 가능), 병렬 처리 |
+| 자격요건 추출 (rfx_analyzer) | **동작** | 멀티패스 병렬 청크 추출 + 동의어 사전 프롬프트 주입 |
+| RFP 요약 (3섹션 마크다운) | **동작** | 사업개요/핵심요건/평가기준 GFM 마크다운 (react-markdown + remark-gfm) |
+| GO/NO-GO 판단 (matcher) | **동작** | 회사문서 등록 시에만 매칭, 요건 병렬 매칭 |
+| 분석 결과 2탭 UI | **동작** | "RFP 요약" + "GO/NO-GO 분석" 탭 전환 |
 | 문서 기반 Q&A 채팅 | **동작** | RAG 하이브리드 검색 + 참조 페이지 표시 |
-| 일괄 공고 평가 | **동작** | 레거시 백엔드에서 순차 분석 (첨부파일 자동 다운로드) |
+| 일괄 공고 평가 | **동작** | 동시 3건 병렬 처리 (asyncio.Semaphore) |
 | 검색 결과 CSV 다운로드 | **동작** | 클라이언트 사이드 생성 |
 | 컨텍스트 패널 (문서 미리보기) | **동작** | PDF iframe + 탭(분석문서/회사문서) + 하이라이트 |
 | 대화 이름 변경/삭제 | **동작** | Sidebar 인라인 편집 |
 | 의견 모드 | **부분** | balanced 기본값만 사용 중, UI에서 선택 미구현 |
 | 리사이즈 가능 컨텍스트 패널 | **동작** | 드래그로 280~600px 조절 |
+| LLM retry + timeout | **동작** | call_with_retry 60초 timeout + 2회 재시도 |
+| 공고 첨부파일 자동 다운로드+분석 | **동작** | e발주 첨부파일 자동 다운로드 → 파싱 → GO/NO-GO 분석 |
 
 ### 미구현 / 제한
 | 기능 | 상태 | 비고 |
 |------|------|------|
-| 공고 첨부파일 자동 다운로드+분석 | **동작** | e발주 첨부파일 자동 다운로드 → 파싱 → GO/NO-GO 분석 |
 | 제안서 초안 생성 | **SaaS only** | rag_engine의 proposal_generator 존재, 레거시 연동 미완 |
 | 관심 공고 자동 알림 | **미구현** | SaaS n8n 워크플로우로만 가능 |
 | 엑셀 평가 리포트 다운로드 | **SaaS only** | web_saas의 buildEvaluationExcel, 레거시 미연동 |

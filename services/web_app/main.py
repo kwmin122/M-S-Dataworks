@@ -1352,23 +1352,35 @@ async def analyze_uploaded_document(
     )
 
     try:
-        analysis = analyzer.analyze(str(saved_path))
-        # 회사 문서가 있으면 매칭, 없으면 자격요건 추출만
-        if company_chunk_count > 0:
-            matcher = QualificationMatcher(
-                rag_engine=session.rag_engine,
-                api_key=api_key,
-                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-            )
-            matching = matcher.match(analysis)
-        else:
-            matching = None
+        analysis = await asyncio.to_thread(analyzer.analyze, str(saved_path))
     except ImportError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"문서 분석 실패: {exc}") from exc
     except Exception as exc:
+        logger.warning("Upload analysis failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"문서 분석 중 오류: {exc}") from exc
+
+    # RFP 3-Section 요약 생성 (병렬 가능하지만 순차로 충분)
+    rfp_summary = ""
+    if analysis.raw_text:
+        try:
+            rfp_summary = await asyncio.to_thread(analyzer.generate_rfp_summary, analysis.raw_text)
+        except Exception as exc:
+            logger.warning("RFP summary generation failed: %s", exc)
+
+    # 회사 문서가 있으면 매칭, 없으면 자격요건 추출만
+    matching = None
+    if company_chunk_count > 0:
+        try:
+            matcher = QualificationMatcher(
+                rag_engine=session.rag_engine,
+                api_key=api_key,
+                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            )
+            matching = await asyncio.to_thread(matcher.match, analysis)
+        except Exception as exc:
+            logger.warning("Matching failed: %s", exc)
 
     _index_rfx_document(session=session, file_path=str(saved_path), original_name=file.filename or "target")
     session.latest_rfx_analysis = analysis
@@ -1377,13 +1389,16 @@ async def analyze_uploaded_document(
 
     file_url = f"/api/files/{session.session_id}/target/{saved_path.name}"
 
+    serialized = _serialize_rfx_analysis(analysis)
+    serialized["rfp_summary"] = rfp_summary
+
     return {
         "ok": True,
         "filename": file.filename,
         "session_id": session.session_id,
         "company_chunks": company_chunk_count,
         "quota": quota,
-        "analysis": _serialize_rfx_analysis(analysis),
+        "analysis": serialized,
         "matching": _serialize_matching_result(matching) if matching else None,
         "fileUrl": file_url,
     }
@@ -1781,12 +1796,31 @@ async def analyze_bid_from_nara(payload: BidAnalyzePayload, request: Request) ->
         model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
     )
 
-    analysis = analyzer.analyze(local_path)
+    try:
+        analysis = await asyncio.to_thread(analyzer.analyze, local_path)
+    except ImportError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"문서 분석 실패: {exc}") from exc
+    except Exception as exc:
+        logger.warning("Bid analysis failed (bid=%s): %s", payload.bid_ntce_no, exc)
+        raise HTTPException(status_code=500, detail=f"문서 분석 중 오류: {exc}") from exc
+
+    # RFP 3-Section 요약 생성
+    rfp_summary = ""
+    if analysis.raw_text:
+        try:
+            rfp_summary = await asyncio.to_thread(analyzer.generate_rfp_summary, analysis.raw_text)
+        except Exception as exc:
+            logger.warning("RFP summary failed (bid=%s): %s", payload.bid_ntce_no, exc)
 
     # 회사 문서가 있으면 매칭 수행, 없으면 스킵
     matching = None
     if company_chunk_count > 0:
-        matching = matcher.match(analysis)
+        try:
+            matching = await asyncio.to_thread(matcher.match, analysis)
+        except Exception as exc:
+            logger.warning("Matching failed (bid=%s): %s", payload.bid_ntce_no, exc)
 
     _index_rfx_document(session=session, file_path=local_path, original_name=best["fileNm"])
     session.latest_rfx_analysis = analysis
@@ -1797,13 +1831,16 @@ async def analyze_bid_from_nara(payload: BidAnalyzePayload, request: Request) ->
     local_filename = Path(local_path).name
     file_url = f"/api/files/{session.session_id}/target/{local_filename}"
 
+    serialized = _serialize_rfx_analysis(analysis)
+    serialized["rfp_summary"] = rfp_summary
+
     return {
         "ok": True,
         "filename": best["fileNm"],
         "session_id": session.session_id,
         "company_chunks": company_chunk_count,
         "quota": quota,
-        "analysis": _serialize_rfx_analysis(analysis),
+        "analysis": serialized,
         "matching": _serialize_matching_result(matching) if matching else None,
         "fileUrl": file_url,
     }
@@ -2695,7 +2732,7 @@ def _inject_company_profile_if_needed(session: "WebRuntimeSession", request: Req
                     continue
                 try:
                     parsed = parser.parse(str(f))
-                    text = parsed.full_text[:8000]
+                    text = parsed.text[:8000]
                     doc_chunks = [text[i:i + 1000] for i in range(0, len(text), 800)]
                     for chunk in doc_chunks[:_MAX_CHUNKS_PER_DOC]:
                         if total_injected >= _MAX_TOTAL_INJECT_CHUNKS:
@@ -2777,10 +2814,10 @@ async def upload_company_profile_docs(
         try:
             parser = DocumentParser()
             parsed = parser.parse(str(save_path))
-            text = parsed.full_text
+            text = parsed.text
             all_text += f"\n--- {safe_name} ---\n{text[:8000]}\n"
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Company doc parse failed (%s): %s", safe_name, exc)
 
     profile["documents"] = profile.get("documents", []) + saved_docs
 
@@ -2902,10 +2939,10 @@ async def reanalyze_company_profile(request: Request) -> dict[str, Any]:
             try:
                 parser = DocumentParser()
                 parsed = parser.parse(str(f))
-                text = parsed.full_text
+                text = parsed.text
                 all_text += f"\n--- {doc['name']} ---\n{text[:8000]}\n"
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Reanalyze parse failed (%s): %s", doc.get("name", ""), exc)
 
     if not all_text.strip():
         raise HTTPException(status_code=400, detail="문서에서 텍스트를 추출할 수 없습니다.")

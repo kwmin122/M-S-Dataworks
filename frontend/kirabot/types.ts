@@ -67,9 +67,29 @@ export interface MatchingPayload {
 export interface AnalysisPayload {
   title: string;
   issuing_org: string;
+  announcement_number?: string;
+  deadline?: string;
+  project_period?: string;
+  budget?: string;
   document_type: string;
   is_rfx_like: boolean;
-  deadline?: string;
+  document_gate_reason?: string;
+  document_gate_confidence?: number;
+  requirements: {
+    category: string;
+    description: string;
+    is_mandatory: boolean;
+    detail?: string;
+  }[];
+  evaluation_criteria?: {
+    category: string;
+    item: string;
+    score: number;
+    detail?: string;
+  }[];
+  required_documents?: string[];
+  special_notes?: string[];
+  rfp_summary?: string;
 }
 
 export interface AnalyzeResponse {
