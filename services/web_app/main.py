@@ -1032,6 +1032,38 @@ def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/debug/smtp")
+def debug_smtp() -> dict[str, Any]:
+    """SMTP 환경변수 진단 (값은 마스킹)."""
+    smtp_email = os.getenv("SMTP_EMAIL", "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
+    smtp_port = os.getenv("SMTP_PORT", "587")
+    sender_name = os.getenv("SMTP_SENDER_NAME", "키라봇").strip()
+    return {
+        "email_set": bool(smtp_email),
+        "email_preview": smtp_email[:3] + "***" if smtp_email else "(empty)",
+        "password_set": bool(smtp_password),
+        "password_len": len(smtp_password),
+        "host": smtp_host,
+        "port": smtp_port,
+        "sender_name": sender_name,
+    }
+
+
+@app.post("/api/debug/smtp-test")
+def debug_smtp_test(payload: dict) -> dict[str, Any]:
+    """SMTP 테스트 발송 (진단용)."""
+    to = payload.get("to", "").strip()
+    if not to:
+        return {"ok": False, "error": "to 필요"}
+    try:
+        sent = _send_smtp_email(to, "[키라봇] SMTP 테스트", "<h2>SMTP 테스트 성공</h2><p>이 메일이 도착했다면 정상입니다.</p>")
+        return {"ok": sent}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/")
 def landing() -> FileResponse:
     dist_index = FRONTEND_DIST_DIR / "index.html"
