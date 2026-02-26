@@ -1,5 +1,4 @@
 import {
-  AlertSettings,
   AnalyzeResponse,
   BidNotice,
   BidSearchResponse,
@@ -218,25 +217,6 @@ export async function getStrengthCard(bidNoticeId: string): Promise<unknown> {
     credentials: 'include',
   });
   return parseJson<unknown>(res);
-}
-
-// ── 알림 설정 CRUD ──
-
-export async function saveAlertSettings(sessionId: string, settings: AlertSettings): Promise<{ ok: boolean }> {
-  const res = await fetchWithError(`${API_BASE_URL}/api/alerts/settings`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, ...settings }),
-  });
-  return parseJson<{ ok: boolean }>(res);
-}
-
-export async function getAlertSettings(sessionId: string): Promise<AlertSettings | null> {
-  const res = await fetchWithError(`${API_BASE_URL}/api/alerts/settings?session_id=${sessionId}`, {
-    method: 'GET',
-  });
-  const data = await parseJson<{ settings: AlertSettings | null }>(res);
-  return data.settings;
 }
 
 // ── Dashboard APIs ──

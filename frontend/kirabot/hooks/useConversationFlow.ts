@@ -1,11 +1,11 @@
 import { useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useChatContext, createNewConversation } from '../context/ChatContext';
 import { useActiveConversation } from './useActiveConversation';
 import * as api from '../services/kiraApiService';
 import { trackEvent } from '../utils/analytics';
 import { REGIONS } from '../constants/filters';
 import type {
-  AlertSettings,
   ChatMessage,
   CompanyProfile,
   MessageAction,
@@ -115,49 +115,10 @@ function buildSearchFormFields() {
   ];
 }
 
-function buildAlertKeywordsFields() {
-  return [
-    { key: 'keywords', label: '관심 키워드 (쉼표 구분)', type: 'text' as const },
-    {
-      key: 'categories',
-      label: '업무구분 (복수 선택)',
-      type: 'select' as const,
-      options: ['전체', '물품', '용역', '공사', '외자', '기타'],
-    },
-  ];
-}
-
-function buildAlertConditionsFields() {
-  return [
-    {
-      key: 'regions',
-      label: '관심 지역 (복수 선택 가능)',
-      type: 'multiselect' as const,
-      options: REGIONS,
-    },
-    { key: 'minAmt', label: '최소 금액 (선택)', type: 'number' as const },
-    { key: 'maxAmt', label: '최대 금액 (선택)', type: 'number' as const },
-  ];
-}
-
-function buildAlertNotificationFields() {
-  return [
-    { key: 'email', label: '수신 이메일', type: 'text' as const },
-    {
-      key: 'schedule',
-      label: '수신 방식',
-      type: 'select' as const,
-      options: ['30분마다 확인', '하루 1번', '하루 2번', '하루 3번'],
-    },
-    { key: 'hour1', label: '수신 시간 1 (0~23시)', type: 'number' as const },
-    { key: 'hour2', label: '수신 시간 2 (하루 2번 이상 시)', type: 'number' as const },
-    { key: 'hour3', label: '수신 시간 3 (하루 3번 시)', type: 'number' as const },
-  ];
-}
-
 export function useConversationFlow() {
   const { state, dispatch } = useChatContext();
   const { conversation, conversationId } = useActiveConversation();
+  const navigate = useNavigate();
 
   const push = useCallback(
     (message: ChatMessage) => {
@@ -419,20 +380,10 @@ export function useConversationFlow() {
         } as InlineFormMessage);
       } else if (value === 'setup_alert') {
         trackEvent('chat_started', { mode: 'alert_setup' });
-        setPhase('alert_keywords');
-        pushText('맞춤 공고 알림을 설정해볼게요! 먼저 관심 키워드와 업무구분을 알려주세요.');
-        push({
-          id: msgId(),
-          role: 'bot',
-          type: 'inline_form',
-          timestamp: Date.now(),
-          text: '1단계: 관심 키워드',
-          fields: buildAlertKeywordsFields(),
-          submitLabel: '다음',
-        } as InlineFormMessage);
+        navigate('/settings/alerts');
       }
     },
-    [conversationId, conversation, push, pushText, setPhase],
+    [conversationId, conversation, push, pushText, setPhase, navigate],
   );
 
   // ── Handle message actions (FSM transitions) ──
@@ -667,140 +618,6 @@ export function useConversationFlow() {
         case 'form_submitted': {
           const { values, messageId } = action;
           updateMsg(messageId, { submittedValues: values } as Partial<InlineFormMessage>);
-
-          // ── 알림 설정 멀티스텝 폼 ──
-          if (conversation.phase === 'alert_keywords') {
-            updateConv({ _alertKeywords: values.keywords, _alertCategories: values.categories });
-            setPhase('alert_conditions');
-            pushText('좋아요! 이제 지역과 금액 범위를 설정해주세요. (선택사항)');
-            push({
-              id: msgId(),
-              role: 'bot',
-              type: 'inline_form',
-              timestamp: Date.now(),
-              text: '2단계: 조건 설정',
-              fields: buildAlertConditionsFields(),
-              submitLabel: '다음',
-            } as InlineFormMessage);
-            break;
-          }
-
-          if (conversation.phase === 'alert_conditions') {
-            updateConv({ _alertRegions: values.regions, _alertMinAmt: values.minAmt, _alertMaxAmt: values.maxAmt });
-            setPhase('alert_notification');
-            pushText('마지막으로 알림을 받을 이메일과 수신 주기를 설정해주세요.');
-            push({
-              id: msgId(),
-              role: 'bot',
-              type: 'inline_form',
-              timestamp: Date.now(),
-              text: '3단계: 알림 수신 설정',
-              fields: buildAlertNotificationFields(),
-              submitLabel: '설정 완료',
-            } as InlineFormMessage);
-            break;
-          }
-
-          if (conversation.phase === 'alert_notification') {
-            // 모든 단계의 값을 모아서 저장
-            const keywords = ((conversation as unknown as Record<string, unknown>)._alertKeywords as string || '')
-              .split(',').map((k: string) => k.trim()).filter(Boolean);
-            const categoriesRaw = (conversation as unknown as Record<string, unknown>)._alertCategories as string || '전체';
-            const categories = categoriesRaw === '전체' ? ['all'] : [CATEGORY_MAP[categoriesRaw] || categoriesRaw];
-            const regionsRaw = (conversation as unknown as Record<string, unknown>)._alertRegions as string || '';
-            const regions = regionsRaw ? regionsRaw.split(',').filter(Boolean) : [];
-            const minAmtStr = (conversation as unknown as Record<string, unknown>)._alertMinAmt as string || '';
-            const maxAmtStr = (conversation as unknown as Record<string, unknown>)._alertMaxAmt as string || '';
-
-            const scheduleMap: Record<string, 'realtime' | 'daily_1' | 'daily_2' | 'daily_3'> = {
-              '30분마다 확인': 'realtime',
-              '하루 1번': 'daily_1',
-              '하루 2번': 'daily_2',
-              '하루 3번': 'daily_3',
-            };
-            const schedule = scheduleMap[values.schedule] || 'daily_1';
-            const hours: number[] = [];
-            if (schedule !== 'realtime') {
-              if (values.hour1) hours.push(Number(values.hour1));
-              if (schedule === 'daily_2' || schedule === 'daily_3') {
-                if (values.hour2) hours.push(Number(values.hour2));
-              }
-              if (schedule === 'daily_3') {
-                if (values.hour3) hours.push(Number(values.hour3));
-              }
-              // 시간 미입력 시 기본값
-              if (hours.length === 0) hours.push(9);
-            }
-
-            const settings: AlertSettings = {
-              keywords,
-              categories,
-              regions,
-              minAmt: minAmtStr ? Number(minAmtStr) : undefined,
-              maxAmt: maxAmtStr ? Number(maxAmtStr) : undefined,
-              email: values.email || '',
-              schedule,
-              hours,
-            };
-
-            if (!settings.email) {
-              pushStatus('error', '이메일 주소를 입력해주세요.');
-              break;
-            }
-
-            setProcessing(true);
-            setPhase('alert_confirm');
-            pushStatus('loading', '알림 설정을 저장하고 있어요...');
-
-            try {
-              let sid = conversation.sessionId;
-              if (!sid) {
-                sid = await api.createSession();
-                updateConv({ sessionId: sid });
-              }
-              await api.saveAlertSettings(sid, settings);
-              removeLastStatus();
-              trackEvent('alert_setup_completed', { keywords_count: keywords.length, frequency: settings.schedule });
-
-              const scheduleLabel: Record<string, string> = {
-                realtime: '30분마다 확인',
-                daily_1: `하루 1번 (${hours[0] ?? 9}시)`,
-                daily_2: `하루 2번 (${hours[0] ?? 9}시, ${hours[1] ?? 18}시)`,
-                daily_3: `하루 3번 (${hours.map(h => `${h}시`).join(', ')})`,
-              };
-              const summary = [
-                `**키워드**: ${keywords.length > 0 ? keywords.join(', ') : '전체'}`,
-                `**업무구분**: ${categoriesRaw}`,
-                regions.length > 0 ? `**지역**: ${regions.join(', ')}` : null,
-                minAmtStr ? `**최소 금액**: ${Number(minAmtStr).toLocaleString()}원` : null,
-                maxAmtStr ? `**최대 금액**: ${Number(maxAmtStr).toLocaleString()}원` : null,
-                `**이메일**: ${settings.email}`,
-                `**수신 방식**: ${scheduleLabel[schedule] || schedule}`,
-              ].filter(Boolean).join('\n');
-
-              pushText(`알림 설정이 완료되었습니다!\n\n${summary}\n\n곧 맞춤 공고를 메일로 보내드릴게요.`);
-              setPhase('greeting');
-              push({
-                id: msgId(),
-                role: 'bot',
-                type: 'button_choice',
-                timestamp: Date.now(),
-                text: '다른 작업을 선택하시겠어요?',
-                choices: [
-                  { label: '공고 검색/분석', value: 'bid_search' },
-                  { label: '일반 문서 분석', value: 'doc_analysis' },
-                ],
-              } as ButtonChoiceMessage);
-            } catch (error) {
-              removeLastStatus();
-              const msg = error instanceof Error ? error.message : '알 수 없는 오류';
-              pushStatus('error', `알림 설정 실패: ${msg}`, 'setup_alert');
-              setPhase('alert_notification');
-            } finally {
-              setProcessing(false);
-            }
-            break;
-          }
 
           if (conversation.phase === 'bid_search_input') {
             trackEvent('bid_search', { keyword: values.keywords, region: values.region, category: values.category });
@@ -1162,17 +979,6 @@ export function useConversationFlow() {
           } else if (action.action === 'bid_analyze') {
             pushText('다시 시도하려면 공고 목록에서 [분석하기] 버튼을 눌러주세요.');
             setPhase('bid_search_results');
-          } else if (action.action === 'setup_alert') {
-            setPhase('alert_notification');
-            push({
-              id: msgId(),
-              role: 'bot',
-              type: 'inline_form',
-              timestamp: Date.now(),
-              text: '알림 수신 설정을 다시 입력해주세요.',
-              fields: buildAlertNotificationFields(),
-              submitLabel: '설정 완료',
-            } as InlineFormMessage);
           }
           break;
         }

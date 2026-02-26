@@ -254,10 +254,6 @@ export type ConversationPhase =
   | 'bid_eval_results'
   | 'proposal_input'
   | 'proposal_preview'
-  | 'alert_keywords'
-  | 'alert_conditions'
-  | 'alert_notification'
-  | 'alert_confirm'
   | 'free_chat';
 
 export type OpinionMode = 'conservative' | 'balanced' | 'aggressive';
@@ -300,19 +296,6 @@ export type ContextPanelContent =
   | { type: 'bid_detail'; bid: BidNotice }
   | { type: 'proposal'; sections: ProposalSections; bidNoticeId: string };
 
-// ── 알림 설정 ──
-
-export interface AlertSettings {
-  keywords: string[];
-  categories: string[];
-  regions: string[];
-  minAmt?: number;
-  maxAmt?: number;
-  email: string;
-  schedule: 'realtime' | 'daily_1' | 'daily_2' | 'daily_3';
-  hours: number[];
-}
-
 // ── 메시지 액션 ──
 
 export type MessageAction =
@@ -329,7 +312,6 @@ export type MessageAction =
   | { type: 'header_upload_target' }
   | { type: 'header_add_company' }
   | { type: 'setup_alert' }
-  | { type: 'confirm_alert'; settings: AlertSettings }
   | { type: 'welcome_action'; value: string }
   | { type: 'generate_proposal'; bidNoticeId: string; bidTitle: string };
 

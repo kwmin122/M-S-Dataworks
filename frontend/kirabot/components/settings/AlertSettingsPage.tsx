@@ -1,14 +1,22 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Bell, Plus, Trash2, Save } from 'lucide-react';
-import { useChatContext } from '../../context/ChatContext';
+import { Plus, Trash2, Save } from 'lucide-react';
 import { getApiBaseUrl } from '../../services/kiraApiService';
 import ChipInput from '../shared/ChipInput';
 import Toggle from '../shared/Toggle';
-import EmptyState from '../shared/EmptyState';
 import { pageTransition } from '../../utils/animations';
 import { REGIONS } from '../../constants/filters';
+
+const ALERT_SESSION_KEY = 'kirabot_alert_session_id';
+
+function getOrCreateAlertSessionId(): string {
+  let id = localStorage.getItem(ALERT_SESSION_KEY);
+  if (!id) {
+    id = `alert_${crypto.randomUUID()}`;
+    localStorage.setItem(ALERT_SESSION_KEY, id);
+  }
+  return id;
+}
 
 interface AlertRule {
   id: string;
@@ -43,10 +51,7 @@ function createEmptyRule(): AlertRule {
 }
 
 const AlertSettingsPage: React.FC = () => {
-  const { state } = useChatContext();
-  const navigate = useNavigate();
-  const activeConv = state.conversations.find(c => c.id === state.activeConversationId);
-  const sessionId = activeConv?.sessionId;
+  const sessionId = useMemo(() => getOrCreateAlertSessionId(), []);
 
   const [globalEnabled, setGlobalEnabled] = useState(true);
   const [email, setEmail] = useState('');
@@ -64,7 +69,6 @@ const AlertSettingsPage: React.FC = () => {
 
   // Load existing config on mount
   useEffect(() => {
-    if (!sessionId) return;
     fetch(`${getApiBaseUrl()}/api/alerts/config?session_id=${sessionId}`)
       .then(res => res.json())
       .then(data => {
@@ -131,20 +135,6 @@ const AlertSettingsPage: React.FC = () => {
       setSaving(false);
     }
   };
-
-  if (!sessionId) {
-    return (
-      <div className="flex-1">
-        <EmptyState
-          icon={Bell}
-          title="세션이 필요합니다"
-          description="채팅에서 먼저 공고를 검색하면 알림 설정을 할 수 있어요."
-          actionLabel="채팅으로 이동"
-          onAction={() => navigate('/chat')}
-        />
-      </div>
-    );
-  }
 
   return (
     <motion.div
