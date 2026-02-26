@@ -401,7 +401,13 @@ export async function getCompanyProfile(): Promise<CompanyProfile | null> {
   return data.profile;
 }
 
-export async function uploadCompanyProfileDocs(files: File[]): Promise<CompanyProfile> {
+export interface UploadResult {
+  savedCount: number;
+  extractionStatus: 'skipped' | 'success' | 'partial' | 'failed' | 'no_text';
+  filledFields: string[];
+}
+
+export async function uploadCompanyProfileDocs(files: File[]): Promise<{ profile: CompanyProfile; uploadResult?: UploadResult }> {
   const form = new FormData();
   files.forEach((f) => form.append('files', f));
   const res = await fetchWithError(`${API_BASE_URL}/api/company/profile`, {
@@ -410,8 +416,8 @@ export async function uploadCompanyProfileDocs(files: File[]): Promise<CompanyPr
     body: form,
     timeoutMs: 180_000,
   });
-  const data = await parseJson<{ profile: CompanyProfile }>(res);
-  return data.profile;
+  const data = await parseJson<{ profile: CompanyProfile; uploadResult?: UploadResult }>(res);
+  return { profile: data.profile, uploadResult: data.uploadResult };
 }
 
 export async function updateCompanyProfile(updates: Partial<CompanyProfile>): Promise<CompanyProfile> {

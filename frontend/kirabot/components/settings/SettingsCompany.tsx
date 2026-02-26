@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Upload, Trash2, RefreshCw, Sparkles, FileText } from 'lucide-react';
+import { Upload, Trash2, RefreshCw, Sparkles, FileText, CheckCircle, AlertTriangle, Info } from 'lucide-react';
 import ChipInput from '../shared/ChipInput';
 import type { CompanyProfile } from '../../types';
 import {
@@ -21,8 +21,10 @@ const SettingsCompany: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadPhase, setUploadPhase] = useState<'idle' | 'saving' | 'analyzing'>('idle');
   const [reanalyzing, setReanalyzing] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
+  const [uploadMsg, setUploadMsg] = useState<{ type: 'success' | 'warning' | 'info'; text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Form state
@@ -80,15 +82,53 @@ const SettingsCompany: React.FC = () => {
 
   const handleUpload = async (fileList: FileList) => {
     setUploading(true);
+    setUploadPhase('saving');
+    setUploadMsg(null);
     try {
       const files = Array.from(fileList);
-      const updated = await uploadCompanyProfileDocs(files);
+      setUploadPhase('analyzing');
+      const result = await uploadCompanyProfileDocs(files);
+      const updated = result.profile;
+      const ur = result.uploadResult;
       setProfile(updated);
       fillForm(updated);
+
+      // Show feedback based on extraction status
+      if (ur?.extractionStatus === 'success' && ur.filledFields?.length) {
+        setUploadMsg({
+          type: 'success',
+          text: `${ur.savedCount}개 파일 저장 완료. AI가 프로필을 자동으로 채웠습니다: ${ur.filledFields.join(', ')}`,
+        });
+      } else if (ur?.extractionStatus === 'partial') {
+        setUploadMsg({
+          type: 'info',
+          text: `${ur.savedCount}개 파일 저장 완료. 문서에서 회사 정보를 찾지 못했습니다. 회사소개서나 사업자등록증을 올려보세요.`,
+        });
+      } else if (ur?.extractionStatus === 'failed') {
+        setUploadMsg({
+          type: 'warning',
+          text: `${ur.savedCount}개 파일 저장 완료. AI 분석 중 오류가 발생했습니다. "재분석" 버튼으로 다시 시도해보세요.`,
+        });
+      } else if (ur?.extractionStatus === 'no_text') {
+        setUploadMsg({
+          type: 'warning',
+          text: `${ur.savedCount}개 파일 저장 완료. 문서에서 텍스트를 추출하지 못했습니다.`,
+        });
+      } else {
+        setUploadMsg({
+          type: 'success',
+          text: `${files.length}개 파일이 저장되었습니다.`,
+        });
+      }
+      setTimeout(() => setUploadMsg(null), 10000);
     } catch (e) {
-      alert(e instanceof Error ? e.message : '업로드 실패');
+      setUploadMsg({
+        type: 'warning',
+        text: e instanceof Error ? e.message : '업로드 실패',
+      });
     } finally {
       setUploading(false);
+      setUploadPhase('idle');
     }
   };
 
@@ -166,10 +206,15 @@ const SettingsCompany: React.FC = () => {
               className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 hover:border-kira-400 py-8 cursor-pointer transition-colors"
             >
               {uploading ? (
-                <div className="flex gap-1">
-                  <span className="typing-dot h-2 w-2 rounded-full bg-kira-500" />
-                  <span className="typing-dot h-2 w-2 rounded-full bg-kira-500" />
-                  <span className="typing-dot h-2 w-2 rounded-full bg-kira-500" />
+                <div className="flex flex-col items-center gap-2">
+                  <div className="flex gap-1">
+                    <span className="typing-dot h-2 w-2 rounded-full bg-kira-500" />
+                    <span className="typing-dot h-2 w-2 rounded-full bg-kira-500" />
+                    <span className="typing-dot h-2 w-2 rounded-full bg-kira-500" />
+                  </div>
+                  <p className="text-sm text-kira-600 font-medium">
+                    {uploadPhase === 'saving' ? '파일 업로드 중...' : 'AI가 문서를 분석하고 있습니다...'}
+                  </p>
                 </div>
               ) : (
                 <>
@@ -187,6 +232,26 @@ const SettingsCompany: React.FC = () => {
               onChange={(e) => { if (e.target.files?.length) handleUpload(e.target.files); e.target.value = ''; }}
               className="hidden"
             />
+
+            {/* 업로드 결과 메시지 */}
+            {uploadMsg && (
+              <div className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${
+                uploadMsg.type === 'success'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  : uploadMsg.type === 'warning'
+                  ? 'border-amber-200 bg-amber-50 text-amber-700'
+                  : 'border-blue-200 bg-blue-50 text-blue-700'
+              }`}>
+                {uploadMsg.type === 'success' ? (
+                  <CheckCircle size={16} className="text-emerald-500 mt-0.5 shrink-0" />
+                ) : uploadMsg.type === 'warning' ? (
+                  <AlertTriangle size={16} className="text-amber-500 mt-0.5 shrink-0" />
+                ) : (
+                  <Info size={16} className="text-blue-500 mt-0.5 shrink-0" />
+                )}
+                <span>{uploadMsg.text}</span>
+              </div>
+            )}
 
             {/* 업로드된 문서 목록 */}
             {profile?.documents && profile.documents.length > 0 && (

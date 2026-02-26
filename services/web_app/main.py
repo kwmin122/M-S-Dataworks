@@ -2489,6 +2489,9 @@ async def upload_company_profile_docs(
     profile["documents"] = profile.get("documents", []) + saved_docs
 
     # LLM extraction
+    extraction_status = "skipped"  # skipped | success | partial | failed
+    filled_fields: list[str] = []
+
     if all_text.strip():
         try:
             extraction = await _extract_company_info_llm(all_text)
@@ -2499,18 +2502,31 @@ async def upload_company_profile_docs(
             }
             profile["lastAnalyzedAt"] = datetime.now(timezone.utc).isoformat()
             # Auto-fill empty fields
+            field_labels = {
+                "companyName": "회사명", "businessType": "업종",
+                "businessNumber": "사업자번호", "annualRevenue": "연매출",
+            }
             for key in ("companyName", "businessType", "businessNumber", "annualRevenue"):
                 if not profile.get(key) and extraction.get(key):
                     profile[key] = extraction[key]
+                    filled_fields.append(field_labels.get(key, key))
             for key in ("certifications", "regions", "keyExperience", "specializations"):
                 existing = set(profile.get(key, []))
-                for v in extraction.get(key, []):
+                new_items = [v for v in extraction.get(key, []) if v not in existing]
+                for v in new_items:
                     existing.add(v)
+                if new_items:
+                    filled_fields.append(key)
                 profile[key] = list(existing)
             if not profile.get("employeeCount") and extraction.get("employeeCount"):
                 profile["employeeCount"] = extraction["employeeCount"]
+                filled_fields.append("직원 수")
+            extraction_status = "success" if filled_fields else "partial"
         except Exception as e:
             logger.warning("Company profile LLM extraction failed: %s", e)
+            extraction_status = "failed"
+    else:
+        extraction_status = "no_text"
 
     _save_company_profile(username, profile)
 
@@ -2520,7 +2536,15 @@ async def upload_company_profile_docs(
     except Exception as e:
         logger.warning("Company vectordb update failed: %s", e)
 
-    return {"ok": True, "profile": profile}
+    return {
+        "ok": True,
+        "profile": profile,
+        "uploadResult": {
+            "savedCount": len(saved_docs),
+            "extractionStatus": extraction_status,
+            "filledFields": filled_fields,
+        },
+    }
 
 
 @app.put("/api/company/profile")
