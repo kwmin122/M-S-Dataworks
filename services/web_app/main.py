@@ -2123,7 +2123,7 @@ def _set_alert_state(session_id: str, state: dict):
 def _send_confirmation_email(to_email: str, config: dict, is_update: bool = False) -> bool:
     """알림 등록/변경 확인 이메일 발송."""
     api_key = os.getenv("RESEND_API_KEY", "").strip()
-    from_email = os.getenv("RESEND_FROM_EMAIL", "noreply@kirabot.co.kr").strip()
+    from_email = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev").strip()
     if not api_key:
         return False
 
@@ -3046,7 +3046,7 @@ def _send_alert_email(to_email: str, subject: str, bids: list[dict],
     """Resend API로 엑셀 첨부 HTML 이메일 발송."""
     import base64
     api_key = os.getenv("RESEND_API_KEY", "").strip()
-    from_email = os.getenv("RESEND_FROM_EMAIL", "noreply@kirabot.co.kr").strip()
+    from_email = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev").strip()
     if not api_key:
         logger.warning("RESEND_API_KEY not set, skipping email")
         return False

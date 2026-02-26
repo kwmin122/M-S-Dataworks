@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Trash2, Save } from 'lucide-react';
+import { Bell, Plus, Trash2, Save, CheckCircle, XCircle } from 'lucide-react';
 import { getApiBaseUrl } from '../../services/kiraApiService';
 import ChipInput from '../shared/ChipInput';
 import Toggle from '../shared/Toggle';
@@ -60,6 +60,8 @@ const AlertSettingsPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
+  const [hasSavedConfig, setHasSavedConfig] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const addRule = () => setRules(prev => [...prev, createEmptyRule()]);
   const removeRule = (id: string) => setRules(prev => prev.filter(r => r.id !== id));
@@ -67,12 +69,22 @@ const AlertSettingsPage: React.FC = () => {
     setRules(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
   }, []);
 
+  const toggleAllCategories = useCallback((ruleId: string, currentCategories: string[]) => {
+    const allSelected = currentCategories.length === CATEGORIES.length;
+    updateRule(ruleId, { categories: allSelected ? [] : [...CATEGORIES] });
+  }, [updateRule]);
+
+  const toggleAllRegions = useCallback((ruleId: string, currentRegions: string[]) => {
+    const allSelected = currentRegions.length === REGIONS.length;
+    updateRule(ruleId, { regions: allSelected ? [] : [...REGIONS] });
+  }, [updateRule]);
+
   // Load existing config on mount
   useEffect(() => {
     fetch(`${getApiBaseUrl()}/api/alerts/config?session_id=${sessionId}`)
       .then(res => res.json())
       .then(data => {
-        if (data.email) setEmail(data.email);
+        if (data.email) { setEmail(data.email); setHasSavedConfig(true); }
         if (data.schedule) setSchedule(data.schedule);
         if (typeof data.enabled === 'boolean') setGlobalEnabled(data.enabled);
         if (Array.isArray(data.rules) && data.rules.length > 0) {
@@ -86,9 +98,11 @@ const AlertSettingsPage: React.FC = () => {
             maxAmt: r.maxAmt ? String(r.maxAmt) : '',
             enabled: r.enabled ?? true,
           })));
+          setHasSavedConfig(true);
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [sessionId]);
 
   const handleSave = async () => {
@@ -123,6 +137,7 @@ const AlertSettingsPage: React.FC = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || '저장 실패');
       setSaved(true);
+      setHasSavedConfig(true);
       if (data.confirmationSent) {
         setSaveMsg(`저장 완료! ${email}으로 확인 이메일을 보내드렸습니다.`);
       } else {
@@ -135,6 +150,43 @@ const AlertSettingsPage: React.FC = () => {
       setSaving(false);
     }
   };
+
+  const handleDelete = async () => {
+    if (!confirm('알림 설정을 삭제하시겠습니까?')) return;
+    try {
+      await fetch(`${getApiBaseUrl()}/api/alerts/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          enabled: false,
+          email: '',
+          schedule: 'daily_1',
+          hours: [],
+          rules: [],
+        }),
+      });
+      setEmail('');
+      setSchedule('daily_1');
+      setGlobalEnabled(true);
+      setRules([createEmptyRule()]);
+      setHasSavedConfig(false);
+      setSaveMsg('');
+      setSaved(false);
+    } catch {
+      alert('삭제 실패');
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-kira-600" />
+      </div>
+    );
+  }
+
+  const scheduleLabel = SCHEDULES.find(s => s.value === schedule)?.label || schedule;
 
   return (
     <motion.div
@@ -152,6 +204,45 @@ const AlertSettingsPage: React.FC = () => {
             <Toggle enabled={globalEnabled} onChange={setGlobalEnabled} label="자동 알림" />
           </div>
         </div>
+
+        {/* Current Alert Status */}
+        {hasSavedConfig && (
+          <div className={`rounded-xl border p-4 mb-4 ${globalEnabled ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}>
+            <div className="flex items-start justify-between">
+              <div className="flex items-start gap-3">
+                {globalEnabled ? (
+                  <CheckCircle size={20} className="text-emerald-600 mt-0.5 flex-shrink-0" />
+                ) : (
+                  <XCircle size={20} className="text-slate-400 mt-0.5 flex-shrink-0" />
+                )}
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    {globalEnabled ? '알림 활성화됨' : '알림 비활성화됨'}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {email} · {scheduleLabel} · 규칙 {rules.filter(r => r.enabled).length}개 활성
+                  </p>
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {rules.filter(r => r.enabled).map((r, i) => (
+                      <span key={r.id} className="inline-flex items-center rounded-full bg-white border border-slate-200 px-2 py-0.5 text-xs text-slate-600">
+                        {r.keywords.length > 0 ? r.keywords.slice(0, 2).join(', ') : '전체 키워드'}
+                        {r.keywords.length > 2 && ` +${r.keywords.length - 2}`}
+                        {r.regions.length > 0 && ` · ${r.regions.length === REGIONS.length ? '전체 지역' : r.regions.slice(0, 2).join(', ')}${r.regions.length > 2 ? ` +${r.regions.length - 2}` : ''}`}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleDelete}
+                className="text-xs text-slate-400 hover:text-red-500 whitespace-nowrap"
+              >
+                설정 삭제
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Email & Schedule */}
         <div className="rounded-xl border border-slate-200 bg-white p-5 mb-4">
@@ -201,7 +292,16 @@ const AlertSettingsPage: React.FC = () => {
                 <ChipInput label="포함 키워드" chips={rule.keywords} onChange={v => updateRule(rule.id, { keywords: v })} placeholder="예: 소프트웨어, IT" />
                 <ChipInput label="제외 키워드" chips={rule.excludeKeywords} onChange={v => updateRule(rule.id, { excludeKeywords: v })} placeholder="예: 시설, 건축" />
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">업무구분</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-sm font-medium text-slate-700">업무구분</label>
+                    <button
+                      type="button"
+                      onClick={() => toggleAllCategories(rule.id, rule.categories)}
+                      className="text-xs text-kira-600 hover:text-kira-700 font-medium"
+                    >
+                      {rule.categories.length === CATEGORIES.length ? '전체 해제' : '전체 선택'}
+                    </button>
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     {CATEGORIES.map(cat => (
                       <button
@@ -221,9 +321,19 @@ const AlertSettingsPage: React.FC = () => {
                       </button>
                     ))}
                   </div>
+                  {rule.categories.length === 0 && <p className="text-xs text-slate-400 mt-1">선택 안하면 전체</p>}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">지역</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-sm font-medium text-slate-700">지역</label>
+                    <button
+                      type="button"
+                      onClick={() => toggleAllRegions(rule.id, rule.regions)}
+                      className="text-xs text-kira-600 hover:text-kira-700 font-medium"
+                    >
+                      {rule.regions.length === REGIONS.length ? '전체 해제' : '전체 선택'}
+                    </button>
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     {REGIONS.map(rgn => (
                       <button
