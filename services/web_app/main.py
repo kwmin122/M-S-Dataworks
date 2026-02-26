@@ -3315,9 +3315,12 @@ async def _execute_alert_send(config: dict, label: str = "alert") -> dict[str, A
             for rgn in region_list:
                 for cat in cat_codes:
                     try:
+                        _min = rule.get("minAmt")
+                        _max = rule.get("maxAmt")
                         results = await nara_search_bids(
                             keywords=kw, category=cat, region=rgn,
-                            min_amt=rule.get("minAmt"), max_amt=rule.get("maxAmt"),
+                            min_amt=float(_min) if _min else None,
+                            max_amt=float(_max) if _max else None,
                             period="1w", exclude_expired=True, page=1, page_size=50,
                         )
                         all_bids.extend(results.get("notices", []))
