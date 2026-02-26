@@ -3271,18 +3271,56 @@ def _send_alert_email(to_email: str, subject: str, bids: list[dict],
     today = datetime.now().strftime("%Y%m%d")
 
     summary_count = sum(1 for s in (summaries or {}).values() if s) if summaries else 0
-    summary_line = (
-        f'<p><strong>{summary_count}건</strong>의 공고에 대한 '
-        f'RFP 요약(사업유형/자격조건/배점표)이 엑셀 &quot;RFP 요약&quot; 시트에 포함되어 있습니다.</p>'
-    ) if summary_count > 0 else ''
+
+    # 공고 목록 + RFP 요약 HTML 생성
+    bid_rows = ""
+    for i, bid in enumerate(bids, 1):
+        bid_id = bid.get("id", "")
+        title = bid.get("title", "제목 없음")
+        org = bid.get("organization", "")
+        deadline = bid.get("deadlineAt", "")[:10] if bid.get("deadlineAt") else ""
+        amt = bid.get("estimatedAmount")
+        amt_str = f'{int(amt):,}원' if amt else ""
+        link = bid.get("link", "")
+
+        title_html = f'<a href="{link}" style="color:#1e40af;text-decoration:none;">{title}</a>' if link else title
+
+        bid_rows += f'''<div style="border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin:8px 0;">
+  <div style="font-size:13px;color:#64748b;">#{i} · {org} {f'· 마감 {deadline}' if deadline else ''} {f'· {amt_str}' if amt_str else ''}</div>
+  <div style="font-size:15px;font-weight:600;margin:4px 0;">{title_html}</div>'''
+
+        # RFP 요약 포함
+        summary_text = (summaries or {}).get(bid_id, "")
+        if summary_text:
+            # 마크다운 → 간단한 HTML 변환 (### → bold, - → bullet)
+            summary_html = ""
+            for line in summary_text.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                if line.startswith("###"):
+                    summary_html += f'<div style="font-weight:600;font-size:13px;color:#1e40af;margin:6px 0 2px 0;">{line.lstrip("#").strip()}</div>'
+                elif line.startswith("- ") or line.startswith("* "):
+                    summary_html += f'<div style="font-size:12px;color:#475569;padding-left:12px;">• {line[2:]}</div>'
+                elif line.startswith("|"):
+                    continue  # 테이블 행은 이메일에서 생략
+                else:
+                    summary_html += f'<div style="font-size:12px;color:#475569;">{line}</div>'
+            bid_rows += f'<div style="background:#f8fafc;border-radius:4px;padding:8px;margin-top:6px;">{summary_html}</div>'
+
+        bid_rows += '</div>'
+
+    summary_note = f'<p style="color:#059669;font-size:14px;"><strong>{summary_count}건</strong> RFP 요약 포함</p>' if summary_count > 0 else ''
 
     html_body = f"""<div style="font-family: -apple-system, sans-serif; color: #334155; max-width: 600px;">
   <h2 style="color: #1e40af;">키라봇 공고 알림</h2>
-  <p>{len(bids)}건의 매칭 공고가 발견되었습니다.</p>
-  {summary_line}
-  <p style="color: #64748b; font-size: 14px;">첨부된 엑셀 파일을 확인해주세요.</p>
+  <p><strong>{len(bids)}건</strong>의 매칭 공고가 발견되었습니다. {summary_note}</p>
+
+  {bid_rows}
+
+  <p style="color: #64748b; font-size: 13px; margin-top: 16px;">상세 데이터는 첨부 엑셀을 확인해주세요.</p>
   <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 16px 0;" />
-  <p style="color: #64748b; font-size: 13px; margin-bottom: 8px;">
+  <p style="color: #64748b; font-size: 13px;">
     알림 설정을 변경하거나 해제하려면
     <a href="{app_base_url}/settings/alerts" style="color: #1e40af; text-decoration: underline;">여기</a>를
     클릭해주세요.
@@ -3330,7 +3368,7 @@ async def _execute_alert_send(config: dict, label: str = "alert") -> dict[str, A
     if not all_bids:
         return {"sent": False, "reason": "매칭 공고가 없습니다.", "count": 0, "summaryCount": 0}
 
-    # Step 2: 중복 제거 + 상한 20건
+    # Step 2: 중복 제거 + 상한 10건 (메모리 절약)
     seen: set[str] = set()
     unique: list[dict] = []
     for b in all_bids:
@@ -3339,14 +3377,14 @@ async def _execute_alert_send(config: dict, label: str = "alert") -> dict[str, A
             seen.add(bid_id)
             unique.append(b)
     total_found = len(unique)
-    unique = unique[:20]
+    unique = unique[:10]
 
-    # Step 3: 병렬 RFP 요약 (Semaphore(3))
+    # Step 3: 순차 RFP 요약 (메모리 절약: 1건씩 처리)
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     summaries: dict[str, str] = {}
 
     if api_key:
-        sem = asyncio.Semaphore(3)
+        sem = asyncio.Semaphore(1)
         temp_dir = tempfile.mkdtemp(prefix=f"kira_{label}_")
 
         async def _summarize(bid: dict) -> tuple[str, str]:
