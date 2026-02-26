@@ -2203,6 +2203,30 @@ def _send_smtp_email(to_email: str, subject: str, html: str,
         return False
 
 
+def _send_cancellation_email(to_email: str) -> bool:
+    """알림 해제 확인 이메일 발송."""
+    app_base_url = os.getenv("APP_BASE_URL", "https://kirabot.co.kr").rstrip("/")
+
+    html = f"""<div style="font-family: -apple-system, sans-serif; color: #334155; max-width: 600px;">
+  <h2 style="color: #dc2626;">키라봇 공고 알림이 해제되었습니다</h2>
+  <p>요청에 따라 공고 알림 발송이 중지되었습니다.</p>
+  <p>더 이상 맞춤 공고 알림 메일을 보내지 않습니다.</p>
+
+  <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin: 16px 0;">
+    <p style="margin: 0; font-size: 14px; color: #991b1b;">
+      알림을 다시 받으시려면
+      <a href="{app_base_url}/settings/alerts" style="color: #1e40af; text-decoration: underline;">알림 설정 페이지</a>에서
+      다시 활성화해주세요.
+    </p>
+  </div>
+
+  <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 16px 0;" />
+  <p style="color: #94a3b8; font-size: 12px;">키라봇 - 공공조달 입찰 자격 분석 플랫폼</p>
+</div>"""
+
+    return _send_smtp_email(to_email, "[키라봇] 공고 알림 해제 완료", html)
+
+
 def _send_confirmation_email(to_email: str, config: dict, is_update: bool = False) -> bool:
     """알림 등록/변경 확인 이메일 발송."""
     app_base_url = os.getenv("APP_BASE_URL", "https://kirabot.co.kr").rstrip("/")
@@ -2303,7 +2327,12 @@ async def save_alert_config(payload: dict) -> dict[str, Any]:
 
     # 확인 이메일 (10분 디바운스)
     confirmation_sent = False
-    if config.get("enabled", True):
+    cancellation_sent = False
+
+    if not config.get("enabled", True):
+        # 알림 해제 시 취소 확인 이메일 발송
+        cancellation_sent = _send_cancellation_email(config["email"])
+    else:
         state = _get_alert_state(session_id)
         last_conf = state.get("last_confirmation_sent", "")
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -2322,7 +2351,7 @@ async def save_alert_config(payload: dict) -> dict[str, Any]:
                 state["last_confirmation_sent"] = now_iso
                 _set_alert_state(session_id, state)
 
-    return {"ok": True, "confirmationSent": confirmation_sent, "isNew": is_new}
+    return {"ok": True, "confirmationSent": confirmation_sent, "cancellationSent": cancellation_sent, "isNew": is_new}
 
 
 @app.get("/api/alerts/config")
