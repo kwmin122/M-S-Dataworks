@@ -1034,60 +1034,33 @@ def health_check() -> dict[str, str]:
 
 @app.get("/api/debug/smtp")
 def debug_smtp() -> dict[str, Any]:
-    """SMTP 환경변수 진단 (값은 마스킹)."""
+    """이메일 환경변수 진단 (값은 마스킹)."""
     smtp_email = os.getenv("SMTP_EMAIL", "").strip()
     smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
-    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
-    smtp_port = os.getenv("SMTP_PORT", "587")
+    brevo_key = os.getenv("BREVO_API_KEY", "").strip()
     sender_name = os.getenv("SMTP_SENDER_NAME", "키라봇").strip()
     return {
-        "email_set": bool(smtp_email),
-        "email_preview": smtp_email[:3] + "***" if smtp_email else "(empty)",
-        "password_set": bool(smtp_password),
-        "password_len": len(smtp_password),
-        "host": smtp_host,
-        "port": smtp_port,
+        "brevo_set": bool(brevo_key),
+        "brevo_preview": brevo_key[:8] + "***" if brevo_key else "(empty)",
+        "smtp_email_set": bool(smtp_email),
+        "smtp_email_preview": smtp_email[:3] + "***" if smtp_email else "(empty)",
+        "smtp_password_set": bool(smtp_password),
         "sender_name": sender_name,
+        "method": "brevo" if brevo_key else "smtp",
     }
 
 
 @app.post("/api/debug/smtp-test")
 def debug_smtp_test(payload: dict) -> dict[str, Any]:
-    """SMTP 테스트 발송 (진단용) — 에러 메시지 포함."""
-    import smtplib
-    from email.mime.text import MIMEText
-    from email.mime.multipart import MIMEMultipart
-
+    """이메일 테스트 발송 (Brevo API 우선 → SMTP 폴백)."""
     to = payload.get("to", "").strip()
     if not to:
         return {"ok": False, "error": "to 필요"}
-
-    smtp_email = os.getenv("SMTP_EMAIL", "").strip()
-    smtp_password = os.getenv("SMTP_PASSWORD", "").strip().replace("\xa0", " ")
-    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
-
-    if not smtp_email or not smtp_password:
-        return {"ok": False, "error": "SMTP_EMAIL or SMTP_PASSWORD empty"}
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = "[키라봇] SMTP 테스트"
-    msg["From"] = f"Kira <{smtp_email}>"
-    msg["To"] = to
-    msg.attach(MIMEText("<h2>SMTP 테스트 성공</h2>", "html", "utf-8"))
-
     try:
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
-            server.starttls()
-            server.login(smtp_email, smtp_password)
-            server.send_message(msg)
-        return {"ok": True}
-    except smtplib.SMTPAuthenticationError as e:
-        return {"ok": False, "error": f"AUTH_FAIL: {e.smtp_code} {e.smtp_error}"}
-    except smtplib.SMTPException as e:
-        return {"ok": False, "error": f"SMTP: {type(e).__name__}: {e}"}
+        sent = _send_smtp_email(to, "[키라봇] 이메일 테스트", "<h2>이메일 테스트 성공</h2><p>이 메일이 도착했다면 정상입니다.</p>")
+        return {"ok": sent, "method": "brevo" if os.getenv("BREVO_API_KEY", "").strip() else "smtp"}
     except Exception as e:
-        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        return {"ok": False, "error": str(e)}
 
 
 @app.get("/")
@@ -2215,9 +2188,51 @@ def _set_alert_state(session_id: str, state: dict):
     state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), "utf-8")
 
 
-def _send_smtp_email(to_email: str, subject: str, html: str,
+def _send_email_brevo(to_email: str, subject: str, html: str,
+                      attachments: list[tuple[str, bytes]] | None = None) -> bool:
+    """Brevo HTTPS API로 이메일 발송."""
+    import base64 as _b64
+    brevo_key = os.getenv("BREVO_API_KEY", "").strip()
+    sender_email = os.getenv("SMTP_EMAIL", "").strip()
+    sender_name = os.getenv("SMTP_SENDER_NAME", "키라봇").strip()
+
+    if not brevo_key:
+        return False
+
+    payload: dict[str, Any] = {
+        "sender": {"email": sender_email or "noreply@kirabot.co.kr", "name": sender_name},
+        "to": [{"email": to_email}],
+        "subject": subject,
+        "htmlContent": html,
+    }
+
+    if attachments:
+        payload["attachment"] = [
+            {"name": fname, "content": _b64.b64encode(data).decode("ascii")}
+            for fname, data in attachments
+        ]
+
+    try:
+        resp = httpx.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={"api-key": brevo_key, "Content-Type": "application/json"},
+            json=payload,
+            timeout=30,
+        )
+        if resp.status_code in (200, 201):
+            logger.info("Brevo email sent to %s: %s", to_email, subject)
+            return True
+        else:
+            logger.error("Brevo email failed to %s: %s %s", to_email, resp.status_code, resp.text[:200])
+            return False
+    except Exception as e:
+        logger.error("Brevo email error to %s: %s", to_email, e)
+        return False
+
+
+def _send_email_smtp(to_email: str, subject: str, html: str,
                      attachments: list[tuple[str, bytes]] | None = None) -> bool:
-    """Gmail SMTP로 HTML 이메일 발송. attachments: [(filename, bytes), ...]"""
+    """Gmail SMTP로 HTML 이메일 발송 (로컬/SMTP 가능 환경용)."""
     import smtplib
     from email.mime.text import MIMEText
     from email.mime.multipart import MIMEMultipart
@@ -2231,7 +2246,6 @@ def _send_smtp_email(to_email: str, subject: str, html: str,
     sender_name = os.getenv("SMTP_SENDER_NAME", "키라봇").strip()
 
     if not smtp_email or not smtp_password:
-        logger.warning("SMTP_EMAIL or SMTP_PASSWORD not set, skipping email to %s", to_email)
         return False
 
     msg = MIMEMultipart("mixed")
@@ -2259,6 +2273,20 @@ def _send_smtp_email(to_email: str, subject: str, html: str,
     except Exception as e:
         logger.error("SMTP email failed to %s: %s", to_email, e)
         return False
+
+
+def _send_smtp_email(to_email: str, subject: str, html: str,
+                     attachments: list[tuple[str, bytes]] | None = None) -> bool:
+    """통합 이메일 발송: Brevo API 우선 → SMTP 폴백."""
+    # Brevo API 키가 있으면 Brevo 우선 (Railway 등 SMTP 차단 환경)
+    if os.getenv("BREVO_API_KEY", "").strip():
+        result = _send_email_brevo(to_email, subject, html, attachments)
+        if result:
+            return True
+        logger.warning("Brevo failed, trying SMTP fallback for %s", to_email)
+
+    # SMTP 폴백 (로컬 개발 등)
+    return _send_email_smtp(to_email, subject, html, attachments)
 
 
 def _send_cancellation_email(to_email: str) -> bool:
