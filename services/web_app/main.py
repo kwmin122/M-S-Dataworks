@@ -2133,13 +2133,18 @@ def _send_confirmation_email(to_email: str, config: dict, is_update: bool = Fals
     # 스케줄 설명
     schedule = config.get("schedule", "daily_1")
     hours = config.get("hours", [])
-    if schedule == "hourly":
-        schedule_desc = "매시간 (08~19시)"
+    schedule_desc_map = {
+        "realtime": "30분마다 확인",
+        "hourly": "매시간 (08~19시)",
+        "daily_1": "매일 1회 (09시)",
+        "daily_2": "매일 2회 (09시, 18시)",
+        "daily_3": "매일 3회 (09시, 13시, 18시)",
+    }
+    if schedule in schedule_desc_map:
+        schedule_desc = schedule_desc_map[schedule]
     elif hours:
         hour_strs = [f"{h}시" for h in sorted(hours)]
         schedule_desc = f"매일 {', '.join(hour_strs)}"
-    elif schedule == "daily_2":
-        schedule_desc = "매일 2회 (09시, 18시)"
     else:
         schedule_desc = "매일 1회 (09시)"
 
@@ -3234,12 +3239,16 @@ async def _check_and_send_scheduled_alerts():
         schedule = config.get("schedule", "daily_1")
         hours = config.get("hours", [])
 
-        if schedule == "hourly":
+        if schedule == "realtime":
+            send_hours = list(range(0, 24))
+        elif schedule == "hourly":
             send_hours = list(range(8, 20))
         elif hours:
             send_hours = [int(h) for h in hours]
         elif schedule == "daily_2":
             send_hours = [9, 18]
+        elif schedule == "daily_3":
+            send_hours = [9, 13, 18]
         else:
             send_hours = [9]
 
