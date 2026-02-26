@@ -129,7 +129,12 @@ function buildAlertKeywordsFields() {
 
 function buildAlertConditionsFields() {
   return [
-    { key: 'regions', label: '관심 지역 (쉼표 구분, 선택)', type: 'text' as const },
+    {
+      key: 'regions',
+      label: '관심 지역 (선택)',
+      type: 'select' as const,
+      options: ['전체', ...REGIONS],
+    },
     { key: 'minAmt', label: '최소 금액 (선택)', type: 'number' as const },
     { key: 'maxAmt', label: '최대 금액 (선택)', type: 'number' as const },
   ];
@@ -702,8 +707,8 @@ export function useConversationFlow() {
               .split(',').map((k: string) => k.trim()).filter(Boolean);
             const categoriesRaw = (conversation as unknown as Record<string, unknown>)._alertCategories as string || '전체';
             const categories = categoriesRaw === '전체' ? ['all'] : [CATEGORY_MAP[categoriesRaw] || categoriesRaw];
-            const regions = ((conversation as unknown as Record<string, unknown>)._alertRegions as string || '')
-              .split(',').map((r: string) => r.trim()).filter(Boolean);
+            const regionsRaw = (conversation as unknown as Record<string, unknown>)._alertRegions as string || '';
+            const regions = regionsRaw && regionsRaw !== '전체' ? [regionsRaw] : [];
             const minAmtStr = (conversation as unknown as Record<string, unknown>)._alertMinAmt as string || '';
             const maxAmtStr = (conversation as unknown as Record<string, unknown>)._alertMaxAmt as string || '';
 
@@ -893,7 +898,7 @@ export function useConversationFlow() {
             const conditions = {
               keywords,
               category,
-              region: prevConditions.region || undefined,
+              region: prevConditions.region && prevConditions.region !== '전체' ? prevConditions.region : undefined,
               minAmt: prevConditions.minAmt ? Number(prevConditions.minAmt) : undefined,
               maxAmt: prevConditions.maxAmt ? Number(prevConditions.maxAmt) : undefined,
               period: pagePeriod,

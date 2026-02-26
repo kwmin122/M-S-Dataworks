@@ -119,7 +119,7 @@ const AlertSettingsPage: React.FC = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || '저장 실패');
       setSaved(true);
-      if (data.emailSent) {
+      if (data.confirmationSent) {
         setSaveMsg(`저장 완료! ${email}으로 확인 이메일을 보내드렸습니다.`);
       } else {
         setSaveMsg('저장 완료!');

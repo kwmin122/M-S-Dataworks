@@ -56,6 +56,7 @@ from nara_api import (  # noqa: E402
     get_bid_attachments as nara_get_bid_attachments,
     download_attachment as nara_download_attachment,
     pick_best_attachment,
+    CATEGORY_CODE as NARA_CATEGORY_CODE,
 )
 from matcher import MatchStatus, MatchingResult, QualificationMatcher  # noqa: E402
 from rfx_analyzer import RFxAnalysisResult, RFxAnalyzer  # noqa: E402
@@ -3099,20 +3100,22 @@ async def _execute_alert_send(config: dict, label: str = "alert") -> dict[str, A
         if not rule.get("enabled", True):
             continue
         regions = rule.get("regions", [])
-        categories = rule.get("categories", [])
-        category = categories[0] if len(categories) == 1 else "all"
+        raw_categories = rule.get("categories", [])
+        # 한글→API코드 변환, 빈 목록이면 ["all"]
+        cat_codes = [NARA_CATEGORY_CODE.get(c, c) for c in raw_categories] if raw_categories else ["all"]
         region_list = regions if regions else [""]
         for kw in rule.get("keywords", [""]):
             for rgn in region_list:
-                try:
-                    results = await nara_search_bids(
-                        keywords=kw, category=category, region=rgn,
-                        min_amt=rule.get("minAmt"), max_amt=rule.get("maxAmt"),
-                        period="1w", exclude_expired=True, page=1, page_size=50,
-                    )
-                    all_bids.extend(results.get("notices", []))
-                except Exception as e:
-                    logger.warning("[%s] search failed for keyword '%s' region '%s': %s", label, kw, rgn, e)
+                for cat in cat_codes:
+                    try:
+                        results = await nara_search_bids(
+                            keywords=kw, category=cat, region=rgn,
+                            min_amt=rule.get("minAmt"), max_amt=rule.get("maxAmt"),
+                            period="1w", exclude_expired=True, page=1, page_size=50,
+                        )
+                        all_bids.extend(results.get("notices", []))
+                    except Exception as e:
+                        logger.warning("[%s] search failed kw='%s' region='%s' cat='%s': %s", label, kw, rgn, cat, e)
 
     if not all_bids:
         return {"sent": False, "reason": "매칭 공고가 없습니다.", "count": 0, "summaryCount": 0}
