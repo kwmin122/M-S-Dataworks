@@ -82,6 +82,24 @@ const PERIOD_MAP: Record<string, string> = {
   '최근 6개월': '6m',
 };
 
+const REGIONS = [
+  '서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종',
+  '경기', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주',
+];
+
+const INDUSTRY_TYPES: { code: string; name: string }[] = [
+  { code: '0036', name: '정보통신공사업' },
+  { code: '0037', name: '전기공사업' },
+  { code: '0001', name: '토목공사업' },
+  { code: '0002', name: '건축공사업' },
+  { code: '0003', name: '토목건축공사업' },
+  { code: '0005', name: '조경공사업' },
+  { code: '0038', name: '일반소방시설공사업(기계)' },
+  { code: '0039', name: '일반소방시설공사업(전기)' },
+  { code: '0040', name: '전문소방시설공사업' },
+  { code: '0041', name: '지하수개발·이용시공업' },
+];
+
 let msgCounter = 0;
 function msgId(): string {
   msgCounter += 1;
@@ -98,12 +116,23 @@ function buildSearchFormFields() {
       options: ['전체', '물품', '용역', '공사', '외자', '기타'],
     },
     {
+      key: 'region',
+      label: '지역 (선택)',
+      type: 'select' as const,
+      options: ['전체', ...REGIONS],
+    },
+    {
+      key: 'industry',
+      label: '업종 (선택)',
+      type: 'select' as const,
+      options: ['전체', ...INDUSTRY_TYPES.map(i => i.name)],
+    },
+    {
       key: 'period',
       label: '기간',
       type: 'select' as const,
       options: ['최근 1개월', '최근 3개월', '최근 6개월'],
     },
-    { key: 'region', label: '지역 (선택)', type: 'text' as const },
     { key: 'minAmt', label: '최소 금액 (선택)', type: 'number' as const },
     { key: 'maxAmt', label: '최대 금액 (선택)', type: 'number' as const },
   ];
@@ -802,14 +831,18 @@ export function useConversationFlow() {
                 : [];
               const category = CATEGORY_MAP[values.category || '전체'] || 'all';
               const period = PERIOD_MAP[values.period] || values.period || '1m';
+              const industryCodes = values.industry && values.industry !== '전체'
+                ? [INDUSTRY_TYPES.find(i => i.name === values.industry)?.code].filter(Boolean)
+                : undefined;
               const conditions = {
                 keywords,
                 category,
-                region: values.region || undefined,
+                region: values.region && values.region !== '전체' ? values.region : undefined,
+                industryCodes: industryCodes?.length ? industryCodes : undefined,
                 minAmt: values.minAmt ? Number(values.minAmt) : undefined,
                 maxAmt: values.maxAmt ? Number(values.maxAmt) : undefined,
                 period,
-                excludeExpired: false,
+                excludeExpired: true,
                 page: 1,
                 pageSize: 20,
               };
@@ -884,14 +917,20 @@ export function useConversationFlow() {
               : [];
             const category = CATEGORY_MAP[prevConditions.category || '전체'] || 'all';
             const pagePeriod = PERIOD_MAP[prevConditions.period] || prevConditions.period || '1m';
+            const prevIndustryCodes = prevConditions.industryCodes
+              ? (typeof prevConditions.industryCodes === 'string'
+                  ? JSON.parse(prevConditions.industryCodes)
+                  : prevConditions.industryCodes)
+              : undefined;
             const conditions = {
               keywords,
               category,
               region: prevConditions.region || undefined,
+              industryCodes: prevIndustryCodes,
               minAmt: prevConditions.minAmt ? Number(prevConditions.minAmt) : undefined,
               maxAmt: prevConditions.maxAmt ? Number(prevConditions.maxAmt) : undefined,
               period: pagePeriod,
-              excludeExpired: false,
+              excludeExpired: true,
               page: action.page,
               pageSize: 20,
             };

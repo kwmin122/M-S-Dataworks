@@ -265,6 +265,7 @@ async def search_bids(
     keywords: str = "",
     category: str = "all",
     region: str = "",
+    industry_codes: list[str] | None = None,
     min_amt: float | None = None,
     max_amt: float | None = None,
     period: str = "1m",
@@ -304,25 +305,33 @@ async def search_bids(
     all_notices: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
 
+    # 나라장터 API는 단일 indstrytyCd만 지원 → 여러 코드면 코드별 호출 후 합산
+    industry_list: list[str | None] = list(industry_codes) if industry_codes else [None]
+
     async with httpx.AsyncClient() as client:
-        for bgn_dt, end_dt in date_ranges:
-            chunk_params = {**shared_params, "inqryBgnDt": bgn_dt, "inqryEndDt": end_dt}
+        for ind_code in industry_list:
+            ind_params = {**shared_params}
+            if ind_code:
+                ind_params["indstrytyCd"] = ind_code
 
-            if category != "all" and category in CATEGORY_ENDPOINTS:
-                endpoint = CATEGORY_ENDPOINTS[category]
-                chunk_notices, _ = await _fetch_category(client, endpoint, category, chunk_params)
-            else:
-                chunk_notices = []
-                for cat, endpoint in CATEGORY_ENDPOINTS.items():
-                    cat_notices, _ = await _fetch_category(client, endpoint, cat, chunk_params)
-                    chunk_notices.extend(cat_notices)
+            for bgn_dt, end_dt in date_ranges:
+                chunk_params = {**ind_params, "inqryBgnDt": bgn_dt, "inqryEndDt": end_dt}
 
-            # 중복 제거 (여러 청크에서 같은 공고 반환 가능)
-            for n in chunk_notices:
-                nid = n.get("id", "")
-                if nid and nid not in seen_ids:
-                    seen_ids.add(nid)
-                    all_notices.append(n)
+                if category != "all" and category in CATEGORY_ENDPOINTS:
+                    endpoint = CATEGORY_ENDPOINTS[category]
+                    chunk_notices, _ = await _fetch_category(client, endpoint, category, chunk_params)
+                else:
+                    chunk_notices = []
+                    for cat, endpoint in CATEGORY_ENDPOINTS.items():
+                        cat_notices, _ = await _fetch_category(client, endpoint, cat, chunk_params)
+                        chunk_notices.extend(cat_notices)
+
+                # 중복 제거 (여러 청크/업종에서 같은 공고 반환 가능)
+                for n in chunk_notices:
+                    nid = n.get("id", "")
+                    if nid and nid not in seen_ids:
+                        seen_ids.add(nid)
+                        all_notices.append(n)
 
     notices = all_notices
 

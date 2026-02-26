@@ -150,6 +150,7 @@ class BidSearchPayload(BaseModel):
     keywords: list[str] | str | None = None
     category: str = "all"
     region: str = ""
+    industryCodes: list[str] | None = None
     minAmt: float | None = None
     maxAmt: float | None = None
     period: str = "1m"
@@ -1608,6 +1609,7 @@ async def api_bids_search(payload: BidSearchPayload) -> dict[str, Any]:
             keywords=keywords_str,
             category=payload.category,
             region=payload.region,
+            industry_codes=payload.industryCodes,
             min_amt=payload.minAmt,
             max_amt=payload.maxAmt,
             period=payload.period,
@@ -3098,16 +3100,23 @@ async def _execute_alert_send(config: dict, label: str = "alert") -> dict[str, A
     for rule in config.get("rules", []):
         if not rule.get("enabled", True):
             continue
+        regions = rule.get("regions", [])
+        industry_codes = rule.get("industryCodes", []) or None
+        categories = rule.get("categories", [])
+        category = categories[0] if len(categories) == 1 else "all"
+        region_list = regions if regions else [""]
         for kw in rule.get("keywords", [""]):
-            try:
-                results = await nara_search_bids(
-                    keywords=kw, category="all", region="",
-                    min_amt=rule.get("minAmt"), max_amt=rule.get("maxAmt"),
-                    period="1w", exclude_expired=True, page=1, page_size=50,
-                )
-                all_bids.extend(results.get("notices", []))
-            except Exception as e:
-                logger.warning("[%s] search failed for keyword '%s': %s", label, kw, e)
+            for rgn in region_list:
+                try:
+                    results = await nara_search_bids(
+                        keywords=kw, category=category, region=rgn,
+                        industry_codes=industry_codes,
+                        min_amt=rule.get("minAmt"), max_amt=rule.get("maxAmt"),
+                        period="1w", exclude_expired=True, page=1, page_size=50,
+                    )
+                    all_bids.extend(results.get("notices", []))
+                except Exception as e:
+                    logger.warning("[%s] search failed for keyword '%s' region '%s': %s", label, kw, rgn, e)
 
     if not all_bids:
         return {"sent": False, "reason": "매칭 공고가 없습니다.", "count": 0, "summaryCount": 0}
