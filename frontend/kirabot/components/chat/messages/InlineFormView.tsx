@@ -27,9 +27,38 @@ const InlineFormView: React.FC<Props> = ({ message, onAction }) => {
       <p className="mb-3 whitespace-pre-line text-sm">{message.text}</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-2">
         {message.fields.map((field) => (
-          <div key={field.key} className={field.type === 'text' && !field.options ? 'sm:col-span-2' : ''}>
+          <div key={field.key} className={field.type === 'text' && !field.options ? 'sm:col-span-2' : field.type === 'multiselect' ? 'sm:col-span-2' : ''}>
             <label className="block text-xs font-semibold text-slate-600 mb-1">{field.label}</label>
-            {field.type === 'select' && field.options ? (
+            {field.type === 'multiselect' && field.options ? (
+              <div className="flex flex-wrap gap-1.5">
+                {field.options.map((opt) => {
+                  const selected = (displayValues[field.key] || '').split(',').filter(Boolean);
+                  const isActive = selected.includes(opt);
+                  return (
+                    <button
+                      key={opt}
+                      type="button"
+                      disabled={isSubmitted}
+                      onClick={() => {
+                        const current = (values[field.key] || '').split(',').filter(Boolean);
+                        const next = isActive ? current.filter(v => v !== opt) : [...current, opt];
+                        setValues((prev) => ({ ...prev, [field.key]: next.join(',') }));
+                      }}
+                      className={`rounded-full px-2.5 py-1 text-xs font-medium border transition-colors disabled:opacity-60 ${
+                        isActive
+                          ? 'border-primary-600 bg-primary-600 text-white'
+                          : 'border-slate-300 text-slate-600 hover:border-primary-400 hover:bg-primary-50'
+                      }`}
+                    >
+                      {opt}
+                    </button>
+                  );
+                })}
+                {!isSubmitted && (displayValues[field.key] || '').split(',').filter(Boolean).length === 0 && (
+                  <span className="text-xs text-slate-400 self-center">선택 안하면 전체</span>
+                )}
+              </div>
+            ) : field.type === 'select' && field.options ? (
               <select
                 value={displayValues[field.key] || ''}
                 disabled={isSubmitted}

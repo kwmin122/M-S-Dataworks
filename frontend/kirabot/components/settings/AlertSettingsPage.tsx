@@ -23,7 +23,7 @@ interface AlertRule {
 
 const CATEGORIES = ['물품', '용역', '공사', '외자', '기타'];
 const SCHEDULES = [
-  { value: 'realtime', label: '공고 등록 즉시' },
+  { value: 'realtime', label: '30분마다 확인' },
   { value: 'daily_1', label: '하루 1번' },
   { value: 'daily_2', label: '하루 2번' },
   { value: 'daily_3', label: '하루 3번' },

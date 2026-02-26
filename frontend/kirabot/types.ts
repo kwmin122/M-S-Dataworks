@@ -208,7 +208,7 @@ export interface InlineFormMessage extends BaseChatMessage {
   fields: {
     key: string;
     label: string;
-    type: 'text' | 'number' | 'select';
+    type: 'text' | 'number' | 'select' | 'multiselect';
     options?: string[];
   }[];
   submitLabel: string;

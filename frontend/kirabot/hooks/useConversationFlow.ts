@@ -131,9 +131,9 @@ function buildAlertConditionsFields() {
   return [
     {
       key: 'regions',
-      label: '관심 지역 (선택)',
-      type: 'select' as const,
-      options: ['전체', ...REGIONS],
+      label: '관심 지역 (복수 선택 가능)',
+      type: 'multiselect' as const,
+      options: REGIONS,
     },
     { key: 'minAmt', label: '최소 금액 (선택)', type: 'number' as const },
     { key: 'maxAmt', label: '최대 금액 (선택)', type: 'number' as const },
@@ -147,7 +147,7 @@ function buildAlertNotificationFields() {
       key: 'schedule',
       label: '수신 방식',
       type: 'select' as const,
-      options: ['공고 등록 즉시', '하루 1번', '하루 2번', '하루 3번'],
+      options: ['30분마다 확인', '하루 1번', '하루 2번', '하루 3번'],
     },
     { key: 'hour1', label: '수신 시간 1 (0~23시)', type: 'number' as const },
     { key: 'hour2', label: '수신 시간 2 (하루 2번 이상 시)', type: 'number' as const },
@@ -708,12 +708,12 @@ export function useConversationFlow() {
             const categoriesRaw = (conversation as unknown as Record<string, unknown>)._alertCategories as string || '전체';
             const categories = categoriesRaw === '전체' ? ['all'] : [CATEGORY_MAP[categoriesRaw] || categoriesRaw];
             const regionsRaw = (conversation as unknown as Record<string, unknown>)._alertRegions as string || '';
-            const regions = regionsRaw && regionsRaw !== '전체' ? [regionsRaw] : [];
+            const regions = regionsRaw ? regionsRaw.split(',').filter(Boolean) : [];
             const minAmtStr = (conversation as unknown as Record<string, unknown>)._alertMinAmt as string || '';
             const maxAmtStr = (conversation as unknown as Record<string, unknown>)._alertMaxAmt as string || '';
 
             const scheduleMap: Record<string, 'realtime' | 'daily_1' | 'daily_2' | 'daily_3'> = {
-              '공고 등록 즉시': 'realtime',
+              '30분마다 확인': 'realtime',
               '하루 1번': 'daily_1',
               '하루 2번': 'daily_2',
               '하루 3번': 'daily_3',
@@ -763,7 +763,7 @@ export function useConversationFlow() {
               trackEvent('alert_setup_completed', { keywords_count: keywords.length, frequency: settings.schedule });
 
               const scheduleLabel: Record<string, string> = {
-                realtime: '공고 등록 즉시',
+                realtime: '30분마다 확인',
                 daily_1: `하루 1번 (${hours[0] ?? 9}시)`,
                 daily_2: `하루 2번 (${hours[0] ?? 9}시, ${hours[1] ?? 18}시)`,
                 daily_3: `하루 3번 (${hours.map(h => `${h}시`).join(', ')})`,
