@@ -2129,6 +2129,7 @@ def _send_confirmation_email(to_email: str, config: dict, is_update: bool = Fals
 
     import resend
     resend.api_key = api_key
+    app_base_url = os.getenv("APP_BASE_URL", "https://kirabot.co.kr").rstrip("/")
 
     # 스케줄 설명
     schedule = config.get("schedule", "daily_1")
@@ -2190,6 +2191,11 @@ def _send_confirmation_email(to_email: str, config: dict, is_update: bool = Fals
   </div>
 
   <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 16px 0;" />
+  <p style="color: #64748b; font-size: 13px; margin-bottom: 8px;">
+    알림 설정을 변경하거나 해제하려면
+    <a href="{app_base_url}/settings/alerts" style="color: #1e40af; text-decoration: underline;">여기</a>를
+    클릭해주세요.
+  </p>
   <p style="color: #94a3b8; font-size: 12px;">키라봇 - 공공조달 입찰 자격 분석 플랫폼</p>
 </div>"""
 
@@ -3058,6 +3064,7 @@ def _send_alert_email(to_email: str, subject: str, bids: list[dict],
 
     import resend
     resend.api_key = api_key
+    app_base_url = os.getenv("APP_BASE_URL", "https://kirabot.co.kr").rstrip("/")
 
     excel_bytes = _build_alert_excel(bids, summaries)
     today = datetime.now().strftime("%Y%m%d")
@@ -3074,6 +3081,11 @@ def _send_alert_email(to_email: str, subject: str, bids: list[dict],
   {summary_line}
   <p style="color: #64748b; font-size: 14px;">첨부된 엑셀 파일을 확인해주세요.</p>
   <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 16px 0;" />
+  <p style="color: #64748b; font-size: 13px; margin-bottom: 8px;">
+    알림 설정을 변경하거나 해제하려면
+    <a href="{app_base_url}/settings/alerts" style="color: #1e40af; text-decoration: underline;">여기</a>를
+    클릭해주세요.
+  </p>
   <p style="color: #94a3b8; font-size: 12px;">이 메일은 키라봇 알림 설정에 의해 자동 발송되었습니다.</p>
 </div>"""
 
