@@ -2157,16 +2157,54 @@ def _set_alert_state(session_id: str, state: dict):
     state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), "utf-8")
 
 
-def _send_confirmation_email(to_email: str, config: dict, is_update: bool = False) -> bool:
-    """알림 등록/변경 확인 이메일 발송."""
-    api_key = os.getenv("RESEND_API_KEY", "").strip()
-    from_email = os.getenv("RESEND_FROM_EMAIL", "키라봇 <onboarding@resend.dev>").strip()
-    if not api_key:
-        logger.warning("RESEND_API_KEY not set, skipping confirmation email")
+def _send_smtp_email(to_email: str, subject: str, html: str,
+                     attachments: list[tuple[str, bytes]] | None = None) -> bool:
+    """Gmail SMTP로 HTML 이메일 발송. attachments: [(filename, bytes), ...]"""
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.base import MIMEBase
+    from email import encoders
+
+    smtp_email = os.getenv("SMTP_EMAIL", "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    sender_name = os.getenv("SMTP_SENDER_NAME", "키라봇").strip()
+
+    if not smtp_email or not smtp_password:
+        logger.warning("SMTP_EMAIL or SMTP_PASSWORD not set, skipping email to %s", to_email)
         return False
 
-    import resend
-    resend.api_key = api_key
+    msg = MIMEMultipart("mixed")
+    msg["Subject"] = subject
+    msg["From"] = f"{sender_name} <{smtp_email}>"
+    msg["To"] = to_email
+
+    html_part = MIMEText(html, "html", "utf-8")
+    msg.attach(html_part)
+
+    for filename, data in (attachments or []):
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(data)
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", f"attachment; filename={filename}")
+        msg.attach(part)
+
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
+            server.starttls()
+            server.login(smtp_email, smtp_password)
+            server.send_message(msg)
+        logger.info("SMTP email sent to %s: %s", to_email, subject)
+        return True
+    except Exception as e:
+        logger.error("SMTP email failed to %s: %s", to_email, e)
+        return False
+
+
+def _send_confirmation_email(to_email: str, config: dict, is_update: bool = False) -> bool:
+    """알림 등록/변경 확인 이메일 발송."""
     app_base_url = os.getenv("APP_BASE_URL", "https://kirabot.co.kr").rstrip("/")
 
     # 스케줄 설명
@@ -2236,13 +2274,7 @@ def _send_confirmation_email(to_email: str, config: dict, is_update: bool = Fals
   <p style="color: #94a3b8; font-size: 12px;">키라봇 - 공공조달 입찰 자격 분석 플랫폼</p>
 </div>"""
 
-    try:
-        resp = resend.Emails.send({"from": from_email, "to": [to_email], "subject": subject, "html": html})
-        logger.info("Confirmation email sent to %s (id=%s)", to_email, getattr(resp, 'id', resp))
-        return True
-    except Exception as e:
-        logger.error("Confirmation email send failed to %s: %s", to_email, e)
-        return False
+    return _send_smtp_email(to_email, subject, html)
 
 
 @app.post("/api/alerts/config")
@@ -3092,16 +3124,7 @@ def _build_alert_excel(bids: list[dict], summaries: dict[str, str] | None = None
 
 def _send_alert_email(to_email: str, subject: str, bids: list[dict],
                       summaries: dict[str, str] | None = None) -> bool:
-    """Resend API로 엑셀 첨부 HTML 이메일 발송."""
-    import base64
-    api_key = os.getenv("RESEND_API_KEY", "").strip()
-    from_email = os.getenv("RESEND_FROM_EMAIL", "키라봇 <onboarding@resend.dev>").strip()
-    if not api_key:
-        logger.warning("RESEND_API_KEY not set, skipping email")
-        return False
-
-    import resend
-    resend.api_key = api_key
+    """Gmail SMTP로 엑셀 첨부 HTML 이메일 발송."""
     app_base_url = os.getenv("APP_BASE_URL", "https://kirabot.co.kr").rstrip("/")
 
     excel_bytes = _build_alert_excel(bids, summaries)
@@ -3127,22 +3150,10 @@ def _send_alert_email(to_email: str, subject: str, bids: list[dict],
   <p style="color: #94a3b8; font-size: 12px;">이 메일은 키라봇 알림 설정에 의해 자동 발송되었습니다.</p>
 </div>"""
 
-    try:
-        resp = resend.Emails.send({
-            "from": from_email,
-            "to": [to_email],
-            "subject": subject,
-            "html": html_body,
-            "attachments": [{
-                "filename": f"kirabot_alert_{today}.xlsx",
-                "content": base64.b64encode(excel_bytes).decode("utf-8"),
-            }],
-        })
-        logger.info("Alert email sent to %s (%d bids, id=%s)", to_email, len(bids), getattr(resp, 'id', resp))
-        return True
-    except Exception as e:
-        logger.error("Alert email send failed to %s: %s", to_email, e)
-        return False
+    return _send_smtp_email(
+        to_email, subject, html_body,
+        attachments=[(f"kirabot_alert_{today}.xlsx", excel_bytes)],
+    )
 
 
 async def _execute_alert_send(config: dict, label: str = "alert") -> dict[str, Any]:
