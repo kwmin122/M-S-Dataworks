@@ -37,6 +37,13 @@ const SCHEDULES = [
   { value: 'daily_3', label: '하루 3번' },
 ];
 
+const HOUR_OPTIONS = Array.from({ length: 15 }, (_, i) => i + 7); // 7시~21시
+const DEFAULT_HOURS: Record<string, number[]> = {
+  daily_1: [9],
+  daily_2: [9, 18],
+  daily_3: [9, 13, 18],
+};
+
 function createEmptyRule(): AlertRule {
   return {
     id: `rule_${Date.now()}`,
@@ -56,6 +63,7 @@ const AlertSettingsPage: React.FC = () => {
   const [globalEnabled, setGlobalEnabled] = useState(true);
   const [email, setEmail] = useState('');
   const [schedule, setSchedule] = useState('daily_1');
+  const [hours, setHours] = useState<number[]>([9]);
   const [rules, setRules] = useState<AlertRule[]>([createEmptyRule()]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -79,6 +87,29 @@ const AlertSettingsPage: React.FC = () => {
     updateRule(ruleId, { regions: allSelected ? [] : [...REGIONS] });
   }, [updateRule]);
 
+  const handleScheduleChange = useCallback((newSchedule: string) => {
+    setSchedule(newSchedule);
+    if (newSchedule in DEFAULT_HOURS) {
+      setHours(DEFAULT_HOURS[newSchedule]);
+    } else {
+      setHours([]);
+    }
+  }, []);
+
+  const requiredHourCount = schedule === 'daily_1' ? 1 : schedule === 'daily_2' ? 2 : schedule === 'daily_3' ? 3 : 0;
+
+  const toggleHour = useCallback((hour: number) => {
+    setHours(prev => {
+      if (prev.includes(hour)) {
+        return prev.filter(h => h !== hour);
+      }
+      if (requiredHourCount > 0 && prev.length >= requiredHourCount) {
+        return [...prev.slice(1), hour].sort((a, b) => a - b);
+      }
+      return [...prev, hour].sort((a, b) => a - b);
+    });
+  }, [requiredHourCount]);
+
   // Load existing config on mount
   useEffect(() => {
     fetch(`${getApiBaseUrl()}/api/alerts/config?session_id=${sessionId}`)
@@ -86,6 +117,11 @@ const AlertSettingsPage: React.FC = () => {
       .then(data => {
         if (data.email) { setEmail(data.email); setHasSavedConfig(true); }
         if (data.schedule) setSchedule(data.schedule);
+        if (Array.isArray(data.hours) && data.hours.length > 0) {
+          setHours(data.hours.map(Number));
+        } else if (data.schedule && data.schedule in DEFAULT_HOURS) {
+          setHours(DEFAULT_HOURS[data.schedule as keyof typeof DEFAULT_HOURS]);
+        }
         if (typeof data.enabled === 'boolean') setGlobalEnabled(data.enabled);
         if (Array.isArray(data.rules) && data.rules.length > 0) {
           setRules(data.rules.map((r: any, i: number) => ({
@@ -122,7 +158,7 @@ const AlertSettingsPage: React.FC = () => {
           enabled: globalEnabled,
           email: email.trim(),
           schedule,
-          hours: [],
+          hours: schedule === 'realtime' ? [] : hours,
           rules: rules.map(r => ({
             keywords: r.keywords,
             excludeKeywords: r.excludeKeywords,
@@ -220,7 +256,9 @@ const AlertSettingsPage: React.FC = () => {
                     {globalEnabled ? '알림 활성화됨' : '알림 비활성화됨'}
                   </h3>
                   <p className="text-xs text-slate-500 mt-1">
-                    {email} · {scheduleLabel} · 규칙 {rules.filter(r => r.enabled).length}개 활성
+                    {email} · {scheduleLabel}
+                    {schedule !== 'realtime' && hours.length > 0 && ` (${hours.map(h => `${h}시`).join(', ')})`}
+                    {' · '}규칙 {rules.filter(r => r.enabled).length}개 활성
                   </p>
                   <div className="flex flex-wrap gap-1 mt-2">
                     {rules.filter(r => r.enabled).map((r, i) => (
@@ -262,7 +300,7 @@ const AlertSettingsPage: React.FC = () => {
               <label className="block text-sm font-medium text-slate-700 mb-1">수신 빈도</label>
               <select
                 value={schedule}
-                onChange={e => setSchedule(e.target.value)}
+                onChange={e => handleScheduleChange(e.target.value)}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-kira-500 focus:ring-2 focus:ring-kira-200 outline-none"
               >
                 {SCHEDULES.map(s => (
@@ -271,6 +309,40 @@ const AlertSettingsPage: React.FC = () => {
               </select>
             </div>
           </div>
+          {/* 시간대 선택 (daily_N 일 때만) */}
+          {requiredHourCount > 0 && (
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                발송 시간 ({requiredHourCount}개 선택)
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {HOUR_OPTIONS.map(h => (
+                  <button
+                    key={h}
+                    type="button"
+                    onClick={() => toggleHour(h)}
+                    className={`rounded-lg px-2.5 py-1 text-xs font-medium border transition-colors ${
+                      hours.includes(h)
+                        ? 'border-kira-600 bg-kira-600 text-white'
+                        : 'border-slate-300 text-slate-600 hover:border-kira-400 hover:bg-kira-50'
+                    }`}
+                  >
+                    {String(h).padStart(2, '0')}시
+                  </button>
+                ))}
+              </div>
+              {hours.length < requiredHourCount && (
+                <p className="text-xs text-amber-500 mt-1">
+                  {requiredHourCount - hours.length}개 더 선택해주세요
+                </p>
+              )}
+              {hours.length > 0 && (
+                <p className="text-xs text-slate-400 mt-1">
+                  선택: {hours.map(h => `${String(h).padStart(2, '0')}시`).join(', ')}
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Alert Rules */}

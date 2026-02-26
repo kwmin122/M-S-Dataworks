@@ -2171,20 +2171,19 @@ def _send_confirmation_email(to_email: str, config: dict, is_update: bool = Fals
     # 스케줄 설명
     schedule = config.get("schedule", "daily_1")
     hours = config.get("hours", [])
-    schedule_desc_map = {
-        "realtime": "30분마다 확인",
-        "hourly": "매시간 (08~19시)",
-        "daily_1": "매일 1회 (09시)",
-        "daily_2": "매일 2회 (09시, 18시)",
-        "daily_3": "매일 3회 (09시, 13시, 18시)",
-    }
-    if schedule in schedule_desc_map:
-        schedule_desc = schedule_desc_map[schedule]
+    if schedule == "realtime":
+        schedule_desc = "30분마다 확인"
     elif hours:
         hour_strs = [f"{h}시" for h in sorted(hours)]
-        schedule_desc = f"매일 {', '.join(hour_strs)}"
+        count = len(hours)
+        schedule_desc = f"매일 {count}회 ({', '.join(hour_strs)})"
     else:
-        schedule_desc = "매일 1회 (09시)"
+        schedule_desc_map = {
+            "daily_1": "매일 1회 (09시)",
+            "daily_2": "매일 2회 (09시, 18시)",
+            "daily_3": "매일 3회 (09시, 13시, 18시)",
+        }
+        schedule_desc = schedule_desc_map.get(schedule, "매일 1회 (09시)")
 
     # 규칙 설명
     rule_items = ""
