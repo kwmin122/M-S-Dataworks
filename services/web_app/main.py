@@ -1053,15 +1053,41 @@ def debug_smtp() -> dict[str, Any]:
 
 @app.post("/api/debug/smtp-test")
 def debug_smtp_test(payload: dict) -> dict[str, Any]:
-    """SMTP 테스트 발송 (진단용)."""
+    """SMTP 테스트 발송 (진단용) — 에러 메시지 포함."""
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+
     to = payload.get("to", "").strip()
     if not to:
         return {"ok": False, "error": "to 필요"}
+
+    smtp_email = os.getenv("SMTP_EMAIL", "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "").strip().replace("\xa0", " ")
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+
+    if not smtp_email or not smtp_password:
+        return {"ok": False, "error": "SMTP_EMAIL or SMTP_PASSWORD empty"}
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "[키라봇] SMTP 테스트"
+    msg["From"] = f"Kira <{smtp_email}>"
+    msg["To"] = to
+    msg.attach(MIMEText("<h2>SMTP 테스트 성공</h2>", "html", "utf-8"))
+
     try:
-        sent = _send_smtp_email(to, "[키라봇] SMTP 테스트", "<h2>SMTP 테스트 성공</h2><p>이 메일이 도착했다면 정상입니다.</p>")
-        return {"ok": sent}
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
+            server.starttls()
+            server.login(smtp_email, smtp_password)
+            server.send_message(msg)
+        return {"ok": True}
+    except smtplib.SMTPAuthenticationError as e:
+        return {"ok": False, "error": f"AUTH_FAIL: {e.smtp_code} {e.smtp_error}"}
+    except smtplib.SMTPException as e:
+        return {"ok": False, "error": f"SMTP: {type(e).__name__}: {e}"}
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
 @app.get("/")
