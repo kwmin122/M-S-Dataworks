@@ -394,7 +394,7 @@ def _register_oauth_state() -> str:
     ts = str(int(_utc_now().timestamp()))
     nonce = secrets.token_urlsafe(12)
     payload = f"{ts}.{nonce}"
-    sig = hmac.new(_OAUTH_STATE_KEY, payload.encode(), hashlib.sha256).hexdigest()[:32]
+    sig = hmac_mod.new(_OAUTH_STATE_KEY, payload.encode(), hashlib.sha256).hexdigest()[:32]
     return f"{payload}.{sig}"
 
 
@@ -405,8 +405,8 @@ def _validate_oauth_state(state: str) -> None:
     if len(parts) != 3:
         raise HTTPException(status_code=400, detail="유효하지 않은 OAuth state입니다.")
     ts_str, nonce, sig = parts
-    expected = hmac.new(_OAUTH_STATE_KEY, f"{ts_str}.{nonce}".encode(), hashlib.sha256).hexdigest()[:32]
-    if not hmac.compare_digest(sig, expected):
+    expected = hmac_mod.new(_OAUTH_STATE_KEY, f"{ts_str}.{nonce}".encode(), hashlib.sha256).hexdigest()[:32]
+    if not hmac_mod.compare_digest(sig, expected):
         raise HTTPException(status_code=400, detail="유효하지 않은 OAuth state입니다.")
     try:
         created = datetime.fromtimestamp(int(ts_str), tz=timezone.utc)
