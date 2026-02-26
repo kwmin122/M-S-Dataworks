@@ -1052,15 +1052,38 @@ def debug_smtp() -> dict[str, Any]:
 
 @app.post("/api/debug/smtp-test")
 def debug_smtp_test(payload: dict) -> dict[str, Any]:
-    """이메일 테스트 발송 (Brevo API 우선 → SMTP 폴백)."""
+    """이메일 테스트 발송 — Brevo 직접 호출로 에러 상세 확인."""
     to = payload.get("to", "").strip()
     if not to:
         return {"ok": False, "error": "to 필요"}
-    try:
-        sent = _send_smtp_email(to, "[키라봇] 이메일 테스트", "<h2>이메일 테스트 성공</h2><p>이 메일이 도착했다면 정상입니다.</p>")
-        return {"ok": sent, "method": "brevo" if os.getenv("BREVO_API_KEY", "").strip() else "smtp"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+
+    brevo_key = os.getenv("BREVO_API_KEY", "").strip()
+    sender_email = os.getenv("SMTP_EMAIL", "").strip()
+    sender_name = os.getenv("SMTP_SENDER_NAME", "키라봇").strip()
+
+    if brevo_key:
+        try:
+            resp = httpx.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={"api-key": brevo_key, "Content-Type": "application/json"},
+                json={
+                    "sender": {"email": sender_email or "noreply@kirabot.co.kr", "name": sender_name},
+                    "to": [{"email": to}],
+                    "subject": "[키라봇] 이메일 테스트",
+                    "htmlContent": "<h2>이메일 테스트 성공</h2><p>Brevo API로 발송됨</p>",
+                },
+                timeout=30,
+            )
+            return {"ok": resp.status_code in (200, 201), "method": "brevo",
+                    "status": resp.status_code, "response": resp.text[:500]}
+        except Exception as e:
+            return {"ok": False, "method": "brevo", "error": str(e)}
+    else:
+        try:
+            sent = _send_email_smtp(to, "[키라봇] 이메일 테스트", "<h2>SMTP 테스트 성공</h2>")
+            return {"ok": sent, "method": "smtp"}
+        except Exception as e:
+            return {"ok": False, "method": "smtp", "error": str(e)}
 
 
 @app.get("/")
