@@ -11,6 +11,7 @@ import LoginModal from './components/LoginModal';
 import PrivacyPolicy from './components/PrivacyPolicy';
 import TermsOfService from './components/TermsOfService';
 import { ChatProvider } from './context/ChatContext';
+import { UserProvider } from './context/UserContext';
 import ProtectedRoute from './components/layout/ProtectedRoute';
 import AppShell from './components/layout/AppShell';
 import ChatPage from './components/chat/ChatPage';
@@ -126,13 +127,20 @@ function AppRoutes() {
     } catch (error) {
       const message = error instanceof Error ? error.message : '로그아웃 중 오류가 발생했습니다.';
       setAuthError(message);
+      return; // 로그아웃 실패 시 정리/리디렉션 하지 않음
     }
-    // Security: clear session/local storage and full reload
+    // Security: clear user-scoped storage and full reload
     try {
-      localStorage.removeItem('kirabot_conversations');
+      const uid = user?.id;
+      if (uid) {
+        localStorage.removeItem(`kira_conversations_${uid}`);
+        localStorage.removeItem(`kira_active_conversation_${uid}`);
+      }
+      // Also clear legacy non-scoped keys
+      localStorage.removeItem('kira_conversations');
+      localStorage.removeItem('kira_active_conversation');
+      localStorage.removeItem('kirabot_alert_session_id');
     } catch { /* ignore */ }
-    setUser(null);
-    navigate('/');
     window.location.replace('/');
   };
 
@@ -205,9 +213,11 @@ function AppRoutes() {
         {/* Protected app routes */}
         <Route element={
           <ProtectedRoute user={user}>
-            <ChatProvider>
-              <AppShell user={user} onLogout={() => void handleLogout()} />
-            </ChatProvider>
+            <UserProvider value={user}>
+              <ChatProvider>
+                <AppShell user={user} onLogout={() => void handleLogout()} />
+              </ChatProvider>
+            </UserProvider>
           </ProtectedRoute>
         }>
           <Route path="/chat" element={<ChatPage user={user} />} />

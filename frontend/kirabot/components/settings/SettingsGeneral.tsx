@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell, CheckCircle, XCircle } from 'lucide-react';
 import { getApiBaseUrl } from '../../services/kiraApiService';
+import { useUser } from '../../context/UserContext';
+import { getAlertSessionId } from '../../utils/alertSessionId';
 
-const ALERT_SESSION_KEY = 'kirabot_alert_session_id';
 const SCHEDULES: Record<string, string> = {
   realtime: '30분마다 확인',
   daily_1: '하루 1번',
@@ -24,12 +25,14 @@ interface SettingsGeneralProps {
 
 const SettingsGeneral: React.FC<SettingsGeneralProps> = ({ user }) => {
   const navigate = useNavigate();
+  const ctxUser = useUser();
   const [alert, setAlert] = useState<AlertSummary | null>(null);
   const [loadingAlert, setLoadingAlert] = useState(true);
 
   useEffect(() => {
-    const sid = localStorage.getItem(ALERT_SESSION_KEY);
-    if (!sid) { setLoadingAlert(false); return; }
+    const uid = ctxUser?.id;
+    if (!uid) { setLoadingAlert(false); return; }
+    const sid = getAlertSessionId(uid);
     fetch(`${getApiBaseUrl()}/api/alerts/config?session_id=${sid}`)
       .then(r => r.json())
       .then(data => {
@@ -37,12 +40,13 @@ const SettingsGeneral: React.FC<SettingsGeneralProps> = ({ user }) => {
       })
       .catch(() => {})
       .finally(() => setLoadingAlert(false));
-  }, []);
+  }, [ctxUser]);
 
   const handleDisableAlert = async () => {
-    const sid = localStorage.getItem(ALERT_SESSION_KEY);
-    if (!sid || !alert) return;
+    const uid = ctxUser?.id;
+    if (!uid || !alert) return;
     if (!confirm('알림을 해제하시겠습니까?')) return;
+    const sid = getAlertSessionId(uid);
     try {
       await fetch(`${getApiBaseUrl()}/api/alerts/config`, {
         method: 'POST',

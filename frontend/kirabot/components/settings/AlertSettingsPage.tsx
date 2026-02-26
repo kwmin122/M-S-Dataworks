@@ -2,21 +2,14 @@ import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Bell, Plus, Trash2, Save, CheckCircle, XCircle } from 'lucide-react';
 import { getApiBaseUrl } from '../../services/kiraApiService';
+import { useUser } from '../../context/UserContext';
+import { getAlertSessionId } from '../../utils/alertSessionId';
 import ChipInput from '../shared/ChipInput';
 import Toggle from '../shared/Toggle';
 import { pageTransition } from '../../utils/animations';
 import { REGIONS } from '../../constants/filters';
 
-const ALERT_SESSION_KEY = 'kirabot_alert_session_id';
-
-function getOrCreateAlertSessionId(): string {
-  let id = localStorage.getItem(ALERT_SESSION_KEY);
-  if (!id) {
-    id = `alert_${crypto.randomUUID()}`;
-    localStorage.setItem(ALERT_SESSION_KEY, id);
-  }
-  return id;
-}
+const LEGACY_ALERT_SESSION_KEY = 'kirabot_alert_session_id';
 
 interface AlertRule {
   id: string;
@@ -58,7 +51,8 @@ function createEmptyRule(): AlertRule {
 }
 
 const AlertSettingsPage: React.FC = () => {
-  const sessionId = useMemo(() => getOrCreateAlertSessionId(), []);
+  const user = useUser();
+  const sessionId = useMemo(() => user?.id ? getAlertSessionId(user.id) : '', [user?.id]);
 
   const [globalEnabled, setGlobalEnabled] = useState(true);
   const [email, setEmail] = useState('');
@@ -110,31 +104,61 @@ const AlertSettingsPage: React.FC = () => {
     });
   }, [requiredHourCount]);
 
-  // Load existing config on mount
+  // Load existing config on mount (with migration from legacy random UUID)
   useEffect(() => {
-    fetch(`${getApiBaseUrl()}/api/alerts/config?session_id=${sessionId}`)
+    if (!sessionId) { setLoading(false); return; }
+
+    const applyConfig = (data: any) => {
+      if (data.email) { setEmail(data.email); setHasSavedConfig(true); }
+      if (data.schedule) setSchedule(data.schedule);
+      if (Array.isArray(data.hours) && data.hours.length > 0) {
+        setHours(data.hours.map(Number));
+      } else if (data.schedule && data.schedule in DEFAULT_HOURS) {
+        setHours(DEFAULT_HOURS[data.schedule as keyof typeof DEFAULT_HOURS]);
+      }
+      if (typeof data.enabled === 'boolean') setGlobalEnabled(data.enabled);
+      if (Array.isArray(data.rules) && data.rules.length > 0) {
+        setRules(data.rules.map((r: any, i: number) => ({
+          id: `rule_${i}`,
+          keywords: r.keywords || [],
+          excludeKeywords: r.excludeKeywords || [],
+          categories: r.categories || [],
+          regions: r.regions || [],
+          minAmt: r.minAmt ? String(r.minAmt) : '',
+          maxAmt: r.maxAmt ? String(r.maxAmt) : '',
+          enabled: r.enabled ?? true,
+        })));
+        setHasSavedConfig(true);
+      }
+    };
+
+    const baseUrl = getApiBaseUrl();
+
+    fetch(`${baseUrl}/api/alerts/config?session_id=${sessionId}`)
       .then(res => res.json())
-      .then(data => {
-        if (data.email) { setEmail(data.email); setHasSavedConfig(true); }
-        if (data.schedule) setSchedule(data.schedule);
-        if (Array.isArray(data.hours) && data.hours.length > 0) {
-          setHours(data.hours.map(Number));
-        } else if (data.schedule && data.schedule in DEFAULT_HOURS) {
-          setHours(DEFAULT_HOURS[data.schedule as keyof typeof DEFAULT_HOURS]);
+      .then(async (data) => {
+        if (data.email) {
+          applyConfig(data);
+          return;
         }
-        if (typeof data.enabled === 'boolean') setGlobalEnabled(data.enabled);
-        if (Array.isArray(data.rules) && data.rules.length > 0) {
-          setRules(data.rules.map((r: any, i: number) => ({
-            id: `rule_${i}`,
-            keywords: r.keywords || [],
-            excludeKeywords: r.excludeKeywords || [],
-            categories: r.categories || [],
-            regions: r.regions || [],
-            minAmt: r.minAmt ? String(r.minAmt) : '',
-            maxAmt: r.maxAmt ? String(r.maxAmt) : '',
-            enabled: r.enabled ?? true,
-          })));
-          setHasSavedConfig(true);
+        // No config for user-scoped ID — try migrating from legacy random UUID
+        const legacyId = localStorage.getItem(LEGACY_ALERT_SESSION_KEY);
+        if (legacyId) {
+          try {
+            const legacyRes = await fetch(`${baseUrl}/api/alerts/config?session_id=${legacyId}`);
+            const legacyData = await legacyRes.json();
+            if (legacyData.email) {
+              // Migrate: save under new user-scoped session ID
+              await fetch(`${baseUrl}/api/alerts/config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...legacyData, session_id: sessionId }),
+              });
+              applyConfig(legacyData);
+              localStorage.removeItem(LEGACY_ALERT_SESSION_KEY);
+              return;
+            }
+          } catch { /* migration failed, continue with empty */ }
         }
       })
       .catch(() => {})

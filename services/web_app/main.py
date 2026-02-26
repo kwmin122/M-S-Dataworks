@@ -2412,12 +2412,25 @@ def _send_confirmation_email(to_email: str, config: dict, is_update: bool = Fals
     return _send_smtp_email(to_email, subject, html)
 
 
+def _sanitize_alert_session_id(raw: str) -> str:
+    """Alert config 전용 session_id 검증 (path traversal 방지)."""
+    sid = str(raw or "").strip()
+    if not sid:
+        raise HTTPException(status_code=400, detail="session_id가 필요합니다.")
+    if not re.fullmatch(r"[a-zA-Z0-9_\-]{4,128}", sid):
+        raise HTTPException(status_code=400, detail="session_id 형식이 올바르지 않습니다.")
+    # Resolve 후 prefix 검증으로 path traversal 차단
+    ALERT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    resolved = (ALERT_CONFIG_DIR / f"{sid}.json").resolve()
+    if not str(resolved).startswith(str(ALERT_CONFIG_DIR.resolve())):
+        raise HTTPException(status_code=400, detail="잘못된 session_id입니다.")
+    return sid
+
+
 @app.post("/api/alerts/config")
 async def save_alert_config(payload: dict) -> dict[str, Any]:
     """다중 규칙 기반 알림 설정 저장."""
-    session_id = payload.get("session_id", "").strip()
-    if not session_id:
-        raise HTTPException(status_code=400, detail="session_id가 필요합니다.")
+    session_id = _sanitize_alert_session_id(payload.get("session_id", ""))
 
     config = {
         "enabled": payload.get("enabled", True),
@@ -2468,9 +2481,7 @@ async def save_alert_config(payload: dict) -> dict[str, Any]:
 @app.get("/api/alerts/config")
 async def get_alert_config(session_id: str = "") -> dict[str, Any]:
     """다중 규칙 기반 알림 설정 조회."""
-    session_id = session_id.strip()
-    if not session_id:
-        raise HTTPException(status_code=400, detail="session_id가 필요합니다.")
+    session_id = _sanitize_alert_session_id(session_id)
 
     config_path = ALERT_CONFIG_DIR / f"{session_id}.json"
     if not config_path.exists():
