@@ -150,7 +150,6 @@ class BidSearchPayload(BaseModel):
     keywords: list[str] | str | None = None
     category: str = "all"
     region: str = ""
-    industryCodes: list[str] | None = None
     minAmt: float | None = None
     maxAmt: float | None = None
     period: str = "1m"
@@ -1609,7 +1608,6 @@ async def api_bids_search(payload: BidSearchPayload) -> dict[str, Any]:
             keywords=keywords_str,
             category=payload.category,
             region=payload.region,
-            industry_codes=payload.industryCodes,
             min_amt=payload.minAmt,
             max_amt=payload.maxAmt,
             period=payload.period,
@@ -3101,7 +3099,6 @@ async def _execute_alert_send(config: dict, label: str = "alert") -> dict[str, A
         if not rule.get("enabled", True):
             continue
         regions = rule.get("regions", [])
-        industry_codes = rule.get("industryCodes", []) or None
         categories = rule.get("categories", [])
         category = categories[0] if len(categories) == 1 else "all"
         region_list = regions if regions else [""]
@@ -3110,7 +3107,6 @@ async def _execute_alert_send(config: dict, label: str = "alert") -> dict[str, A
                 try:
                     results = await nara_search_bids(
                         keywords=kw, category=category, region=rgn,
-                        industry_codes=industry_codes,
                         min_amt=rule.get("minAmt"), max_amt=rule.get("maxAmt"),
                         period="1w", exclude_expired=True, page=1, page_size=50,
                     )

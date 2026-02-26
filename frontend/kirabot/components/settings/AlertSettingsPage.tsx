@@ -8,6 +8,7 @@ import ChipInput from '../shared/ChipInput';
 import Toggle from '../shared/Toggle';
 import EmptyState from '../shared/EmptyState';
 import { pageTransition } from '../../utils/animations';
+import { REGIONS } from '../../constants/filters';
 
 interface AlertRule {
   id: string;
@@ -15,31 +16,12 @@ interface AlertRule {
   excludeKeywords: string[];
   categories: string[];
   regions: string[];
-  industryCodes: string[];
   minAmt: string;
   maxAmt: string;
   enabled: boolean;
 }
 
 const CATEGORIES = ['물품', '용역', '공사', '외자', '기타'];
-
-const REGIONS = [
-  '서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종',
-  '경기', '강원', '충북', '충남', '전북', '전남', '경북', '경남', '제주',
-];
-
-const INDUSTRY_TYPES: { code: string; name: string }[] = [
-  { code: '0036', name: '정보통신공사업' },
-  { code: '0037', name: '전기공사업' },
-  { code: '0001', name: '토목공사업' },
-  { code: '0002', name: '건축공사업' },
-  { code: '0003', name: '토목건축공사업' },
-  { code: '0005', name: '조경공사업' },
-  { code: '0038', name: '일반소방시설공사업(기계)' },
-  { code: '0039', name: '일반소방시설공사업(전기)' },
-  { code: '0040', name: '전문소방시설공사업' },
-  { code: '0041', name: '지하수개발·이용시공업' },
-];
 const SCHEDULES = [
   { value: 'realtime', label: '공고 등록 즉시' },
   { value: 'daily_1', label: '하루 1번' },
@@ -54,7 +36,6 @@ function createEmptyRule(): AlertRule {
     excludeKeywords: [],
     categories: [],
     regions: [],
-    industryCodes: [],
     minAmt: '',
     maxAmt: '',
     enabled: true,
@@ -97,7 +78,6 @@ const AlertSettingsPage: React.FC = () => {
             excludeKeywords: r.excludeKeywords || [],
             categories: r.categories || [],
             regions: r.regions || [],
-            industryCodes: r.industryCodes || [],
             minAmt: r.minAmt ? String(r.minAmt) : '',
             maxAmt: r.maxAmt ? String(r.maxAmt) : '',
             enabled: r.enabled ?? true,
@@ -130,7 +110,6 @@ const AlertSettingsPage: React.FC = () => {
             excludeKeywords: r.excludeKeywords,
             categories: r.categories,
             regions: r.regions,
-            industryCodes: r.industryCodes,
             minAmt: r.minAmt ? Number(r.minAmt) : undefined,
             maxAmt: r.maxAmt ? Number(r.maxAmt) : undefined,
             enabled: r.enabled,
@@ -275,31 +254,6 @@ const AlertSettingsPage: React.FC = () => {
                     ))}
                   </div>
                   {rule.regions.length === 0 && <p className="text-xs text-slate-400 mt-1">선택 안하면 전체</p>}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">업종</label>
-                  <div className="flex flex-wrap gap-2">
-                    {INDUSTRY_TYPES.map(ind => (
-                      <button
-                        key={ind.code}
-                        type="button"
-                        onClick={() => {
-                          const codes = rule.industryCodes.includes(ind.code)
-                            ? rule.industryCodes.filter(c => c !== ind.code)
-                            : [...rule.industryCodes, ind.code];
-                          updateRule(rule.id, { industryCodes: codes });
-                        }}
-                        className={`rounded-full px-3 py-1 text-xs font-medium border transition-colors ${
-                          rule.industryCodes.includes(ind.code)
-                            ? 'border-emerald-600 bg-emerald-600 text-white'
-                            : 'border-slate-300 text-slate-600 hover:border-emerald-400 hover:bg-emerald-50'
-                        }`}
-                      >
-                        {ind.name}
-                      </button>
-                    ))}
-                  </div>
-                  {rule.industryCodes.length === 0 && <p className="text-xs text-slate-400 mt-1">선택 안하면 전체</p>}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
