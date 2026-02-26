@@ -174,11 +174,25 @@ const AlertSettingsPage: React.FC = () => {
       if (!res.ok) throw new Error(data.detail || '저장 실패');
       setSaved(true);
       setHasSavedConfig(true);
-      if (data.confirmationSent) {
-        setSaveMsg(`저장 완료! ${email}으로 확인 이메일을 보내드렸습니다.`);
-      } else {
-        setSaveMsg('저장 완료!');
-      }
+
+      // 상세 안내 토스트 생성
+      const activeRules = rules.filter(r => r.enabled);
+      const allKeywords = activeRules.flatMap(r => r.keywords);
+      const allRegions = activeRules.flatMap(r => r.regions);
+      const allCats = activeRules.flatMap(r => r.categories);
+      const scheduleInfo = schedule === 'realtime' ? '30분마다 확인'
+        : `하루 ${hours.length}번 (${hours.map(h => `${h}시`).join(', ')})`;
+      const lines = [
+        '알림 설정이 완료되었습니다!',
+        allKeywords.length > 0 ? `키워드: ${allKeywords.join(', ')}` : '',
+        `업무구분: ${allCats.length > 0 ? allCats.join(', ') : '전체'}`,
+        `지역: ${allRegions.length > 0 ? allRegions.join(', ') : '전체'}`,
+        `이메일: ${email}`,
+        `수신 방식: ${scheduleInfo}`,
+        '곧 맞춤 공고를 메일로 보내드릴게요',
+      ].filter(Boolean).join('\n');
+      setSaveMsg(lines);
+
       setTimeout(() => { setSaved(false); setSaveMsg(''); }, 5000);
     } catch (e) {
       alert(e instanceof Error ? e.message : '저장 실패');
@@ -451,9 +465,24 @@ const AlertSettingsPage: React.FC = () => {
             <button type="button" onClick={handleSave} disabled={saving} className="flex items-center gap-1.5 rounded-lg bg-kira-600 px-4 py-2 text-sm font-medium text-white hover:bg-kira-700 disabled:opacity-50 transition-colors">
               <Save size={16} /> {saving ? '저장 중...' : saved ? '저장됨!' : '저장'}
             </button>
-            {saveMsg && <span className="text-sm text-emerald-600">{saveMsg}</span>}
           </div>
         </div>
+
+        {/* 저장 완료 토스트 */}
+        {saveMsg && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-xl border border-emerald-200 bg-emerald-50 shadow-lg px-5 py-4 max-w-md"
+          >
+            {saveMsg.split('\n').map((line, i) => (
+              <p key={i} className={`text-sm ${i === 0 ? 'font-semibold text-emerald-800 mb-1.5' : i === saveMsg.split('\n').length - 1 ? 'text-emerald-600 mt-1.5 font-medium' : 'text-emerald-700'}`}>
+                {line}
+              </p>
+            ))}
+          </motion.div>
+        )}
       </div>
     </motion.div>
   );

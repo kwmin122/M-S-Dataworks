@@ -294,7 +294,7 @@ async def search_bids(
     }
     if keywords:
         shared_params["bidNtceNm"] = keywords
-    if region:
+    if region and region != "전국":
         # 기관명 부분매칭으로 지역 필터 역할 ("서울"→서울특별시/서울시 등 매칭)
         shared_params["ntceInsttNm"] = region
     if min_amt is not None:

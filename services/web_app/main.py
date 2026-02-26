@@ -2160,8 +2160,9 @@ def _set_alert_state(session_id: str, state: dict):
 def _send_confirmation_email(to_email: str, config: dict, is_update: bool = False) -> bool:
     """알림 등록/변경 확인 이메일 발송."""
     api_key = os.getenv("RESEND_API_KEY", "").strip()
-    from_email = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev").strip()
+    from_email = os.getenv("RESEND_FROM_EMAIL", "키라봇 <onboarding@resend.dev>").strip()
     if not api_key:
+        logger.warning("RESEND_API_KEY not set, skipping confirmation email")
         return False
 
     import resend
@@ -2236,10 +2237,11 @@ def _send_confirmation_email(to_email: str, config: dict, is_update: bool = Fals
 </div>"""
 
     try:
-        resend.Emails.send({"from": from_email, "to": [to_email], "subject": subject, "html": html})
+        resp = resend.Emails.send({"from": from_email, "to": [to_email], "subject": subject, "html": html})
+        logger.info("Confirmation email sent to %s (id=%s)", to_email, getattr(resp, 'id', resp))
         return True
     except Exception as e:
-        logger.error("Confirmation email send failed: %s", e)
+        logger.error("Confirmation email send failed to %s: %s", to_email, e)
         return False
 
 
@@ -3093,7 +3095,7 @@ def _send_alert_email(to_email: str, subject: str, bids: list[dict],
     """Resend API로 엑셀 첨부 HTML 이메일 발송."""
     import base64
     api_key = os.getenv("RESEND_API_KEY", "").strip()
-    from_email = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev").strip()
+    from_email = os.getenv("RESEND_FROM_EMAIL", "키라봇 <onboarding@resend.dev>").strip()
     if not api_key:
         logger.warning("RESEND_API_KEY not set, skipping email")
         return False
@@ -3126,7 +3128,7 @@ def _send_alert_email(to_email: str, subject: str, bids: list[dict],
 </div>"""
 
     try:
-        resend.Emails.send({
+        resp = resend.Emails.send({
             "from": from_email,
             "to": [to_email],
             "subject": subject,
@@ -3136,9 +3138,10 @@ def _send_alert_email(to_email: str, subject: str, bids: list[dict],
                 "content": base64.b64encode(excel_bytes).decode("utf-8"),
             }],
         })
+        logger.info("Alert email sent to %s (%d bids, id=%s)", to_email, len(bids), getattr(resp, 'id', resp))
         return True
     except Exception as e:
-        logger.error("Alert email send failed: %s", e)
+        logger.error("Alert email send failed to %s: %s", to_email, e)
         return False
 
 
@@ -3313,9 +3316,12 @@ async def _check_and_send_scheduled_alerts():
         # 순차 발송 (설정 간 동시 실행 방지)
         logger.info("스케줄 알림: session=%s, hour=%d", session_id, current_hour)
         try:
-            await _execute_alert_send(config, label=f"sched:{session_id}")
-            state["last_sent"] = today_hour_key
-            _set_alert_state(session_id, state)
+            result = await _execute_alert_send(config, label=f"sched:{session_id}")
+            if result.get("sent"):
+                state["last_sent"] = today_hour_key
+                _set_alert_state(session_id, state)
+            else:
+                logger.warning("스케줄 알림 미발송 (session=%s): %s", session_id, result.get("reason", "unknown"))
         except Exception as exc:
             logger.error("스케줄 알림 실패 (session=%s): %s", session_id, exc)
 
