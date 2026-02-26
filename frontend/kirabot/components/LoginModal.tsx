@@ -79,16 +79,13 @@ const LoginModal: React.FC<LoginModalProps> = ({
           {onKakaoLogin && (
             <button
               onClick={onKakaoLogin}
-              className="w-full flex items-center justify-center gap-3 font-medium py-3 px-4 rounded-xl transition-all shadow-sm active:scale-[0.98] mt-3"
-              style={{ backgroundColor: '#FEE500', color: '#191919' }}
+              className="mt-3 transition-all active:scale-[0.98] rounded-xl overflow-hidden"
             >
-              <svg className="h-5 w-5" viewBox="0 0 24 24">
-                <path
-                  d="M12 3C6.48 3 2 6.36 2 10.44c0 2.62 1.75 4.93 4.38 6.24l-1.12 4.16c-.1.36.32.65.63.44l4.94-3.26c.38.04.77.06 1.17.06 5.52 0 10-3.36 10-7.64C22 6.36 17.52 3 12 3z"
-                  fill="#191919"
-                />
-              </svg>
-              카카오 계정으로 계속하기
+              <img
+                src="/kakao_login_medium_narrow.png"
+                alt="카카오 로그인"
+                className="h-[45px] w-auto"
+              />
             </button>
           )}
 
