@@ -1,4 +1,4 @@
-import React, { useState, KeyboardEvent } from 'react';
+import React, { useState, useRef, KeyboardEvent, CompositionEvent, ClipboardEvent } from 'react';
 import { X } from 'lucide-react';
 
 interface ChipInputProps {
@@ -8,23 +8,51 @@ interface ChipInputProps {
   placeholder?: string;
 }
 
-const ChipInput: React.FC<ChipInputProps> = ({ label, chips, onChange, placeholder = '입력 후 Enter' }) => {
+const ChipInput: React.FC<ChipInputProps> = ({ label, chips, onChange, placeholder = '입력 후 Enter (쉼표로 구분 가능)' }) => {
   const [input, setInput] = useState('');
+  const composingRef = useRef(false);
 
-  const addChip = () => {
-    const trimmed = input.trim();
-    if (trimmed && !chips.includes(trimmed)) {
-      onChange([...chips, trimmed]);
+  /** 쉼표로 분리하여 여러 칩 추가 */
+  const addChips = (raw: string) => {
+    const parts = raw.split(/[,，]/).map(s => s.trim()).filter(Boolean);
+    if (parts.length === 0) return;
+    const unique = parts.filter(p => !chips.includes(p));
+    // 중복 제거 (parts 내부에서도)
+    const deduped = [...new Set(unique)];
+    if (deduped.length > 0) {
+      onChange([...chips, ...deduped]);
     }
     setInput('');
   };
 
   const removeChip = (chip: string) => onChange(chips.filter(c => c !== chip));
 
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Enter') { e.preventDefault(); addChip(); }
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (composingRef.current) return; // IME 조합 중이면 무시
+    if (e.key === 'Enter') { e.preventDefault(); addChips(input); }
     if (e.key === 'Backspace' && !input && chips.length > 0) {
       onChange(chips.slice(0, -1));
+    }
+  };
+
+  const handleCompositionStart = (_e: CompositionEvent) => { composingRef.current = true; };
+  const handleCompositionEnd = (_e: CompositionEvent) => { composingRef.current = false; };
+
+  const handlePaste = (e: ClipboardEvent<HTMLInputElement>) => {
+    const pasted = e.clipboardData.getData('text');
+    if (pasted.includes(',') || pasted.includes('，')) {
+      e.preventDefault();
+      addChips(pasted);
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    // 타이핑 중 쉼표가 들어오면 즉시 분리
+    if (!composingRef.current && (val.includes(',') || val.includes('，'))) {
+      addChips(val);
+    } else {
+      setInput(val);
     }
   };
 
@@ -43,9 +71,12 @@ const ChipInput: React.FC<ChipInputProps> = ({ label, chips, onChange, placehold
         <input
           type="text"
           value={input}
-          onChange={e => setInput(e.target.value)}
+          onChange={handleChange}
           onKeyDown={handleKeyDown}
-          onBlur={addChip}
+          onCompositionStart={handleCompositionStart}
+          onCompositionEnd={handleCompositionEnd}
+          onPaste={handlePaste}
+          onBlur={() => addChips(input)}
           placeholder={chips.length === 0 ? placeholder : ''}
           className="flex-1 min-w-[100px] text-sm outline-none bg-transparent"
         />

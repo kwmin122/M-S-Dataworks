@@ -3187,7 +3187,7 @@ async def _execute_alert_send(config: dict, label: str = "alert") -> dict[str, A
     if not all_bids:
         return {"sent": False, "reason": "매칭 공고가 없습니다.", "count": 0, "summaryCount": 0}
 
-    # Step 2: 중복 제거 + 상한 10건
+    # Step 2: 중복 제거 + 상한 20건
     seen: set[str] = set()
     unique: list[dict] = []
     for b in all_bids:
@@ -3196,7 +3196,7 @@ async def _execute_alert_send(config: dict, label: str = "alert") -> dict[str, A
             seen.add(bid_id)
             unique.append(b)
     total_found = len(unique)
-    unique = unique[:10]
+    unique = unique[:20]
 
     # Step 3: 병렬 RFP 요약 (Semaphore(3))
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
