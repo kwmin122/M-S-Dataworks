@@ -2167,7 +2167,7 @@ def _send_smtp_email(to_email: str, subject: str, html: str,
     from email import encoders
 
     smtp_email = os.getenv("SMTP_EMAIL", "").strip()
-    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "").strip().replace("\xa0", " ")
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     sender_name = os.getenv("SMTP_SENDER_NAME", "키라봇").strip()
