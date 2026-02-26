@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from document_parser import DocumentParser, ParsedDocument
+from rfp_synonyms import generate_prompt_injection
 
 # 모듈 레벨 RFP 요약 캐시 (인스턴스 간 공유, Lock으로 스레드 안전 보장)
 _rfp_summary_cache: dict[str, str] = {}
@@ -468,7 +469,6 @@ class RFxAnalyzer:
                 print("   ↳ RFP 요약: 캐시 히트")
                 return _rfp_summary_cache[cache_key]
 
-        from rfp_synonyms import generate_prompt_injection
         synonym_guide = generate_prompt_injection()
 
         trimmed_text = self._trim_for_token_limit(text)
