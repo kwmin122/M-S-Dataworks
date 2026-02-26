@@ -6,6 +6,7 @@ interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
   onLogin: () => Promise<void> | void;
+  onKakaoLogin?: () => Promise<void> | void;
   authError?: string;
   onOpenPrivacy: () => void;
   onOpenTerms: () => void;
@@ -15,6 +16,7 @@ const LoginModal: React.FC<LoginModalProps> = ({
   isOpen,
   onClose,
   onLogin,
+  onKakaoLogin,
   authError,
   onOpenPrivacy,
   onOpenTerms,
@@ -73,6 +75,22 @@ const LoginModal: React.FC<LoginModalProps> = ({
             </svg>
             Google 계정으로 계속하기
           </button>
+
+          {onKakaoLogin && (
+            <button
+              onClick={onKakaoLogin}
+              className="w-full flex items-center justify-center gap-3 font-medium py-3 px-4 rounded-xl transition-all shadow-sm active:scale-[0.98] mt-3"
+              style={{ backgroundColor: '#FEE500', color: '#191919' }}
+            >
+              <svg className="h-5 w-5" viewBox="0 0 24 24">
+                <path
+                  d="M12 3C6.48 3 2 6.36 2 10.44c0 2.62 1.75 4.93 4.38 6.24l-1.12 4.16c-.1.36.32.65.63.44l4.94-3.26c.38.04.77.06 1.17.06 5.52 0 10-3.36 10-7.64C22 6.36 17.52 3 12 3z"
+                  fill="#191919"
+                />
+              </svg>
+              카카오 계정으로 계속하기
+            </button>
+          )}
 
           {authError ? (
             <p className="mt-4 w-full rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-left text-xs text-rose-700">

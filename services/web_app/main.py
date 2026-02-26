@@ -385,8 +385,82 @@ def _google_scopes() -> str:
     return os.getenv("GOOGLE_OAUTH_SCOPES", "openid email profile").strip() or "openid email profile"
 
 
-def _google_post_login_url() -> str:
-    return os.getenv("GOOGLE_OAUTH_POST_LOGIN_URL", "http://localhost:3000/").strip() or "http://localhost:3000/"
+def _post_login_url(request: Request | None = None) -> str:
+    """OAuth 완료 후 리다이렉트 URL. 요청의 origin을 자동 감지."""
+    explicit = os.getenv("GOOGLE_OAUTH_POST_LOGIN_URL", "").strip()
+    if explicit:
+        return explicit
+    if request:
+        host = request.headers.get("host", "")
+        scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+        if host and "localhost" not in host:
+            return f"{scheme}://{host}/"
+    return "http://localhost:8000/"
+
+
+# ── Kakao OAuth Helpers ──
+
+def _kakao_client_id() -> str:
+    value = os.getenv("KAKAO_CLIENT_ID", "").strip()
+    if not value:
+        raise HTTPException(status_code=503, detail="KAKAO_CLIENT_ID가 설정되지 않았습니다.")
+    return value
+
+
+def _kakao_client_secret() -> str:
+    return os.getenv("KAKAO_CLIENT_SECRET", "").strip()
+
+
+def _kakao_redirect_uri() -> str:
+    value = os.getenv("KAKAO_REDIRECT_URI", "").strip()
+    if not value:
+        raise HTTPException(status_code=503, detail="KAKAO_REDIRECT_URI가 설정되지 않았습니다.")
+    return value
+
+
+def _exchange_kakao_code_for_token(code: str) -> dict[str, Any]:
+    params: dict[str, str] = {
+        "grant_type": "authorization_code",
+        "client_id": _kakao_client_id(),
+        "redirect_uri": _kakao_redirect_uri(),
+        "code": code,
+    }
+    secret = _kakao_client_secret()
+    if secret:
+        params["client_secret"] = secret
+    payload = urllib.parse.urlencode(params).encode("utf-8")
+    request = urllib.request.Request(
+        "https://kauth.kakao.com/oauth/token",
+        data=payload,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            raw = response.read().decode("utf-8")
+        return json.loads(raw)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise HTTPException(status_code=502, detail=f"카카오 토큰 교환 실패: {detail}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"카카오 토큰 교환 오류: {exc}") from exc
+
+
+def _fetch_kakao_userinfo(access_token: str) -> dict[str, Any]:
+    request = urllib.request.Request(
+        "https://kapi.kakao.com/v2/user/me",
+        headers={"Authorization": f"Bearer {access_token}"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            raw = response.read().decode("utf-8")
+        return json.loads(raw)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise HTTPException(status_code=502, detail=f"카카오 사용자 정보 조회 실패: {detail}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"카카오 사용자 정보 조회 오류: {exc}") from exc
 
 
 def _register_oauth_state() -> str:
@@ -976,12 +1050,14 @@ def auth_google_login() -> RedirectResponse:
 
 @app.get("/auth/google/callback")
 def auth_google_callback(
+    request: Request,
     code: str = "",
     state: str = "",
     error: str = "",
 ) -> RedirectResponse:
+    post_url = _post_login_url(request)
     if error:
-        target = f"{_google_post_login_url()}?login_error={urllib.parse.quote_plus(error)}"
+        target = f"{post_url}?login_error={urllib.parse.quote_plus(error)}"
         return RedirectResponse(url=target, status_code=302)
 
     _validate_oauth_state(state)
@@ -1009,7 +1085,77 @@ def auth_google_callback(
     ttl_days = max(1, _safe_int_env("AUTH_SESSION_TTL_DAYS", 7))
     session_token = create_user_session(username=username, ttl_days=ttl_days)
 
-    response = RedirectResponse(url=_google_post_login_url(), status_code=302)
+    response = RedirectResponse(url=post_url, status_code=302)
+    response.set_cookie(
+        key=_auth_cookie_name(),
+        value=session_token,
+        httponly=True,
+        secure=_auth_cookie_secure(),
+        samesite="lax",
+        path=_auth_cookie_path(),
+        domain=_auth_cookie_domain(),
+        max_age=ttl_days * 24 * 60 * 60,
+    )
+    return response
+
+
+# ── Kakao OAuth ──
+
+@app.get("/auth/kakao/login")
+def auth_kakao_login() -> RedirectResponse:
+    state = _register_oauth_state()
+    params = {
+        "client_id": _kakao_client_id(),
+        "redirect_uri": _kakao_redirect_uri(),
+        "response_type": "code",
+        "state": state,
+    }
+    authorize_url = f"https://kauth.kakao.com/oauth/authorize?{urllib.parse.urlencode(params)}"
+    return RedirectResponse(url=authorize_url, status_code=302)
+
+
+@app.get("/auth/kakao/callback")
+def auth_kakao_callback(
+    request: Request,
+    code: str = "",
+    state: str = "",
+    error: str = "",
+) -> RedirectResponse:
+    post_url = _post_login_url(request)
+    if error:
+        target = f"{post_url}?login_error={urllib.parse.quote_plus(error)}"
+        return RedirectResponse(url=target, status_code=302)
+
+    _validate_oauth_state(state)
+    if not code:
+        raise HTTPException(status_code=400, detail="카카오 authorization code가 없습니다.")
+
+    token_payload = _exchange_kakao_code_for_token(code)
+    access_token = str(token_payload.get("access_token", "")).strip()
+    if not access_token:
+        raise HTTPException(status_code=502, detail="카카오 access_token을 받지 못했습니다.")
+
+    userinfo = _fetch_kakao_userinfo(access_token)
+    kakao_id = str(userinfo.get("id", "")).strip()
+    kakao_account = userinfo.get("kakao_account", {}) or {}
+    profile = kakao_account.get("profile", {}) or {}
+    email = str(kakao_account.get("email", "")).strip().lower()
+    display_name = str(profile.get("nickname", "")).strip()
+    avatar_url = str(profile.get("profile_image_url", "")).strip()
+
+    if not kakao_id:
+        raise HTTPException(status_code=502, detail="카카오 사용자 식별자(id)가 없습니다.")
+
+    username = upsert_social_user(
+        provider="kakao",
+        external_sub=kakao_id,
+        email=email,
+        display_name=display_name,
+    )
+    ttl_days = max(1, _safe_int_env("AUTH_SESSION_TTL_DAYS", 7))
+    session_token = create_user_session(username=username, ttl_days=ttl_days)
+
+    response = RedirectResponse(url=post_url, status_code=302)
     response.set_cookie(
         key=_auth_cookie_name(),
         value=session_token,

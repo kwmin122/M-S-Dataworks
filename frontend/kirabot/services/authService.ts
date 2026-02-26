@@ -8,6 +8,7 @@ const API_BASE_URL = (
 ).replace(/\/+$/, '');
 
 const GOOGLE_LOGIN_URL = import.meta.env.VITE_GOOGLE_LOGIN_URL?.trim() || `${API_BASE_URL}/auth/google/login`;
+const KAKAO_LOGIN_URL = `${API_BASE_URL}/auth/kakao/login`;
 const AUTH_ME_URL = import.meta.env.VITE_AUTH_ME_URL?.trim() || `${API_BASE_URL}/auth/me`;
 const AUTH_LOGOUT_URL = import.meta.env.VITE_AUTH_LOGOUT_URL?.trim() || `${API_BASE_URL}/auth/logout`;
 
@@ -83,6 +84,11 @@ export function consumePostLoginTarget(): boolean {
   }
   sessionStorage.removeItem('kira_post_login_target');
   return value === 'dashboard';
+}
+
+export async function signInWithKakao(): Promise<void> {
+  sessionStorage.setItem('kira_post_login_target', 'dashboard');
+  window.location.assign(KAKAO_LOGIN_URL);
 }
 
 export async function signOutGoogleUser(): Promise<void> {

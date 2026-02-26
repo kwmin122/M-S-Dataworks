@@ -30,6 +30,7 @@ import {
   getCurrentGoogleUser,
   isGoogleOAuthConfigured,
   signInWithGoogle,
+  signInWithKakao,
   signOutGoogleUser,
 } from './services/authService';
 
@@ -104,6 +105,16 @@ function AppRoutes() {
       await signInWithGoogle();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Google 로그인 시작에 실패했습니다.';
+      setAuthError(message);
+    }
+  };
+
+  const handleKakaoLogin = async (): Promise<void> => {
+    setAuthError('');
+    try {
+      await signInWithKakao();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '카카오 로그인 시작에 실패했습니다.';
       setAuthError(message);
     }
   };
@@ -225,6 +236,7 @@ function AppRoutes() {
         isOpen={isLoginModalOpen}
         onClose={() => setIsLoginModalOpen(false)}
         onLogin={handleLogin}
+        onKakaoLogin={handleKakaoLogin}
         authError={authError}
         onOpenPrivacy={() => { setIsLoginModalOpen(false); navigate('/privacy'); }}
         onOpenTerms={() => { setIsLoginModalOpen(false); navigate('/terms'); }}
