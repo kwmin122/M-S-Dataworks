@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, Save, X } from 'lucide-react';
 import CompanyProfileSection from './CompanyProfileSection';
-import type { AlertCompanyProfile } from '../../services/kiraApiService';
+import AlertFilterSection from './AlertFilterSection';
+import type { AlertCompanyProfile, AlertRule } from '../../services/kiraApiService';
 
 export const AlertsPage: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -10,11 +11,37 @@ export const AlertsPage: React.FC = () => {
   const [companyProfile, setCompanyProfile] = useState<AlertCompanyProfile>({
     description: '',
   });
+  const [rules, setRules] = useState<AlertRule[]>([]);
 
   useEffect(() => {
     // TODO: Load config from API
     setLoading(false);
   }, []);
+
+  const handleAddRule = () => {
+    const newRule: AlertRule = {
+      id: `rule${Date.now()}`,
+      keywords: [],
+      excludeKeywords: [],
+      categories: [],
+      regions: [],
+      excludeRegions: [],
+      productCodes: [],
+      detailedItems: [],
+      enabled: true,
+    };
+    setRules([...rules, newRule]);
+  };
+
+  const handleUpdateRule = (index: number, rule: AlertRule) => {
+    const updated = [...rules];
+    updated[index] = rule;
+    setRules(updated);
+  };
+
+  const handleDeleteRule = (index: number) => {
+    setRules(rules.filter((_, i) => i !== index));
+  };
 
   if (loading) {
     return (
@@ -69,6 +96,14 @@ export const AlertsPage: React.FC = () => {
           <CompanyProfileSection
             profile={companyProfile}
             onChange={setCompanyProfile}
+          />
+
+          {/* Alert Filter Section */}
+          <AlertFilterSection
+            rules={rules}
+            onAddRule={handleAddRule}
+            onUpdateRule={handleUpdateRule}
+            onDeleteRule={handleDeleteRule}
           />
         </div>
       </div>
