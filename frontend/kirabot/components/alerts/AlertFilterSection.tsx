@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef } from 'react';
-import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Plus, Trash2, X } from 'lucide-react';
 import ChipInput from '../shared/ChipInput';
 import type { AlertRule } from '../../services/kiraApiService';
 
@@ -9,6 +9,10 @@ interface AlertFilterSectionProps {
   onUpdateRule: (index: number, rule: AlertRule) => void;
   onDeleteRule: (index: number) => void;
 }
+
+const hasInvalidAmountRange = (rule: AlertRule): boolean => {
+  return !!(rule.minAmt && rule.maxAmt && rule.minAmt > rule.maxAmt);
+};
 
 export const AlertFilterSection: React.FC<AlertFilterSectionProps> = ({
   rules,
@@ -133,9 +137,9 @@ export const AlertFilterSection: React.FC<AlertFilterSectionProps> = ({
                             <button
                               type="button"
                               onClick={() => removeKeyword(index, chip)}
-                              className="hover:text-kira-900"
+                              className="rounded-full p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
                             >
-                              ×
+                              <X size={12} />
                             </button>
                           </span>
                         ))}
@@ -217,33 +221,46 @@ export const AlertFilterSection: React.FC<AlertFilterSectionProps> = ({
                     />
 
                     {/* Amount Range */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">
-                          최소 금액 (만원)
-                        </label>
-                        <input
-                          type="number"
-                          value={rule.minAmt ?? ''}
-                          onChange={(e) => updateRule(index, 'minAmt', e.target.value ? parseInt(e.target.value) : undefined)}
-                          placeholder="1000"
-                          min="0"
-                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        />
+                    <div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">
+                            최소 금액 (만원)
+                          </label>
+                          <input
+                            type="number"
+                            value={rule.minAmt ?? ''}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value, 10);
+                              updateRule(index, 'minAmt', (!isNaN(val) && val >= 0) ? val : undefined);
+                            }}
+                            placeholder="1000"
+                            min="0"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">
+                            최대 금액 (만원)
+                          </label>
+                          <input
+                            type="number"
+                            value={rule.maxAmt ?? ''}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value, 10);
+                              updateRule(index, 'maxAmt', (!isNaN(val) && val >= 0) ? val : undefined);
+                            }}
+                            placeholder="5000"
+                            min="0"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                          />
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">
-                          최대 금액 (만원)
-                        </label>
-                        <input
-                          type="number"
-                          value={rule.maxAmt ?? ''}
-                          onChange={(e) => updateRule(index, 'maxAmt', e.target.value ? parseInt(e.target.value) : undefined)}
-                          placeholder="5000"
-                          min="0"
-                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        />
-                      </div>
+                      {hasInvalidAmountRange(rule) && (
+                        <p className="text-xs text-red-600 mt-1">
+                          ⚠️ 최소 금액이 최대 금액보다 큽니다
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}
