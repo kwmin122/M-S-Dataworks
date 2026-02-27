@@ -12,6 +12,7 @@ If any dependency is missing at startup the service still boots and
 returns HTTP 503 on /api/analyze-bid with a descriptive error.
 """
 
+import asyncio
 import logging
 import os
 import sys
@@ -221,6 +222,40 @@ async def generate_proposal(req: GenerateProposalRequest) -> GenerateProposalRes
         }
     filled = fill_template_sections(sections, req.notice_text, req.company_info)
     return GenerateProposalResponse(sections=filled, status="done")
+
+
+# ---------------------------------------------------------------------------
+# Proposal generation v2 (Layer 1 knowledge-augmented)
+# ---------------------------------------------------------------------------
+
+class GenerateProposalV2Request(BaseModel):
+    rfx_result: dict
+    company_context: str = ""
+    company_name: str | None = None
+    total_pages: int = 50
+
+
+@app.post("/api/generate-proposal-v2")
+async def generate_proposal_v2(req: GenerateProposalV2Request):
+    """Generate a full proposal DOCX using Layer 1 knowledge + RFP analysis."""
+    from proposal_orchestrator import generate_proposal as _generate
+
+    result = await asyncio.to_thread(
+        _generate,
+        rfx_result=req.rfx_result,
+        company_context=req.company_context,
+        company_name=req.company_name,
+        total_pages=req.total_pages,
+    )
+    return {
+        "docx_path": result.docx_path,
+        "sections": [{"name": n, "preview": t[:500]} for n, t in result.sections],
+        "quality_issues": [
+            {"category": qi.category, "severity": qi.severity, "detail": qi.detail}
+            for qi in result.quality_issues
+        ],
+        "generation_time_sec": result.generation_time_sec,
+    }
 
 
 # ---------------------------------------------------------------------------
