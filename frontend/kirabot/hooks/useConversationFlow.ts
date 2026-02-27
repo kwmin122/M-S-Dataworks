@@ -277,6 +277,93 @@ export function useConversationFlow() {
         return;
       }
 
+      // doc_upload_company phase: 텍스트로 회사 정보 입력
+      if (conversation.phase === 'doc_upload_company' && text.length >= 10) {
+        setProcessing(true);
+        pushStatus('loading', '회사 정보를 등록하고 있어요...');
+        try {
+          let sid = conversation.sessionId;
+          if (!sid) {
+            sid = await api.createSession();
+            updateConv({ sessionId: sid });
+          }
+          const result = await api.uploadCompanyText(sid, text);
+          removeLastStatus();
+          updateConv({
+            companyChunks: result.company_chunks,
+            companyDocuments: result.documents || [],
+          });
+
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const prevPhase = (conversation as any)._prevPhase as ConversationPhase | undefined;
+          if (prevPhase && prevPhase !== 'doc_upload_company') {
+            pushText(`회사 정보가 등록되었습니다. (${result.company_chunks}개 지식 조각)`);
+            if ((prevPhase === 'doc_chat' || prevPhase === 'bid_search_results' || prevPhase === 'bid_eval_results') && sid) {
+              pushStatus('loading', '회사 역량과 공고 요건을 비교 분석하고 있어요...');
+              try {
+                const rematchResult = await api.rematchWithCompanyDocs(sid);
+                removeLastStatus();
+                push({
+                  id: msgId(), role: 'bot', type: 'analysis_result', timestamp: Date.now(),
+                  analysis: rematchResult, opinionMode: conversation.opinionMode,
+                } as AnalysisResultMessage);
+                pushText('회사 정보를 기반으로 GO/NO-GO 맞춤 분석이 완료되었습니다!');
+              } catch (rematchErr) {
+                removeLastStatus();
+                pushStatus('error', `재매칭 실패: ${rematchErr instanceof Error ? rematchErr.message : '알 수 없는 오류'}`);
+              }
+            }
+            setPhase(prevPhase);
+            updateConv({ _prevPhase: undefined });
+          } else {
+            pushText(`회사 정보 등록 완료! ${result.company_chunks}개 지식 조각이 준비되었습니다.`);
+            setPhase('doc_upload_target');
+            push({
+              id: msgId(), role: 'bot', type: 'file_upload', timestamp: Date.now(),
+              text: '이제 분석할 문서(RFP/입찰공고)를 업로드해주세요.',
+              accept: UPLOAD_ACCEPT, multiple: false,
+            } as FileUploadMessage);
+          }
+        } catch (error) {
+          removeLastStatus();
+          pushStatus('error', `회사 정보 등록 실패: ${error instanceof Error ? error.message : '알 수 없는 오류'}`, 'upload_company');
+        } finally {
+          setProcessing(false);
+        }
+        return;
+      }
+
+      // doc_chat phase: 회사 정보가 포함된 텍스트 감지 → 자동 등록 + 재매칭
+      if (conversation.phase === 'doc_chat' && conversation.sessionId && /우리\s*(회사|업체|기업)|보유\s*(면허|인증|자격)|연매출|직원\s*수|실적/i.test(text)) {
+        setProcessing(true);
+        pushStatus('loading', '회사 정보를 등록하고 분석에 반영하고 있어요...');
+        try {
+          await api.uploadCompanyText(conversation.sessionId, text);
+          const rematchResult = await api.rematchWithCompanyDocs(conversation.sessionId);
+          removeLastStatus();
+          push({
+            id: msgId(), role: 'bot', type: 'analysis_result', timestamp: Date.now(),
+            analysis: rematchResult, opinionMode: conversation.opinionMode,
+          } as AnalysisResultMessage);
+          pushText('입력하신 회사 정보를 기반으로 GO/NO-GO 분석을 업데이트했습니다! 추가 질문이 있으시면 말씀해주세요.');
+        } catch (error) {
+          removeLastStatus();
+          // 실패 시 일반 채팅으로 폴백
+          pushStatus('loading', '답변을 생성하고 있어요...');
+          try {
+            const res = await api.chatWithReferences(conversation.sessionId!, text, sourceFiles);
+            removeLastStatus();
+            pushText(res.answer, res.references, res.scoped_to);
+          } catch {
+            removeLastStatus();
+            pushStatus('error', `처리 실패: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
+          }
+        } finally {
+          setProcessing(false);
+        }
+        return;
+      }
+
       // greeting phase: 텍스트 입력
       if (conversation.phase === 'greeting') {
         // 인사말 감지 → 봇 인사 응답 + phase 유지 (WelcomeScreen 유지, 타이틀 변경 없음)
@@ -407,6 +494,8 @@ export function useConversationFlow() {
             upload_target: '분석 문서 업로드',
             add_company_docs: '회사 문서 추가 업로드',
             start_company_upload: '회사 문서 먼저 등록',
+            company_upload_file: '파일 업로드',
+            company_input_text: '텍스트로 입력',
             skip_to_target: '바로 문서 분석',
           };
           const label = labelMap[action.value] || action.value;
@@ -444,15 +533,30 @@ export function useConversationFlow() {
             } as FileUploadMessage);
           } else if (action.value === 'start_company_upload') {
             setPhase('doc_upload_company');
+            pushText('회사 정보를 어떻게 등록하시겠어요?');
+            push({
+              id: msgId(),
+              role: 'bot',
+              type: 'button_choice',
+              timestamp: Date.now(),
+              text: '',
+              choices: [
+                { label: '파일 업로드', value: 'company_upload_file' },
+                { label: '텍스트로 입력', value: 'company_input_text' },
+              ],
+            } as ButtonChoiceMessage);
+          } else if (action.value === 'company_upload_file') {
             push({
               id: msgId(),
               role: 'bot',
               type: 'file_upload',
               timestamp: Date.now(),
-              text: '회사 문서를 업로드해주세요.',
+              text: '회사 문서를 업로드해주세요. (여러 파일 가능)',
               accept: UPLOAD_ACCEPT,
               multiple: true,
             } as FileUploadMessage);
+          } else if (action.value === 'company_input_text') {
+            pushText('회사 정보를 자유롭게 입력해주세요.\n\n예시:\n- 업종: 정보통신공사업 면허 보유\n- 연매출: 50억원\n- 직원 수: 30명\n- 주요 실적: CCTV 설치 공사 10건 이상\n- 보유 인증: ISO 9001, 정보보안 인증');
           } else if (action.value === 'skip_to_target') {
             setPhase('doc_upload_target');
             push({
@@ -1083,6 +1187,37 @@ export function useConversationFlow() {
             removeLastStatus();
             const msg = error instanceof Error ? error.message : '알 수 없는 오류';
             pushStatus('error', `제안서 생성 실패: ${msg}`);
+          } finally {
+            setProcessing(false);
+          }
+          break;
+        }
+
+        case 'generate_proposal_v2': {
+          if (!conversation.sessionId) {
+            pushStatus('error', '세션이 없습니다. 먼저 문서를 분석해주세요.');
+            break;
+          }
+
+          setProcessing(true);
+          pushStatus('loading', 'A-lite 제안서(DOCX)를 생성하고 있어요... (약 3~5분 소요)');
+
+          try {
+            const result = await api.generateProposalV2(conversation.sessionId);
+            removeLastStatus();
+
+            const sectionList = result.sections.map((s, i) => `${i + 1}. ${s.name}`).join('\n');
+            let msg = `제안서 DOCX가 생성되었습니다! (${result.generation_time_sec}초)\n\n**섹션 구성:**\n${sectionList}`;
+            if (result.quality_issues.length > 0) {
+              msg += `\n\n**품질 이슈 ${result.quality_issues.length}건:**\n` +
+                result.quality_issues.map(q => `- [${q.severity}] ${q.detail}`).join('\n');
+            }
+            pushText(msg);
+            trackEvent('proposal_v2_generated', { time: result.generation_time_sec });
+          } catch (error) {
+            removeLastStatus();
+            const msg = error instanceof Error ? error.message : '알 수 없는 오류';
+            pushStatus('error', `A-lite 제안서 생성 실패: ${msg}`);
           } finally {
             setProcessing(false);
           }

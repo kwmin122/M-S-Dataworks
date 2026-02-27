@@ -83,6 +83,15 @@ export async function uploadCompanyDocuments(sessionId: string, files: File[]): 
   return parseJson<{ company_chunks: number; added_chunks: number; fileUrls?: string[]; documents?: CompanyDocInfo[] }>(response);
 }
 
+export async function uploadCompanyText(sessionId: string, text: string): Promise<{ company_chunks: number; added_chunks: number; documents?: CompanyDocInfo[] }> {
+  const response = await fetchWithError(`${API_BASE_URL}/api/company/text`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, text }),
+  });
+  return parseJson<{ company_chunks: number; added_chunks: number; documents?: CompanyDocInfo[] }>(response);
+}
+
 export async function clearCompanyDocuments(sessionId: string): Promise<{ company_chunks: number }> {
   const response = await fetchWithError(`${API_BASE_URL}/api/company/clear`, {
     method: 'POST',
@@ -227,6 +236,39 @@ export async function generateProposalDraft(sessionId: string, bidNoticeId: stri
     body: JSON.stringify({ session_id: sessionId, bid_notice_id: bidNoticeId }),
   });
   return parseJson<{ sections: ProposalSections }>(res);
+}
+
+// ── A-lite 제안서 DOCX 생성 (Layer 1 knowledge-augmented) ──
+
+export interface ProposalV2Section {
+  name: string;
+  preview: string;
+}
+
+export interface ProposalV2QualityIssue {
+  category: string;
+  severity: string;
+  detail: string;
+}
+
+export interface ProposalV2Response {
+  docx_path: string;
+  sections: ProposalV2Section[];
+  quality_issues: ProposalV2QualityIssue[];
+  generation_time_sec: number;
+}
+
+export async function generateProposalV2(
+  sessionId: string,
+  totalPages: number = 50,
+): Promise<ProposalV2Response> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/proposal/generate-v2`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, total_pages: totalPages }),
+    timeoutMs: 300_000, // 5분 — DOCX 생성 시간 소요
+  });
+  return parseJson<ProposalV2Response>(res);
 }
 
 export async function getStrengthCard(bidNoticeId: string): Promise<unknown> {

@@ -339,6 +339,7 @@ export type MessageAction =
   | { type: 'setup_alert' }
   | { type: 'welcome_action'; value: string }
   | { type: 'generate_proposal'; bidNoticeId: string; bidTitle: string }
+  | { type: 'generate_proposal_v2'; bidTitle: string }
   | { type: 'delete_company_doc'; sourceFile: string }
   | { type: 'undo_company_upload'; sourceFiles: string[] }
   | { type: 'go_back' }

@@ -1546,6 +1546,41 @@ async def upload_company_documents(
     }
 
 
+@app.post("/api/company/text")
+async def upload_company_text(payload: dict) -> dict[str, Any]:
+    """텍스트 기반 회사 정보를 가상 문서로 RAG 엔진에 저장."""
+    session_id = payload.get("session_id", "").strip()
+    text = payload.get("text", "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id가 필요합니다.")
+    if not text or len(text) < 10:
+        raise HTTPException(status_code=400, detail="회사 정보를 10자 이상 입력해주세요.")
+
+    session = _get_or_create_session(session_id)
+    upload_dir = _session_upload_dir(session.session_id, "company")
+
+    # 텍스트를 company_info.txt로 저장
+    text_path = upload_dir / "company_info.txt"
+    # 기존 텍스트 파일이 있으면 내용 추가
+    if text_path.exists():
+        prev = text_path.read_text("utf-8")
+        text_path.write_text(prev + "\n\n" + text, encoding="utf-8")
+    else:
+        text_path.write_text(text, encoding="utf-8")
+
+    added_chunks = session.rag_engine.add_document(str(text_path))
+    stats = session.rag_engine.get_stats()
+
+    return {
+        "ok": True,
+        "added_chunks": added_chunks,
+        "company_chunks": stats.get("total_documents", 0),
+        "documents": session.rag_engine.list_documents(),
+        "fileUrls": [f"/api/files/{session.session_id}/company/company_info.txt"],
+        "uploaded_files": ["company_info.txt"],
+    }
+
+
 @app.get("/api/company/list")
 def list_company_documents(session_id: str) -> dict[str, Any]:
     session = _get_or_create_session(session_id)
@@ -2309,7 +2344,6 @@ async def generate_proposal(payload: ProposalGeneratePayload) -> dict[str, Any]:
     # Try calling rag_engine if available
     rag_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
     try:
-        import httpx
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(f"{rag_url}/api/generate-proposal", json={
                 "bid_text": analysis_text,
@@ -2370,6 +2404,55 @@ async def generate_proposal(payload: ProposalGeneratePayload) -> dict[str, Any]:
         "기대 효과": "본 사업의 성공적 수행을 통해 발주기관의 업무 효율성 향상과 서비스 품질 개선이 기대됩니다.",
     }
     return {"sections": sections}
+
+
+# ── A-lite 제안서 생성 (Layer 1 knowledge-augmented DOCX) ──
+
+
+class ProposalGenerateV2Payload(BaseModel):
+    session_id: str
+    total_pages: int = 50
+
+
+@app.post("/api/proposal/generate-v2")
+async def generate_proposal_v2(payload: ProposalGenerateV2Payload) -> dict[str, Any]:
+    """A-lite: Layer 1 knowledge 기반 DOCX 제안서 생성. rag_engine v2 프록시."""
+    session = _get_or_create_session(payload.session_id)
+
+    if session.latest_rfx_analysis is None:
+        raise HTTPException(status_code=400, detail="분석된 RFP가 없습니다. 먼저 공고를 분석해주세요.")
+
+    analysis = session.latest_rfx_analysis
+    rfx_dict: dict[str, Any] = {
+        "title": analysis.title,
+        "issuing_org": analysis.issuing_org,
+        "budget": analysis.budget,
+        "project_period": analysis.project_period,
+        "evaluation_criteria": [
+            {"category": ec.category, "max_score": ec.score, "description": ec.item}
+            for ec in (analysis.evaluation_criteria or [])
+        ],
+        "requirements": [
+            {"category": r.category, "description": r.description}
+            for r in (analysis.requirements or [])
+        ],
+        "rfp_text_summary": "",
+    }
+
+    fastapi_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
+    try:
+        async with httpx.AsyncClient(timeout=300) as client:
+            resp = await client.post(
+                f"{fastapi_url}/api/generate-proposal-v2",
+                json={"rfx_result": rfx_dict, "total_pages": payload.total_pages},
+            )
+        if resp.status_code == 200:
+            return resp.json()
+        else:
+            detail = resp.text[:200]
+            raise HTTPException(status_code=502, detail=f"rag_engine 응답 오류: {detail}")
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"rag_engine 연결 실패: {exc}") from exc
 
 
 # ── 알림 설정 CRUD ──
