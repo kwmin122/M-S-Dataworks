@@ -119,13 +119,15 @@ export async function analyzeDocument(sessionId: string, file: File): Promise<An
   return parseJson<AnalyzeResponse>(response);
 }
 
-export async function chatWithReferences(sessionId: string, message: string): Promise<ChatResponse> {
+export async function chatWithReferences(sessionId: string, message: string, sourceFiles?: string[]): Promise<ChatResponse & { scoped_to?: string[] }> {
+  const body: Record<string, unknown> = { session_id: sessionId, message };
+  if (sourceFiles?.length) body.source_files = sourceFiles;
   const response = await fetchWithError(`${API_BASE_URL}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, message }),
+    body: JSON.stringify(body),
   });
-  return parseJson<ChatResponse>(response);
+  return parseJson<ChatResponse & { scoped_to?: string[] }>(response);
 }
 
 export function getApiBaseUrl(): string {

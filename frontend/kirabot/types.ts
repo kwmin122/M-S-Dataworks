@@ -196,6 +196,7 @@ export interface TextChatMessage extends BaseChatMessage {
   type: 'text';
   text: string;
   references?: ChatReference[];
+  scoped_to?: string[];
 }
 
 export interface ButtonChoiceMessage extends BaseChatMessage {
@@ -296,6 +297,7 @@ export interface Conversation {
   companyDocuments?: CompanyDocInfo[];
   _justUploadedFiles?: string[];
   companyProfile?: CompanyProfile | null;
+  activeDocFilter?: string[] | null;
 }
 
 // ── 컨텍스트 패널 ──
@@ -338,7 +340,16 @@ export type MessageAction =
   | { type: 'generate_proposal'; bidNoticeId: string; bidTitle: string }
   | { type: 'delete_company_doc'; sourceFile: string }
   | { type: 'undo_company_upload'; sourceFiles: string[] }
-  | { type: 'go_back' };
+  | { type: 'go_back' }
+  | { type: 'ask_about_doc'; sourceFile: string };
+
+// ── 문서 멘션 (다중 문서 질의) ──
+
+export interface DocMention {
+  sourceFile: string;
+  label: string;
+  type: 'company' | 'rfx';
+}
 
 // ── 세션 기반 회사 문서 (벡터 DB) ──
 
