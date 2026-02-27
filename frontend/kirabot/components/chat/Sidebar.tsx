@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { MessageSquare, Bell, TrendingUp } from 'lucide-react';
+import { MessageSquare, Bell, TrendingUp, Shield } from 'lucide-react';
 import { useChatContext } from '../../context/ChatContext';
 import { useConversationFlow } from '../../hooks/useConversationFlow';
 import SidebarHeader from './SidebarHeader';
@@ -14,7 +14,7 @@ interface SidebarProps {
   onHome: () => void;
 }
 
-const navItems = [
+const baseNavItems = [
   { path: '/chat', label: '채팅', icon: MessageSquare },
   { path: '/settings/alerts', label: '알림 설정', icon: Bell },
   { path: '/forecast', label: '발주예측', icon: TrendingUp },
@@ -26,6 +26,10 @@ const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, onHome }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const collapsed = state.sidebarCollapsed;
+
+  const navItems = user?.isAdmin
+    ? [...baseNavItems, { path: '/admin', label: '관리자', icon: Shield }]
+    : baseNavItems;
 
   return (
     <div

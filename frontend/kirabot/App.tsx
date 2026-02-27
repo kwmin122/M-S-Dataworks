@@ -22,6 +22,7 @@ import SettingsGeneral from './components/settings/SettingsGeneral';
 import SettingsAccount from './components/settings/SettingsAccount';
 import SettingsCompany from './components/settings/SettingsCompany';
 import ForecastPage from './components/forecast/ForecastPage';
+import AdminPage from './components/admin/AdminPage';
 import PaymentModal from './components/PaymentModal';
 import SubscriptionPage from './components/settings/SubscriptionPage';
 import type { User } from './types';
@@ -221,6 +222,7 @@ function AppRoutes() {
           <Route path="/chat" element={<ChatPage user={user} />} />
           <Route path="/settings/alerts" element={<AlertSettingsPage />} />
           <Route path="/forecast" element={<ForecastPage />} />
+          <Route path="/admin" element={user?.isAdmin ? <AdminPage /> : <Navigate to="/chat" replace />} />
 
           {/* Settings nested routes */}
           <Route path="/settings" element={<SettingsPage />}>

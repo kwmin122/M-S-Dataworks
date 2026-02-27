@@ -500,3 +500,84 @@ export async function verifyPaymentAmount(plan: string): Promise<{ plan: string;
   });
   return parseJson<{ plan: string; amount: number; currency: string }>(res);
 }
+
+// ── 관리자 API ──
+
+export interface AdminUsageOverview {
+  today_chat: number;
+  today_analyze: number;
+  month_chat: number;
+  month_analyze: number;
+}
+
+export interface AdminActorUsage {
+  actor_key: string;
+  username: string;
+  chat_count: number;
+  analyze_count: number;
+  last_activity: string;
+}
+
+export interface AdminUsageResponse {
+  ok: boolean;
+  username: string;
+  overview: AdminUsageOverview;
+  by_actor: AdminActorUsage[];
+}
+
+export interface AdminAlertItem {
+  session_id: string;
+  config: {
+    enabled: boolean;
+    email: string;
+    schedule: string;
+    hours: number[];
+    rules: Array<{
+      keywords: string[];
+      categories: string[];
+      regions: string[];
+      minAmt: string | number | null;
+      maxAmt: string | number | null;
+      enabled: boolean;
+    }>;
+  };
+  state: {
+    last_sent?: string;
+    sent_bid_ids?: string[];
+    last_confirmation_sent?: string;
+  };
+}
+
+export async function getAdminUsage(): Promise<AdminUsageResponse> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/admin/usage`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+  return parseJson<AdminUsageResponse>(res);
+}
+
+export async function getAdminAlerts(): Promise<AdminAlertItem[]> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/admin/alerts`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+  const data = await parseJson<{ ok: boolean; alerts: AdminAlertItem[] }>(res);
+  return data.alerts;
+}
+
+export async function deleteAdminAlert(configId: string): Promise<void> {
+  await fetchWithError(`${API_BASE_URL}/api/admin/alerts/${encodeURIComponent(configId)}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+}
+
+export async function sendAdminAlertNow(configId: string): Promise<{ sent: boolean; count: number; totalFound?: number; reason?: string }> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/admin/alerts/${encodeURIComponent(configId)}/send-now`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  return parseJson<{ sent: boolean; count: number; totalFound?: number; reason?: string }>(res);
+}

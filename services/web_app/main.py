@@ -1364,6 +1364,7 @@ def auth_me(request: Request) -> dict[str, Any]:
             "name": username,
             "email": profile.get("email", ""),
             "provider": profile.get("provider", ""),
+            "isAdmin": username in _admin_usernames(),
         },
     }
 
@@ -1441,6 +1442,77 @@ def admin_usage(request: Request) -> dict[str, Any]:
         "overview": get_usage_overview(),
         "by_actor": list_usage_by_actor(limit=300),
     }
+
+
+def _require_admin(request: Request) -> str:
+    """관리자 인증 공통 헬퍼. 비관리자 → 403."""
+    token = str(request.cookies.get(_auth_cookie_name(), "") or "")
+    username = str(resolve_user_from_session(token) or "")
+    if not username or username not in _admin_usernames():
+        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다.")
+    return username
+
+
+@app.get("/api/admin/alerts")
+def admin_alerts_list(request: Request) -> dict[str, Any]:
+    """모든 알림 설정 + 상태 목록 (관리자 전용)."""
+    _require_admin(request)
+
+    configs: list[dict[str, Any]] = []
+    if ALERT_CONFIG_DIR.exists():
+        for f in sorted(ALERT_CONFIG_DIR.glob("*.json")):
+            try:
+                data = json.loads(f.read_text("utf-8"))
+                session_id = f.stem
+                state = _get_alert_state(session_id)
+                configs.append({
+                    "session_id": session_id,
+                    "config": data,
+                    "state": state,
+                })
+            except Exception:
+                continue
+
+    return {"ok": True, "alerts": configs}
+
+
+@app.delete("/api/admin/alerts/{config_id}")
+def admin_alert_delete(config_id: str, request: Request) -> dict[str, Any]:
+    """특정 알림 설정 삭제 (관리자 전용)."""
+    _require_admin(request)
+
+    if not re.fullmatch(r"[a-zA-Z0-9_\-]{4,128}", config_id):
+        raise HTTPException(status_code=400, detail="잘못된 config_id입니다.")
+
+    config_path = ALERT_CONFIG_DIR / f"{config_id}.json"
+    if config_path.exists():
+        config_path.unlink()
+
+    state_path = ALERT_STATE_DIR / f"{config_id}.json"
+    if state_path.exists():
+        state_path.unlink()
+
+    return {"ok": True}
+
+
+@app.post("/api/admin/alerts/{config_id}/send-now")
+async def admin_alert_send_now(config_id: str, request: Request) -> dict[str, Any]:
+    """특정 알림 즉시 발송 (관리자 전용)."""
+    _require_admin(request)
+
+    if not re.fullmatch(r"[a-zA-Z0-9_\-]{4,128}", config_id):
+        raise HTTPException(status_code=400, detail="잘못된 config_id입니다.")
+
+    config_path = ALERT_CONFIG_DIR / f"{config_id}.json"
+    if not config_path.exists():
+        raise HTTPException(status_code=404, detail="알림 설정을 찾을 수 없습니다.")
+
+    config = json.loads(config_path.read_text("utf-8"))
+    if not config.get("email"):
+        raise HTTPException(status_code=400, detail="수신 이메일이 설정되지 않았습니다.")
+
+    result = await _execute_alert_send(config, label=f"admin-send:{config_id}", session_id=config_id)
+    return {"ok": True, **result}
 
 
 @app.post("/api/company/upload")

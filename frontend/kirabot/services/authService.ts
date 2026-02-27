@@ -20,6 +20,7 @@ interface AuthMeResponse {
     email?: string;
     name?: string;
     avatar_url?: string;
+    isAdmin?: boolean;
   };
 }
 
@@ -37,6 +38,7 @@ function mapAuthUser(payload: AuthMeResponse['user']): User | null {
     name: String(payload.name || payload.username || email || 'M&S 사용자'),
     email,
     avatarUrl: String(payload.avatar_url || ''),
+    isAdmin: Boolean(payload.isAdmin),
   };
 }
 
