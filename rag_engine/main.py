@@ -482,7 +482,11 @@ async def add_track_record_endpoint(req: TrackRecordRequest):
     amount = 0.0
     if req.contract_amount:
         try:
-            amount = float(req.contract_amount.replace(",", "").replace("억", "").strip())
+            raw = req.contract_amount.replace(",", "").strip()
+            if "억" in raw:
+                amount = float(raw.replace("억", "").strip()) * 1e8
+            else:
+                amount = float(raw)
         except ValueError:
             pass
 

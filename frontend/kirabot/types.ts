@@ -316,6 +316,7 @@ export interface Conversation {
   _justUploadedFiles?: string[];
   companyProfile?: CompanyProfile | null;
   activeDocFilter?: string[] | null;
+  _onboardingStep?: 'basic_info' | 'track_records' | 'personnel';
 }
 
 // ── 컨텍스트 패널 ──

@@ -36,7 +36,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -2412,7 +2412,7 @@ async def generate_proposal(payload: ProposalGeneratePayload) -> dict[str, Any]:
 
 class ProposalGenerateV2Payload(BaseModel):
     session_id: str
-    total_pages: int = 50
+    total_pages: int = Field(default=50, ge=10, le=200)
 
 
 @app.post("/api/proposal/generate-v2")

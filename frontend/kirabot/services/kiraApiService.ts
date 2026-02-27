@@ -3,6 +3,7 @@ import {
   BidNotice,
   BidSearchResponse,
   ChatResponse,
+  ChecklistItem,
   CompanyDocInfo,
   CompanyProfile,
   EvalBatchResponse,
@@ -276,14 +277,6 @@ export function getProposalDownloadUrl(filename: string): string {
 }
 
 // ── 체크리스트 API ──
-
-export interface ChecklistItem {
-  document_name: string;
-  is_mandatory: boolean;
-  format_hint: string;
-  deadline_note: string;
-  status: string;
-}
 
 export interface ChecklistResponse {
   items: ChecklistItem[];

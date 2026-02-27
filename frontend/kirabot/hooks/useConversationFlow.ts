@@ -487,7 +487,7 @@ export function useConversationFlow() {
           ],
           submitLabel: '저장 후 실적 입력',
         } as InlineFormMessage);
-        updateConv({ _onboardingStep: 'basic_info' } as any);
+        updateConv({ _onboardingStep: 'basic_info' });
       }
     },
     [conversationId, conversation, push, pushText, setPhase, navigate, updateConv],
@@ -750,7 +750,7 @@ export function useConversationFlow() {
           updateMsg(messageId, { submittedValues: values } as Partial<InlineFormMessage>);
 
           // ── 회사 DB 온보딩 폼 처리 ──
-          const _obStep = (conversation as any)?._onboardingStep;
+          const _obStep = conversation?._onboardingStep;
           if (_obStep === 'basic_info') {
             setProcessing(true);
             try {
@@ -772,7 +772,7 @@ export function useConversationFlow() {
                 ],
                 submitLabel: '실적 추가',
               } as InlineFormMessage);
-              updateConv({ _onboardingStep: 'track_records' } as any);
+              updateConv({ _onboardingStep: 'track_records' });
             } catch (error) {
               const msg = error instanceof Error ? error.message : '알 수 없는 오류';
               pushStatus('error', `기본정보 저장 실패: ${msg}`);
@@ -796,7 +796,7 @@ export function useConversationFlow() {
                 ],
                 submitLabel: '인력 추가',
               } as InlineFormMessage);
-              updateConv({ _onboardingStep: 'personnel' } as any);
+              updateConv({ _onboardingStep: 'personnel' });
               break;
             }
             setProcessing(true);
@@ -842,7 +842,7 @@ export function useConversationFlow() {
                   `- 전체 지식 단위: **${stats.total_knowledge_units}건**\n\n` +
                   `이제 제안서 생성 시 회사 맞춤 정보가 자동으로 반영됩니다.`
                 );
-                updateConv({ _onboardingStep: undefined } as any);
+                updateConv({ _onboardingStep: undefined });
                 trackEvent('company_onboarding_complete', { units: stats.total_knowledge_units });
               } catch (error) {
                 const msg = error instanceof Error ? error.message : '알 수 없는 오류';
