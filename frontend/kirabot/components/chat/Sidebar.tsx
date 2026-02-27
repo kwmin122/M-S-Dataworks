@@ -16,7 +16,7 @@ interface SidebarProps {
 
 const baseNavItems = [
   { path: '/chat', label: '채팅', icon: MessageSquare },
-  { path: '/settings/alerts', label: '알림 설정', icon: Bell },
+  { path: '/alerts', label: '알림', icon: Bell },
   { path: '/forecast', label: '발주예측', icon: TrendingUp },
 ];
 
