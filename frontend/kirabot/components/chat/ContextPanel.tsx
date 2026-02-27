@@ -1,6 +1,8 @@
 import React from 'react';
-import { X } from 'lucide-react';
+import { X, FileText } from 'lucide-react';
 import { useChatContext } from '../../context/ChatContext';
+import { useActiveConversation } from '../../hooks/useActiveConversation';
+import { useConversationFlow } from '../../hooks/useConversationFlow';
 import PdfViewer from './context/PdfViewer';
 import BidDetailView from './context/BidDetailView';
 import ProposalPreview from './context/ProposalPreview';
@@ -8,6 +10,9 @@ import DocumentViewer from './context/DocumentViewer';
 
 const ContextPanel: React.FC = () => {
   const { state, dispatch } = useChatContext();
+  const { conversation } = useActiveConversation();
+  const { handleAction } = useConversationFlow();
+  const companyDocuments = conversation?.companyDocuments || [];
   const content = state.contextPanel;
 
   if (content.type === 'none') return null;
@@ -96,6 +101,39 @@ const ContextPanel: React.FC = () => {
           />
         )}
       </div>
+
+      {/* Company documents section */}
+      {companyDocuments.length > 0 && (
+        <div className="shrink-0 border-t border-slate-200 p-3">
+          <h3 className="text-xs font-semibold text-slate-500 mb-2">
+            회사 문서 ({companyDocuments.length})
+          </h3>
+          <div className="space-y-1">
+            {companyDocuments.map((doc) => (
+              <div key={doc.source_file} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-50 group">
+                <FileText size={14} className="text-slate-400" />
+                <span className="flex-1 text-sm text-slate-700 truncate">{doc.source_file}</span>
+                <span className="text-xs text-slate-400">{doc.chunks}</span>
+                <button
+                  type="button"
+                  onClick={() => handleAction({ type: 'delete_company_doc', sourceFile: doc.source_file })}
+                  className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-300 hover:text-red-500 transition-all"
+                  title="삭제"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => handleAction({ type: 'header_add_company' })}
+            className="mt-2 text-xs text-kira-600 hover:text-kira-700 font-medium"
+          >
+            + 문서 추가
+          </button>
+        </div>
+      )}
     </div>
   );
 };
