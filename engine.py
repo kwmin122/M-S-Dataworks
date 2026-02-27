@@ -12,7 +12,7 @@ Example:
 
 import os
 import uuid
-from typing import Optional
+from typing import Any, Optional
 from dataclasses import dataclass, field
 
 from document_parser import DocumentParser, TextChunk
@@ -429,6 +429,42 @@ class RAGEngine:
             "persist_directory": self.persist_directory
         }
     
+    def delete_document(self, source_file: str) -> int:
+        """특정 문서의 모든 청크를 벡터 DB에서 삭제한다.
+
+        Args:
+            source_file (str): 삭제할 문서의 source_file 값
+
+        Returns:
+            int: 삭제된 청크 수 (없으면 0)
+        """
+        results = self.collection.get(where={"source_file": source_file})
+        ids = results.get("ids") or []
+        if not ids:
+            return 0
+        self.collection.delete(ids=ids)
+        self._bm25_dirty = True
+        print(f"🗑️ 문서 삭제: {source_file} ({len(ids)}개 청크)")
+        return len(ids)
+
+    def list_documents(self) -> list[dict[str, Any]]:
+        """벡터 DB에 저장된 문서 목록과 청크 수를 반환한다.
+
+        Returns:
+            list[dict[str, Any]]: source_file별 청크 수 목록
+                [{"source_file": "xxx.pdf", "chunks": 15}, ...]
+        """
+        results = self.collection.get(include=["metadatas"])
+        metadatas = results.get("metadatas") or []
+        counts: dict[str, int] = {}
+        for meta in metadatas:
+            sf = (meta or {}).get("source_file", "unknown")
+            counts[sf] = counts.get(sf, 0) + 1
+        return sorted(
+            [{"source_file": sf, "chunks": c} for sf, c in counts.items()],
+            key=lambda x: x["source_file"],
+        )
+
     def clear_collection(self) -> None:
         """컬렉션 초기화 (모든 데이터 삭제)"""
         from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
