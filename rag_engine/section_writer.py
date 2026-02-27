@@ -11,6 +11,7 @@ from typing import Optional
 from openai import OpenAI
 
 from knowledge_models import KnowledgeUnit, ProposalSection
+from llm_utils import call_with_retry, LLM_DEFAULT_TIMEOUT
 
 SYSTEM_PROMPT = """당신은 대한민국 공공조달 기술제안서 작성 전문가입니다.
 평가위원이 높은 점수를 줄 수 있도록, 구체적이고 전문적인 제안서 섹션을 작성합니다.
@@ -47,9 +48,9 @@ def _assemble_prompt(
         if examples:
             parts.append("## 참고할 좋은 예시:\n" + "\n".join(examples))
 
-    # Layer 2 — company context (empty in A-lite)
+    # Layer 2 — company context + learned patterns
     if company_context:
-        parts.append(f"## 이 회사의 과거 제안서 스타일:\n{company_context}")
+        parts.append(f"## 이 회사의 과거 제안서 스타일 및 역량:\n{company_context}")
 
     # RFP context
     parts.append(f"## 이번 공고 정보:\n{rfp_context}")
@@ -70,16 +71,23 @@ def _assemble_prompt(
 
 
 def _call_llm_for_section(prompt: str, api_key: Optional[str] = None) -> str:
-    client = OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"))
-    resp = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.4,
-        max_tokens=4000,
+    client = OpenAI(
+        api_key=api_key or os.environ.get("OPENAI_API_KEY"),
+        timeout=LLM_DEFAULT_TIMEOUT,
     )
+
+    def _do_call():
+        return client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.4,
+            max_tokens=4000,
+        )
+
+    resp = call_with_retry(_do_call)
     return resp.choices[0].message.content or ""
 
 

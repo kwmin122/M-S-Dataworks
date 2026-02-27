@@ -6,6 +6,7 @@ Top-level orchestrator: RFxAnalysisResult + optional company context
 from __future__ import annotations
 
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -95,7 +96,10 @@ def generate_proposal(
 
     # 6. Assemble DOCX
     ts = int(time.time())
-    safe_title = rfx_result.get("title", "proposal")[:30].replace("/", "_").replace(" ", "_")
+    raw_title = rfx_result.get("title", "proposal")[:50]
+    safe_title = re.sub(r"[^a-zA-Z0-9가-힣._\-]", "_", raw_title).strip("_")[:100]
+    if not safe_title:
+        safe_title = "proposal"
     docx_filename = f"{safe_title}_{ts}.docx"
     docx_path = os.path.join(output_dir, docx_filename)
     assemble_docx(

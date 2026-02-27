@@ -6,15 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 프로젝트 개요
 
-**Kira Bot** — 공공조달 입찰 자격 분석 플랫폼. 기업이 RFx(RFP/RFQ/입찰공고) 문서를 올리면 자격요건을 추출하고, 회사 문서와 매칭하여 GO/NO-GO + 준비 가이드를 제공한다.
+**Kira Bot** — 공공조달 입찰 전 과정 자동화 AI 플랫폼. 공고 발견 → RFP 분석 → GO/NO-GO → 제안서 자동 생성 → 체크리스트 → 수정 학습까지 입찰 라이프사이클 자동화.
 
-현재: 기존 단일 사용자 Streamlit MVP + **멀티테넌트 B2B SaaS** (Phase 1~8 완료, 환경 구성·배포 단계).
+현재: 레거시 Chat UI (React + FastAPI) + **멀티테넌트 B2B SaaS** (Phase 1~8 완료) + **A-lite 제안서 생성 파이프라인** (Phase 1 구현 완료).
 
-설계 문서: `docs/plans/2026-02-20-bid-platform-design.md`
-구현 계획: `docs/plans/2026-02-21-bid-platform-impl-plan.md` (Phase 1-7), `docs/plans/2026-02-22-phase8-impl-plan.md` (Phase 8)
+비전/목표: `docs/우리의_목표.md`
+확장 설계: `docs/plans/2026-02-27-full-lifecycle-expansion-design.md` (8모듈 + 3계층 학습 모델)
+Phase 1 핸드오프: `docs/plans/2026-02-27-phase1-implementation-handoff.md`
+현재 상황: `docs/plans/2026-02-27-현재상황-핸드오프.md`
+SaaS 설계: `docs/plans/2026-02-20-bid-platform-design.md`
+SaaS 구현: `docs/plans/2026-02-21-bid-platform-impl-plan.md` (Phase 1-7), `docs/plans/2026-02-22-phase8-impl-plan.md` (Phase 8)
 보안 강화: `docs/plans/2026-02-22-security-hardening-design.md` + `2026-02-22-security-hardening-impl-plan.md`
 RFP 요약 리디자인: `docs/plans/2026-02-26-rfp-summary-redesign.md`
-다음 할 일: `docs/plans/다음-할-일.md`
 
 ---
 
@@ -100,6 +103,9 @@ services/auth_gateway/main.py  ← Supabase JWT → HttpOnly 쿠키 세션
 data/vectordb/       ← ChromaDB 영구 저장소
 data/web_uploads/    ← 세션별 업로드 파일 (company/ + target/)
 data/user_store/     ← 세션 + 사용량 JSON
+data/layer1_sources/ ← Layer 1 학습 소스 URL 큐레이션 (youtube/blog/official JSON)
+data/knowledge_db/   ← Layer 1 proposal_knowledge ChromaDB (rag_engine)
+data/proposals/      ← 생성된 DOCX 제안서 출력 디렉토리
 docs/dummy/          ← 테스트용 더미 문서 (PDF/HWP/HWPX)
 ```
 
@@ -139,8 +145,26 @@ web_saas/                        ← Next.js 16 + Prisma 5 + TypeScript
 
 rag_engine/                       ← FastAPI 0.115 (포트 8001)
   main.py                         ← /api/analyze-bid, /api/generate-proposal, /api/parse-hwp
-  proposal_generator.py           ← {{placeholder}} 템플릿 섹션 추출·채움
+                                     + /api/generate-proposal-v2, /api/checklist, /api/edit-feedback
+  proposal_generator.py           ← {{placeholder}} 템플릿 섹션 추출·채움 (기존, v1용)
   hwp_parser.py                   ← HWP magic bytes 감지 + 텍스트 추출
+
+  # A-lite 제안서 파이프라인 (Phase 1, 2026-02-27 추가)
+  llm_utils.py                    ← LLM retry+timeout 헬퍼 (call_with_retry, 지수 백오프)
+  knowledge_models.py             ← KnowledgeUnit, ProposalSection, ProposalOutline 등 데이터 모델
+  knowledge_db.py                 ← ChromaDB proposal_knowledge collection (sha256 복합ID)
+  knowledge_harvester.py          ← LLM Pass 1 지식 추출 (7카테고리)
+  knowledge_dedup.py              ← LLM Pass 2 충돌 해소 (AGREE/CONDITIONAL/CONFLICT)
+  proposal_planner.py             ← RFP → 섹션 아웃라인 (배점 비례 페이지 분배)
+  section_writer.py               ← Layer 1+2 지식 주입 LLM 섹션 생성
+  quality_checker.py              ← 블라인드 위반(한글 조사 인식 정규식) + 모호 표현 감지
+  document_assembler.py           ← mistune 3.x AST + python-docx DOCX 조립
+  proposal_orchestrator.py        ← 전체 파이프라인 오케스트레이터 (ThreadPoolExecutor)
+  company_db.py                   ← 회사 역량 DB (실적/인력 ChromaDB, hashlib.sha256 ID)
+  company_analyzer.py             ← 과거 제안서 문체/구조/강점 분석
+  checklist_extractor.py          ← RFP → 제출서류 체크리스트 추출
+  diff_tracker.py                 ← AI vs 사용자 수정 diff 추출 + 패턴 키 해싱
+  auto_learner.py                 ← 수정 패턴 → Layer 2 자동 학습 (threading.Lock 스레드 안전)
 
 n8n/workflows/                    ← 4종 워크플로우 JSON
   g2b_bid_crawler.json            ← 나라장터 공고 수집 → BidNotice/IngestionJob
@@ -224,6 +248,16 @@ greeting → bid_search_input → bid_search_results → bid_analyzing → doc_c
 - **LLM 안정성**: `call_with_retry()` — timeout 60초 + 재시도 2회 (429/500/502/503, 지수 백오프)
 - **동의어 사전**: `rfp_synonyms.py` — 17개 카테고리 동의어(사업비↔예산↔추정가격 등)를 추출 프롬프트에 주입
 
+### A-lite 제안서 파이프라인 (rag_engine)
+- **기존 `/api/proposal/generate` 절대 삭제 금지** — 챗봇 간단 초안 기능의 핵심. v2는 별개 엔드포인트
+- **mistune 3.x AST** 기반 마크다운→DOCX 변환 (정규식 파싱 금지)
+- **Pydantic 입력 검증**: `RfxResultInput` 스키마 — title 필수, total_pages 10~200
+- **한글 단어 경계 정규식**: 블라인드 체크에서 `(?<![가-힣])회사명(?=(?:은|는|이|가|...)?(?![가-힣]))` — 조사 허용, 내용어 결합 차단
+- **파일명 sanitization**: `re.sub(r'[^a-zA-Z0-9가-힣._-]', '_', ...)` 화이트리스트 + 100자 제한
+- **KnowledgeDB 복합 ID**: `{source_type}_{sha256(source_type:category:rule)[:12]}` — 충돌 방지
+- **auto_learner 스레드 안전**: `threading.Lock`으로 전역 dict 보호
+- **배포 수준 코딩**: 에러 핸들링, 입력 검증, LLM retry, 스레드 안전성 모두 필수 (MVP 금지)
+
 ### Prisma 마이그레이션 (오프라인)
 DATABASE_URL 없이 스키마 변경 시 수동 SQL 파일 생성:
 ```
@@ -303,6 +337,21 @@ moduleNameMapper:
 |---|---|
 | `test_hwp_parser.py` | `hwp_parser.py` |
 | `test_proposal_generator.py` | `proposal_generator.py` |
+| `test_knowledge_models.py` | `knowledge_models.py` 데이터 모델 |
+| `test_knowledge_db.py` | `knowledge_db.py` ChromaDB wrapper |
+| `test_knowledge_harvester.py` | `knowledge_harvester.py` Pass 1 |
+| `test_knowledge_dedup.py` | `knowledge_dedup.py` Pass 2 |
+| `test_proposal_planner.py` | `proposal_planner.py` 아웃라인 |
+| `test_section_writer.py` | `section_writer.py` 섹션 생성 |
+| `test_quality_checker.py` | `quality_checker.py` 블라인드/모호 |
+| `test_document_assembler.py` | `document_assembler.py` DOCX |
+| `test_proposal_orchestrator.py` | `proposal_orchestrator.py` 오케스트레이터 |
+| `test_proposal_api.py` | `main.py` v2 API 엔드포인트 |
+| `test_company_db.py` | `company_db.py` 회사 역량 DB |
+| `test_company_analyzer.py` | `company_analyzer.py` 문체 분석 |
+| `test_checklist_extractor.py` | `checklist_extractor.py` 체크리스트 |
+| `test_diff_tracker.py` | `diff_tracker.py` diff 추출 |
+| `test_auto_learner.py` | `auto_learner.py` 자동 학습 |
 
 ### web_saas Jest (src/lib/*/\__tests__/)
 | 파일 | 대상 |
@@ -319,7 +368,7 @@ moduleNameMapper:
 
 ---
 
-## 기능 구현 현황 (2026-02-26)
+## 기능 구현 현황 (2026-02-27)
 
 ### 동작 중 (레거시 백엔드 + Chat UI)
 | 기능 | 상태 | 비고 |
@@ -335,19 +384,36 @@ moduleNameMapper:
 | 검색 결과 CSV 다운로드 | **동작** | 클라이언트 사이드 생성 |
 | 컨텍스트 패널 (문서 미리보기) | **동작** | PDF iframe + 탭(분석문서/회사문서) + 하이라이트 |
 | 대화 이름 변경/삭제 | **동작** | Sidebar 인라인 편집 |
-| 의견 모드 | **부분** | balanced 기본값만 사용 중, UI에서 선택 미구현 |
 | 리사이즈 가능 컨텍스트 패널 | **동작** | 드래그로 280~600px 조절 |
 | LLM retry + timeout | **동작** | call_with_retry 60초 timeout + 2회 재시도 |
 | 공고 첨부파일 자동 다운로드+분석 | **동작** | e발주 첨부파일 자동 다운로드 → 파싱 → GO/NO-GO 분석 |
 
+### A-lite 제안서 파이프라인 (Phase 1 — 2026-02-27 구현 완료)
+| 기능 | 상태 | 비고 |
+|------|------|------|
+| A-lite 제안서 DOCX 생성 | **코드 완성** | Layer 1+2 지식 기반, `/api/generate-proposal-v2` |
+| Layer 1 지식 파이프라인 | **코드 완성** | harvester(Pass1)+dedup(Pass2)+ChromaDB. 실제 데이터 수집 미실행 |
+| Layer 2 회사 맞춤 학습 | **코드 완성** | company_db + company_analyzer + section_writer 통합 |
+| 수정 diff 학습 루프 | **코드 완성** | diff_tracker + auto_learner (1회=기록, 3회+=자동반영) |
+| 제출 체크리스트 | **API 완성** | `/api/checklist`. 프론트엔드 UI 미구현 |
+| 품질 검증 (quality_checker) | **동작** | 블라인드 위반(한글 조사 인식) + 모호 표현 감지 |
+| Pydantic 입력 검증 | **동작** | RfxResultInput 스키마, title 필수, total_pages 10~200 |
+
 ### 미구현 / 제한
 | 기능 | 상태 | 비고 |
 |------|------|------|
-| 제안서 초안 생성 | **SaaS only** | rag_engine의 proposal_generator 존재, 레거시 연동 미완 |
+| 제안서 DOCX 다운로드 UI | **미구현** | API는 완성, 프론트엔드 다운로드 링크/미리보기 필요 |
+| 체크리스트 프론트엔드 | **미구현** | API 완성, UI 컴포넌트 필요 |
+| 회사 DB 온보딩 UI | **미구현** | API 완성, 실적/인력 입력 화면 필요 |
+| auto_learner 영속성 | **미구현** | 인메모리. lifespan 이벤트에서 save/load 필요 |
+| Layer 1 실제 데이터 | **미수집** | 코드는 완성, URL 큐레이션 확인 후 실행 필요 |
+| 수행계획서/WBS | **미구현** | Phase 2 |
+| PPT 발표자료 | **미구현** | Phase 2 |
+| 실적/경력 기술서 | **미구현** | Phase 2 |
+| Layer 3 승패 분석 | **미구현** | Phase 2~3 |
 | 관심 공고 자동 알림 | **미구현** | SaaS n8n 워크플로우로만 가능 |
 | 엑셀 평가 리포트 다운로드 | **SaaS only** | web_saas의 buildEvaluationExcel, 레거시 미연동 |
 | 강점 카드 | **SaaS only** | web_saas의 buildStrengthCard |
-| Google OAuth 로그인 | **환경변수 필요** | VITE_GOOGLE_LOGIN_URL 미설정 시 오류 표시 |
 | 의견 모드 UI 선택기 | **미구현** | 타입/로직 존재, UI 컴포넌트 미구현 |
 
 ---

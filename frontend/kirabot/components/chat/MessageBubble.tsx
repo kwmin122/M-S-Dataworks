@@ -9,6 +9,7 @@ import AnalysisResultView from './messages/AnalysisResultView';
 import InlineFormView from './messages/InlineFormView';
 import FileUploadView from './messages/FileUploadView';
 import StatusMessageView from './messages/StatusMessageView';
+import ChecklistView from './messages/ChecklistView';
 
 interface Props {
   message: ChatMessage;
@@ -34,6 +35,8 @@ const MessageBubble: React.FC<Props> = ({ message, onAction }) => {
         return <FileUploadView message={message} onAction={onAction} />;
       case 'status':
         return <StatusMessageView message={message} onAction={onAction} />;
+      case 'checklist':
+        return <ChecklistView message={message} onAction={onAction} />;
       default:
         return null;
     }

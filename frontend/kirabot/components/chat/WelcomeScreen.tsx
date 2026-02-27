@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, Building2, FileSearch, Search, FileText, Bell } from 'lucide-react';
+import { Send, Paperclip, Building2, FileSearch, Search, FileText, Bell, Database } from 'lucide-react';
 import KiraBotLogo from '../KiraBotLogo';
 import { useAutoResize } from '../../hooks/useAutoResize';
 import { useChatContext } from '../../context/ChatContext';
@@ -15,6 +15,7 @@ const chips = [
   { label: '공고 검색/분석', value: 'bid_search', icon: Search },
   { label: '일반 문서 분석', value: 'doc_analysis', icon: FileText },
   { label: '공고 알림 설정', value: 'setup_alert', icon: Bell },
+  { label: '회사 역량 DB 구축', value: 'company_onboarding', icon: Database },
 ] as const;
 
 const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ user, onSendText, onAction }) => {

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { CheckCircle2, XCircle, AlertCircle, Sparkles, FileText, BarChart3 } from 'lucide-react';
+import { CheckCircle2, XCircle, AlertCircle, Sparkles, FileText, BarChart3, ClipboardList } from 'lucide-react';
 import type { AnalysisResultMessage, MessageAction, OpinionMode } from '../../../types';
 
 interface Props {
@@ -215,11 +215,11 @@ const AnalysisResultView: React.FC<Props> = ({ message, onAction }) => {
         ) : null}
 
         <button type="button"
-          onClick={() => onAction?.({ type: 'generate_proposal', bidNoticeId: analysis.filename || 'unknown', bidTitle: a?.title || '' })}
+          onClick={() => onAction?.({ type: 'generate_proposal_v2', bidTitle: a?.title || '' })}
           className="mt-1 flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-kira-600 to-kira-700 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:from-kira-700 hover:to-kira-800 transition-all"
         >
           <Sparkles size={14} />
-          제안서 초안 생성
+          제안서 생성 (DOCX)
         </button>
       </div>
     );
@@ -241,6 +241,15 @@ const AnalysisResultView: React.FC<Props> = ({ message, onAction }) => {
       {/* 2-탭 UI */}
       {renderTabs()}
       {activeTab === 'rfp_summary' ? renderRfpSummary() : renderGoNoGo()}
+
+      {/* 제출 체크리스트 버튼 */}
+      <button type="button"
+        onClick={() => onAction?.({ type: 'view_checklist' })}
+        className="mt-2 flex items-center gap-1.5 rounded-lg border border-kira-200 bg-white px-3 py-1.5 text-xs font-medium text-kira-700 shadow-sm hover:bg-kira-50 transition-all"
+      >
+        <ClipboardList size={14} />
+        제출 체크리스트
+      </button>
     </div>
   );
 };

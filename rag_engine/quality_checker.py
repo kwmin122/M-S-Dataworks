@@ -41,13 +41,23 @@ def check_quality(
     issues: list[QualityIssue] = []
 
     # 1. Blind evaluation violation: company name/brand in text
-    if company_name and company_name in text:
-        issues.append(QualityIssue(
-            category="blind_violation",
-            severity="critical",
-            detail=f"회사명 '{company_name}' 이 제안서 본문에 노출됨",
-            suggestion=f"'{company_name}'을 '당사' 또는 '[제안사]'로 교체",
-        ))
+    #    Korean-aware word boundary: block matches that are part of a longer
+    #    content word (e.g. "삼성전자공업") but ALLOW grammatical particles
+    #    (은/는/이/가/을/를/의/에/로/와/과/도/만 etc.) to follow the name.
+    _KO_PARTICLES = r"은|는|이|가|을|를|의|에|로|으로|와|과|도|만|에서|까지|부터|처럼|보다|라|란|나|님"
+    if company_name:
+        blind_pattern = re.compile(
+            r"(?<![가-힣a-zA-Z0-9])"
+            + re.escape(company_name)
+            + r"(?=(?:" + _KO_PARTICLES + r")?(?![가-힣]))"
+        )
+        if blind_pattern.search(text):
+            issues.append(QualityIssue(
+                category="blind_violation",
+                severity="critical",
+                detail=f"회사명 '{company_name}' 이 제안서 본문에 노출됨",
+                suggestion=f"'{company_name}'을 '당사' 또는 '[제안사]'로 교체",
+            ))
 
     # 2. Vague claims without evidence
     for match in VAGUE_RE.finditer(text):

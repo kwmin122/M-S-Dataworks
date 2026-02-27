@@ -184,7 +184,8 @@ export type ChatMessageType =
   | 'analysis_result'
   | 'inline_form'
   | 'file_upload'
-  | 'status';
+  | 'status'
+  | 'checklist';
 
 export interface BaseChatMessage {
   id: string;
@@ -252,6 +253,21 @@ export interface StatusChatMessage extends BaseChatMessage {
   retryAction?: string;
 }
 
+export interface ChecklistItem {
+  document_name: string;
+  is_mandatory: boolean;
+  format_hint: string;
+  deadline_note: string;
+  status: string;
+}
+
+export interface ChecklistChatMessage extends BaseChatMessage {
+  type: 'checklist';
+  items: ChecklistItem[];
+  total: number;
+  mandatory_count: number;
+}
+
 export type ChatMessage =
   | TextChatMessage
   | ButtonChoiceMessage
@@ -259,7 +275,8 @@ export type ChatMessage =
   | AnalysisResultMessage
   | InlineFormMessage
   | FileUploadMessage
-  | StatusChatMessage;
+  | StatusChatMessage
+  | ChecklistChatMessage;
 
 // ── 대화 Phase ──
 
@@ -343,7 +360,9 @@ export type MessageAction =
   | { type: 'delete_company_doc'; sourceFile: string }
   | { type: 'undo_company_upload'; sourceFiles: string[] }
   | { type: 'go_back' }
-  | { type: 'ask_about_doc'; sourceFile: string };
+  | { type: 'ask_about_doc'; sourceFile: string }
+  | { type: 'view_checklist' }
+  | { type: 'start_company_onboarding' };
 
 // ── 문서 멘션 (다중 문서 질의) ──
 

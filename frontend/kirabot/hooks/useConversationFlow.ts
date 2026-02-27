@@ -7,6 +7,7 @@ import { trackEvent } from '../utils/analytics';
 import { REGIONS } from '../constants/filters';
 import type {
   ChatMessage,
+  ChecklistChatMessage,
   CompanyProfile,
   MessageAction,
   ConversationPhase,
@@ -470,9 +471,26 @@ export function useConversationFlow() {
       } else if (value === 'setup_alert') {
         trackEvent('chat_started', { mode: 'alert_setup' });
         navigate('/settings/alerts');
+      } else if (value === 'company_onboarding') {
+        trackEvent('chat_started', { mode: 'company_onboarding' });
+        pushText('회사 역량 DB를 구축합니다. 먼저 기본 정보를 입력해주세요.');
+        push({
+          id: msgId(),
+          role: 'bot',
+          type: 'inline_form',
+          timestamp: Date.now(),
+          text: '회사 기본정보',
+          fields: [
+            { key: 'company_name', label: '회사명', type: 'text' },
+            { key: 'business_type', label: '업종 (예: IT, 건설)', type: 'text' },
+            { key: 'employee_count', label: '직원 수', type: 'number' },
+          ],
+          submitLabel: '저장 후 실적 입력',
+        } as InlineFormMessage);
+        updateConv({ _onboardingStep: 'basic_info' } as any);
       }
     },
-    [conversationId, conversation, push, pushText, setPhase, navigate],
+    [conversationId, conversation, push, pushText, setPhase, navigate, updateConv],
   );
 
   // ── Handle message actions (FSM transitions) ──
@@ -497,6 +515,7 @@ export function useConversationFlow() {
             company_upload_file: '파일 업로드',
             company_input_text: '텍스트로 입력',
             skip_to_target: '바로 문서 분석',
+            company_onboarding: '회사 역량 DB 구축',
           };
           const label = labelMap[action.value] || action.value;
           push({
@@ -507,7 +526,7 @@ export function useConversationFlow() {
             text: label,
           } as TextChatMessage);
 
-          if (action.value === 'doc_analysis' || action.value === 'bid_search' || action.value === 'setup_alert') {
+          if (action.value === 'doc_analysis' || action.value === 'bid_search' || action.value === 'setup_alert' || action.value === 'company_onboarding') {
             handleFeatureSelection(action.value);
           } else if (action.value === 'upload_target') {
             setPhase('doc_upload_target');
@@ -729,6 +748,140 @@ export function useConversationFlow() {
         case 'form_submitted': {
           const { values, messageId } = action;
           updateMsg(messageId, { submittedValues: values } as Partial<InlineFormMessage>);
+
+          // ── 회사 DB 온보딩 폼 처리 ──
+          const _obStep = (conversation as any)?._onboardingStep;
+          if (_obStep === 'basic_info') {
+            setProcessing(true);
+            try {
+              await api.updateCompanyDbProfile({
+                company_name: values.company_name || '',
+                business_type: values.business_type || '',
+                employee_count: parseInt(values.employee_count || '0', 10),
+              });
+              pushText(`회사 기본정보가 저장되었습니다: **${values.company_name}**`);
+              push({
+                id: msgId(), role: 'bot', type: 'inline_form', timestamp: Date.now(),
+                text: '실적을 추가해주세요. (완료하려면 프로젝트명을 비워두고 제출)',
+                fields: [
+                  { key: 'project_name', label: '프로젝트명', type: 'text' },
+                  { key: 'client', label: '발주처', type: 'text' },
+                  { key: 'contract_amount', label: '계약금액', type: 'text' },
+                  { key: 'period', label: '수행기간 (예: 2024.01~2024.12)', type: 'text' },
+                  { key: 'description', label: '사업 설명', type: 'text' },
+                ],
+                submitLabel: '실적 추가',
+              } as InlineFormMessage);
+              updateConv({ _onboardingStep: 'track_records' } as any);
+            } catch (error) {
+              const msg = error instanceof Error ? error.message : '알 수 없는 오류';
+              pushStatus('error', `기본정보 저장 실패: ${msg}`);
+            } finally {
+              setProcessing(false);
+            }
+            break;
+          }
+
+          if (_obStep === 'track_records') {
+            if (!values.project_name?.trim()) {
+              pushText('실적 입력을 완료합니다. 이제 주요 인력을 등록해주세요.');
+              push({
+                id: msgId(), role: 'bot', type: 'inline_form', timestamp: Date.now(),
+                text: '인력 정보를 추가해주세요. (완료하려면 이름을 비워두고 제출)',
+                fields: [
+                  { key: 'name', label: '이름', type: 'text' },
+                  { key: 'role', label: '역할 (PM, PL, 개발자 등)', type: 'text' },
+                  { key: 'experience_years', label: '경력(년)', type: 'number' },
+                  { key: 'certifications', label: '자격증 (쉼표 구분)', type: 'text' },
+                ],
+                submitLabel: '인력 추가',
+              } as InlineFormMessage);
+              updateConv({ _onboardingStep: 'personnel' } as any);
+              break;
+            }
+            setProcessing(true);
+            try {
+              const result = await api.addTrackRecord({
+                project_name: values.project_name,
+                client: values.client || '',
+                contract_amount: values.contract_amount || '',
+                period: values.period || '',
+                description: values.description || '',
+              });
+              pushText(`실적이 추가되었습니다: **${values.project_name}** (DB 총 ${result.total}건)`);
+              push({
+                id: msgId(), role: 'bot', type: 'inline_form', timestamp: Date.now(),
+                text: '추가 실적을 입력하세요. (완료하려면 프로젝트명을 비워두고 제출)',
+                fields: [
+                  { key: 'project_name', label: '프로젝트명', type: 'text' },
+                  { key: 'client', label: '발주처', type: 'text' },
+                  { key: 'contract_amount', label: '계약금액', type: 'text' },
+                  { key: 'period', label: '수행기간', type: 'text' },
+                  { key: 'description', label: '사업 설명', type: 'text' },
+                ],
+                submitLabel: '실적 추가',
+              } as InlineFormMessage);
+            } catch (error) {
+              const msg = error instanceof Error ? error.message : '알 수 없는 오류';
+              pushStatus('error', `실적 추가 실패: ${msg}`);
+            } finally {
+              setProcessing(false);
+            }
+            break;
+          }
+
+          if (_obStep === 'personnel') {
+            if (!values.name?.trim()) {
+              setProcessing(true);
+              try {
+                const stats = await api.getCompanyDbStats();
+                pushText(
+                  `회사 역량 DB 구축이 완료되었습니다!\n\n` +
+                  `- 실적: **${stats.track_record_count}건**\n` +
+                  `- 인력: **${stats.personnel_count}명**\n` +
+                  `- 전체 지식 단위: **${stats.total_knowledge_units}건**\n\n` +
+                  `이제 제안서 생성 시 회사 맞춤 정보가 자동으로 반영됩니다.`
+                );
+                updateConv({ _onboardingStep: undefined } as any);
+                trackEvent('company_onboarding_complete', { units: stats.total_knowledge_units });
+              } catch (error) {
+                const msg = error instanceof Error ? error.message : '알 수 없는 오류';
+                pushStatus('error', `통계 조회 실패: ${msg}`);
+              } finally {
+                setProcessing(false);
+              }
+              break;
+            }
+            setProcessing(true);
+            try {
+              const certs = values.certifications ? values.certifications.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+              const result = await api.addPersonnel({
+                name: values.name,
+                role: values.role || '',
+                experience_years: parseInt(values.experience_years || '0', 10),
+                certifications: certs,
+                description: '',
+              });
+              pushText(`인력이 추가되었습니다: **${values.name}** (${values.role}) (DB 총 ${result.total}건)`);
+              push({
+                id: msgId(), role: 'bot', type: 'inline_form', timestamp: Date.now(),
+                text: '추가 인력을 입력하세요. (완료하려면 이름을 비워두고 제출)',
+                fields: [
+                  { key: 'name', label: '이름', type: 'text' },
+                  { key: 'role', label: '역할', type: 'text' },
+                  { key: 'experience_years', label: '경력(년)', type: 'number' },
+                  { key: 'certifications', label: '자격증 (쉼표 구분)', type: 'text' },
+                ],
+                submitLabel: '인력 추가',
+              } as InlineFormMessage);
+            } catch (error) {
+              const msg = error instanceof Error ? error.message : '알 수 없는 오류';
+              pushStatus('error', `인력 추가 실패: ${msg}`);
+            } finally {
+              setProcessing(false);
+            }
+            break;
+          }
 
           if (conversation.phase === 'bid_search_input') {
             trackEvent('bid_search', { keyword: values.keywords, region: values.region, category: values.category });
@@ -1208,6 +1361,10 @@ export function useConversationFlow() {
 
             const sectionList = result.sections.map((s, i) => `${i + 1}. ${s.name}`).join('\n');
             let msg = `제안서 DOCX가 생성되었습니다! (${result.generation_time_sec}초)\n\n**섹션 구성:**\n${sectionList}`;
+            if (result.docx_filename) {
+              const downloadUrl = api.getProposalDownloadUrl(result.docx_filename);
+              msg += `\n\n[📥 제안서 DOCX 다운로드](${downloadUrl})`;
+            }
             if (result.quality_issues.length > 0) {
               msg += `\n\n**품질 이슈 ${result.quality_issues.length}건:**\n` +
                 result.quality_issues.map(q => `- [${q.severity}] ${q.detail}`).join('\n');
@@ -1218,6 +1375,39 @@ export function useConversationFlow() {
             removeLastStatus();
             const msg = error instanceof Error ? error.message : '알 수 없는 오류';
             pushStatus('error', `A-lite 제안서 생성 실패: ${msg}`);
+          } finally {
+            setProcessing(false);
+          }
+          break;
+        }
+
+        case 'view_checklist': {
+          if (!conversation.sessionId) {
+            pushStatus('error', '세션이 없습니다. 먼저 공고를 분석해주세요.');
+            break;
+          }
+
+          setProcessing(true);
+          pushStatus('loading', '제출 체크리스트를 추출하고 있어요...');
+
+          try {
+            const result = await api.getChecklist(conversation.sessionId);
+            removeLastStatus();
+
+            push({
+              id: msgId(),
+              role: 'bot',
+              type: 'checklist',
+              timestamp: Date.now(),
+              items: result.items,
+              total: result.total,
+              mandatory_count: result.mandatory_count,
+            } as ChecklistChatMessage);
+            trackEvent('checklist_viewed');
+          } catch (error) {
+            removeLastStatus();
+            const msg = error instanceof Error ? error.message : '알 수 없는 오류';
+            pushStatus('error', `체크리스트 추출 실패: ${msg}`);
           } finally {
             setProcessing(false);
           }
@@ -1302,6 +1492,11 @@ export function useConversationFlow() {
 
         case 'ask_about_doc': {
           updateConv({ activeDocFilter: [action.sourceFile] });
+          break;
+        }
+
+        case 'start_company_onboarding': {
+          handleFeatureSelection('company_onboarding');
           break;
         }
       }

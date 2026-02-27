@@ -25,8 +25,9 @@ class KnowledgeDB:
         )
 
     def _make_id(self, unit: KnowledgeUnit) -> str:
-        h = hashlib.sha256(f"{unit.category.value}:{unit.rule}".encode()).hexdigest()[:16]
-        return f"kn_{h}"
+        content = f"{unit.source_type.value}:{unit.category.value}:{unit.rule}"
+        h = hashlib.sha256(content.encode()).hexdigest()[:12]
+        return f"{unit.source_type.value}_{h}"
 
     def _make_document(self, unit: KnowledgeUnit) -> str:
         """Concatenate rule + explanation for embedding. Include condition for contextual matching."""

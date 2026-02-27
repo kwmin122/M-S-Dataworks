@@ -14,6 +14,7 @@ from typing import Optional
 
 from openai import OpenAI
 
+from llm_utils import call_with_retry, LLM_DEFAULT_TIMEOUT
 from knowledge_models import KnowledgeUnit
 
 logger = logging.getLogger(__name__)
@@ -47,17 +48,24 @@ def _call_llm_for_classification(
     rule_a: str, source_a: str, rule_b: str, source_b: str,
     api_key: Optional[str] = None,
 ) -> str:
-    client = OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"))
+    client = OpenAI(
+        api_key=api_key or os.environ.get("OPENAI_API_KEY"),
+        timeout=LLM_DEFAULT_TIMEOUT,
+    )
     prompt = CLASSIFICATION_PROMPT.format(
         rule_a=rule_a, source_a=source_a,
         rule_b=rule_b, source_b=source_b,
     )
-    resp = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.1,
-        max_tokens=500,
-    )
+
+    def _do_call():
+        return client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=500,
+        )
+
+    resp = call_with_retry(_do_call)
     return resp.choices[0].message.content or "{}"
 
 

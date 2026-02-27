@@ -44,3 +44,19 @@ def test_no_company_name_skip_blind_check():
     issues = check_quality(text, company_name=None)
     blind_issues = [i for i in issues if i.category == "blind_violation"]
     assert len(blind_issues) == 0
+
+
+def test_blind_check_word_boundary():
+    """'삼성전자' should NOT trigger blind violation when only '삼성전자공업' appears."""
+    text = "삼성전자공업은 우수한 기업입니다."
+    issues = check_quality(text, company_name="삼성전자")
+    blind_issues = [i for i in issues if i.category == "blind_violation"]
+    assert len(blind_issues) == 0  # partial match should NOT trigger
+
+
+def test_blind_check_exact_match():
+    """'삼성전자' as standalone word should trigger blind violation."""
+    text = "본 제안에서 삼성전자 가 수행합니다."
+    issues = check_quality(text, company_name="삼성전자")
+    blind_issues = [i for i in issues if i.category == "blind_violation"]
+    assert len(blind_issues) >= 1

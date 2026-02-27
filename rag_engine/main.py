@@ -16,13 +16,16 @@ import asyncio
 import logging
 import os
 import sys
+import threading
 import traceback
 from contextlib import asynccontextmanager
 from typing import Any
 
+import re as _re
+
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field, field_validator
 
 from models import AnalyzeBidRequest, AnalyzeBidResponse
 from proposal_generator import extract_template_sections, fill_template_sections
@@ -72,7 +75,24 @@ async def lifespan(app: FastAPI):
         _engine_error = f"Unexpected error during startup: {exc}"
         logger.error(_engine_error)
 
+    # Load auto-learner state
+    auto_learn_dir = os.path.join(this_dir, "data", "auto_learning")
+    try:
+        from auto_learner import load_state as _al_load
+        _al_load(auto_learn_dir)
+        logger.info("Auto-learner state loaded from %s", auto_learn_dir)
+    except Exception as exc:
+        logger.warning("Auto-learner state load skipped: %s", exc)
+
     yield  # application runs here
+
+    # Save auto-learner state on shutdown
+    try:
+        from auto_learner import save_state as _al_save
+        _al_save(auto_learn_dir)
+        logger.info("Auto-learner state saved to %s", auto_learn_dir)
+    except Exception as exc:
+        logger.warning("Auto-learner state save failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -225,14 +245,47 @@ async def generate_proposal(req: GenerateProposalRequest) -> GenerateProposalRes
 
 
 # ---------------------------------------------------------------------------
+# Shared Pydantic input schemas for RFP analysis result
+# ---------------------------------------------------------------------------
+
+class EvaluationCriterionInput(BaseModel):
+    category: str = ""
+    max_score: float = 0.0
+    description: str = ""
+
+
+class RequirementInput(BaseModel):
+    category: str = ""
+    description: str = ""
+
+
+class RfxResultInput(BaseModel):
+    """Validated RFP analysis result — used by v2 proposal + checklist endpoints."""
+    title: str = Field(min_length=1, description="사업명")
+    issuing_org: str = ""
+    budget: str = ""
+    project_period: str = ""
+    evaluation_criteria: list[EvaluationCriterionInput] = Field(default_factory=list)
+    requirements: list[RequirementInput] = Field(default_factory=list)
+    rfp_text_summary: str = ""
+
+    @field_validator("title")
+    @classmethod
+    def title_not_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("title은 빈 문자열일 수 없습니다")
+        return v.strip()
+
+
+# ---------------------------------------------------------------------------
 # Proposal generation v2 (Layer 1 knowledge-augmented)
 # ---------------------------------------------------------------------------
 
 class GenerateProposalV2Request(BaseModel):
-    rfx_result: dict
+    rfx_result: RfxResultInput
     company_context: str = ""
     company_name: str | None = None
-    total_pages: int = 50
+    total_pages: int = Field(default=50, ge=10, le=200)
 
 
 @app.post("/api/generate-proposal-v2")
@@ -240,21 +293,303 @@ async def generate_proposal_v2(req: GenerateProposalV2Request):
     """Generate a full proposal DOCX using Layer 1 knowledge + RFP analysis."""
     from proposal_orchestrator import generate_proposal as _generate
 
-    result = await asyncio.to_thread(
-        _generate,
-        rfx_result=req.rfx_result,
-        company_context=req.company_context,
-        company_name=req.company_name,
-        total_pages=req.total_pages,
-    )
+    try:
+        result = await asyncio.to_thread(
+            _generate,
+            rfx_result=req.rfx_result.model_dump(),
+            company_context=req.company_context,
+            company_name=req.company_name,
+            total_pages=req.total_pages,
+        )
+    except Exception as exc:
+        logger.error("generate_proposal_v2 failed: %s\n%s", exc, traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"제안서 생성 실패: {exc}") from exc
+
+    # Return only filename, not full server path (security: C1)
+    docx_filename = os.path.basename(result.docx_path) if result.docx_path else ""
     return {
-        "docx_path": result.docx_path,
+        "docx_filename": docx_filename,
         "sections": [{"name": n, "preview": t[:500]} for n, t in result.sections],
         "quality_issues": [
             {"category": qi.category, "severity": qi.severity, "detail": qi.detail}
             for qi in result.quality_issues
         ],
         "generation_time_sec": result.generation_time_sec,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Proposal DOCX download
+# ---------------------------------------------------------------------------
+
+_PROPOSALS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "proposals")
+_SAFE_FILENAME_RE = _re.compile(r'^[a-zA-Z0-9가-힣._\-]+\.docx$')
+
+
+@app.get("/api/proposals/download/{filename}")
+async def download_proposal(filename: str):
+    """Serve a generated DOCX file for download.
+
+    Security:
+      - Filename must match whitelist regex (no path separators)
+      - realpath must resolve within _PROPOSALS_DIR (prevents traversal)
+    """
+    if not _SAFE_FILENAME_RE.match(filename) or len(filename) > 150:
+        raise HTTPException(status_code=400, detail="잘못된 파일명입니다.")
+
+    filepath = os.path.join(_PROPOSALS_DIR, filename)
+    real = os.path.realpath(filepath)
+    base = os.path.realpath(_PROPOSALS_DIR)
+    if not (real.startswith(base + os.sep) or real == base):
+        raise HTTPException(status_code=400, detail="잘못된 파일 경로입니다.")
+
+    if not os.path.isfile(real):
+        raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
+
+    return FileResponse(
+        real,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=filename,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Submission checklist
+# ---------------------------------------------------------------------------
+
+class ChecklistRequest(BaseModel):
+    rfx_result: RfxResultInput
+    rfp_text: str = ""
+
+
+@app.post("/api/checklist")
+async def extract_checklist_endpoint(req: ChecklistRequest):
+    """Extract submission checklist from RFP analysis result."""
+    try:
+        from checklist_extractor import extract_checklist
+        items = extract_checklist(req.rfx_result.model_dump(), req.rfp_text)
+    except Exception as exc:
+        logger.error("checklist extraction failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"체크리스트 추출 실패: {exc}") from exc
+    return {
+        "items": [
+            {
+                "document_name": it.document_name,
+                "is_mandatory": it.is_mandatory,
+                "format_hint": it.format_hint,
+                "deadline_note": it.deadline_note,
+                "status": it.status,
+            }
+            for it in items
+        ],
+        "total": len(items),
+        "mandatory_count": sum(1 for it in items if it.is_mandatory),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Edit feedback (diff learning)
+# ---------------------------------------------------------------------------
+
+class EditFeedbackRequest(BaseModel):
+    company_id: str = Field(min_length=1)
+    section_name: str = Field(min_length=1)
+    original_text: str
+    edited_text: str
+
+
+@app.post("/api/edit-feedback")
+async def edit_feedback_endpoint(req: EditFeedbackRequest):
+    """Process user edits for auto-learning pipeline."""
+    try:
+        from auto_learner import process_edit_feedback
+        result = process_edit_feedback(
+            company_id=req.company_id,
+            section_name=req.section_name,
+            original_text=req.original_text,
+            edited_text=req.edited_text,
+        )
+    except Exception as exc:
+        logger.error("edit feedback failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"수정 피드백 처리 실패: {exc}") from exc
+    return {
+        "edit_rate": result.edit_rate,
+        "new_diffs": result.new_diffs,
+        "promoted_patterns": [
+            {
+                "section_name": p.section_name,
+                "description": p.description,
+                "occurrence_count": p.occurrence_count,
+            }
+            for p in result.promoted_patterns
+        ],
+        "notifications": result.notifications,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Company DB CRUD
+# ---------------------------------------------------------------------------
+
+_company_db_instance = None
+_company_db_init_lock = threading.Lock()
+_company_db_profile_lock = asyncio.Lock()
+
+
+def _get_company_db():
+    global _company_db_instance
+    if _company_db_instance is None:
+        with _company_db_init_lock:
+            if _company_db_instance is None:
+                from company_db import CompanyDB
+                db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "company_db")
+                _company_db_instance = CompanyDB(persist_directory=db_path)
+    return _company_db_instance
+
+
+class TrackRecordRequest(BaseModel):
+    project_name: str = Field(min_length=1)
+    client: str = Field(min_length=1)
+    contract_amount: str = ""
+    period: str = ""
+    description: str = ""
+    technologies: list[str] = Field(default_factory=list)
+
+
+class PersonnelRequest(BaseModel):
+    name: str = Field(min_length=1)
+    role: str = Field(min_length=1)
+    experience_years: int = Field(default=0, ge=0)
+    certifications: list[str] = Field(default_factory=list)
+    description: str = ""
+
+
+class CompanyProfileUpdateRequest(BaseModel):
+    company_name: str = ""
+    business_type: str = ""
+    specializations: list[str] = Field(default_factory=list)
+    certifications: list[str] = Field(default_factory=list)
+    employee_count: int = 0
+    capital: float = 0.0
+
+
+@app.post("/api/company-db/track-records")
+async def add_track_record_endpoint(req: TrackRecordRequest):
+    """Add a track record to the company DB."""
+    from company_db import TrackRecord as TR
+
+    db = _get_company_db()
+    amount = 0.0
+    if req.contract_amount:
+        try:
+            amount = float(req.contract_amount.replace(",", "").replace("억", "").strip())
+        except ValueError:
+            pass
+
+    record = TR(
+        project_name=req.project_name,
+        client=req.client,
+        period=req.period,
+        amount=amount,
+        description=req.description,
+        technologies=req.technologies,
+    )
+    doc_id = db.add_track_record(record)
+
+    # Update profile under lock to prevent TOCTOU race
+    async with _company_db_profile_lock:
+        profile = db.load_profile()
+        if profile:
+            profile.track_records.append(record)
+            db.save_profile(profile)
+
+    return {"id": doc_id, "total": db.count()}
+
+
+@app.post("/api/company-db/personnel")
+async def add_personnel_endpoint(req: PersonnelRequest):
+    """Add personnel info to the company DB."""
+    from company_db import Personnel as PS
+
+    db = _get_company_db()
+    person = PS(
+        name=req.name,
+        role=req.role,
+        experience_years=req.experience_years,
+        certifications=req.certifications,
+        specialties=[],
+        key_projects=[],
+    )
+    doc_id = db.add_personnel(person)
+
+    # Update profile under lock to prevent TOCTOU race
+    async with _company_db_profile_lock:
+        profile = db.load_profile()
+        if profile:
+            profile.personnel.append(person)
+            db.save_profile(profile)
+
+    return {"id": doc_id, "total": db.count()}
+
+
+@app.get("/api/company-db/profile")
+async def get_company_db_profile():
+    """Get company capability profile."""
+    db = _get_company_db()
+    profile = db.load_profile()
+    if profile is None:
+        return {"profile": None}
+    return {
+        "profile": {
+            "company_name": profile.name,
+            "business_type": "",
+            "specializations": profile.certifications,
+            "track_record_count": len(profile.track_records),
+            "personnel_count": len(profile.personnel),
+        }
+    }
+
+
+@app.put("/api/company-db/profile")
+async def update_company_db_profile(req: CompanyProfileUpdateRequest):
+    """Update or create company capability profile."""
+    from company_db import CompanyCapabilityProfile
+
+    db = _get_company_db()
+    profile = db.load_profile()
+    if profile is None:
+        profile = CompanyCapabilityProfile(name=req.company_name or "미설정")
+
+    if req.company_name:
+        profile.name = req.company_name
+    if req.certifications:
+        profile.certifications = req.certifications
+    if req.employee_count:
+        profile.employee_count = req.employee_count
+    if req.capital:
+        profile.capital = req.capital
+
+    db.save_profile(profile)
+    return {
+        "profile": {
+            "company_name": profile.name,
+            "business_type": "",
+            "specializations": profile.certifications,
+            "track_record_count": len(profile.track_records),
+            "personnel_count": len(profile.personnel),
+        }
+    }
+
+
+@app.get("/api/company-db/stats")
+async def get_company_db_stats():
+    """Get company DB statistics."""
+    db = _get_company_db()
+    profile = db.load_profile()
+    return {
+        "track_record_count": len(profile.track_records) if profile else 0,
+        "personnel_count": len(profile.personnel) if profile else 0,
+        "total_knowledge_units": db.count(),
     }
 
 

@@ -2475,7 +2475,12 @@ async def download_proposal_proxy(filename: str):
             return Response(
                 content=resp.content,
                 media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="{filename}"; '
+                        f"filename*=UTF-8''{urllib.parse.quote(filename)}"
+                    )
+                },
             )
         elif resp.status_code == 404:
             raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
@@ -2538,16 +2543,19 @@ async def checklist_proxy(payload: ChecklistProxyPayload) -> dict[str, Any]:
 async def _proxy_to_rag(method: str, path: str, json_body: dict | None = None, timeout: int = 30) -> dict:
     """Helper to proxy requests to rag_engine."""
     fastapi_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        if method == "GET":
-            resp = await client.get(f"{fastapi_url}{path}")
-        elif method == "PUT":
-            resp = await client.put(f"{fastapi_url}{path}", json=json_body)
-        else:
-            resp = await client.post(f"{fastapi_url}{path}", json=json_body)
-    if resp.status_code == 200:
-        return resp.json()
-    raise HTTPException(status_code=502, detail=f"rag_engine 오류: {resp.text[:200]}")
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            if method == "GET":
+                resp = await client.get(f"{fastapi_url}{path}")
+            elif method == "PUT":
+                resp = await client.put(f"{fastapi_url}{path}", json=json_body)
+            else:
+                resp = await client.post(f"{fastapi_url}{path}", json=json_body)
+        if resp.status_code == 200:
+            return resp.json()
+        raise HTTPException(status_code=502, detail=f"rag_engine 오류: {resp.text[:200]}")
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"rag_engine 연결 실패: {exc}") from exc
 
 
 @app.post("/api/company-db/track-records")
