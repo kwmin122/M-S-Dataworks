@@ -319,3 +319,48 @@ def test_save_alert_config_validates_email():
     resp = client.post("/api/alerts/config", json=config)
     assert resp.status_code == 400
     assert "유효한 이메일" in resp.json()["detail"]
+
+
+def test_alert_config_full_workflow():
+    """Full workflow: create config with all filters, retrieve, verify"""
+    config = {
+        "email": "integration@example.com",
+        "enabled": True,
+        "schedule": "daily_2",
+        "hours": [9, 18],
+        "companyProfile": {
+            "description": "교통신호등 제조 전문. ISO 9001 보유.",
+            "mainProducts": ["교통신호등", "CCTV"],
+            "excludedAreas": ["안산", "부산"],
+        },
+        "rules": [
+            {
+                "id": "rule1",
+                "keywords": ["교통신호등", "CCTV"],
+                "excludeKeywords": ["유지보수"],
+                "categories": ["물품"],
+                "regions": ["서울", "경기"],
+                "excludeRegions": ["안산"],
+                "productCodes": ["42101", "42105"],
+                "detailedItems": ["교통신호등 주"],
+                "minAmt": 50000000,
+                "maxAmt": 200000000,
+                "enabled": True,
+            }
+        ],
+    }
+
+    # Save
+    save_resp = client.post("/api/alerts/config", json=config)
+    assert save_resp.status_code == 200
+
+    # Retrieve
+    get_resp = client.get("/api/alerts/config?email=integration@example.com")
+    assert get_resp.status_code == 200
+
+    data = get_resp.json()
+    assert data["email"] == "integration@example.com"
+    assert data["companyProfile"]["description"] == "교통신호등 제조 전문. ISO 9001 보유."
+    assert len(data["companyProfile"]["mainProducts"]) == 2
+    assert data["rules"][0]["excludeRegions"] == ["안산"]
+    assert data["rules"][0]["productCodes"] == ["42101", "42105"]
