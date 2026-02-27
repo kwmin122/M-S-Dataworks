@@ -160,7 +160,7 @@ export function useConversationFlow() {
   // ── Helper message builders ──
 
   const pushText = useCallback(
-    (text: string, references?: { page: number; text: string }[]) => {
+    (text: string, references?: { page: number; text: string }[], scoped_to?: string[]) => {
       push({
         id: msgId(),
         role: 'bot',
@@ -168,6 +168,7 @@ export function useConversationFlow() {
         timestamp: Date.now(),
         text,
         references,
+        scoped_to,
       } as TextChatMessage);
     },
     [push],
@@ -218,7 +219,7 @@ export function useConversationFlow() {
   // ── Handle user text input ──
 
   const handleUserText = useCallback(
-    async (text: string, _sourceFiles?: string[]) => {
+    async (text: string, sourceFiles?: string[]) => {
       if (!conversationId || !conversation) return;
 
       push({
@@ -242,9 +243,10 @@ export function useConversationFlow() {
         setProcessing(true);
         pushStatus('loading', '답변을 생성하고 있어요...');
         try {
-          const res = await api.chatWithReferences(conversation.sessionId, text);
+          const res = await api.chatWithReferences(conversation.sessionId, text, sourceFiles);
           removeLastStatus();
-          pushText(res.answer, res.references);
+          pushText(res.answer, res.references, res.scoped_to);
+          if (conversation.activeDocFilter) updateConv({ activeDocFilter: null });
           if (res.references?.length) {
             const currentUrl = conversation?.uploadedFileUrl ||
               (state.contextPanel.type === 'pdf' ? state.contextPanel.blobUrl : '') ||
@@ -1160,6 +1162,11 @@ export function useConversationFlow() {
           } else if (phase === 'doc_upload_company') {
             setPhase('greeting');
           }
+          break;
+        }
+
+        case 'ask_about_doc': {
+          updateConv({ activeDocFilter: [action.sourceFile] });
           break;
         }
       }
