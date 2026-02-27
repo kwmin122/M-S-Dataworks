@@ -85,6 +85,7 @@ from user_store import (  # noqa: E402
     upsert_social_user,
     username_to_scope,
 )
+from alert_storage import get_alert_config, save_alert_config  # noqa: E402
 
 
 ALLOWED_UPLOAD_EXTENSIONS = {
@@ -2783,8 +2784,27 @@ def _sanitize_alert_session_id(raw: str) -> str:
 
 
 @app.post("/api/alerts/config")
-async def save_alert_config(request: Request, payload: dict) -> dict[str, Any]:
-    """다중 규칙 기반 알림 설정 저장."""
+async def save_alert_config_endpoint(request: Request, payload: dict) -> dict[str, Any]:
+    """다중 규칙 기반 알림 설정 저장. session_id(인증 필요) 또는 email(공개) 지원."""
+    # Email-based save (public access for alert registration)
+    if "email" in payload and "session_id" not in payload:
+        try:
+            # Basic validation (email first, then schedule, then rules)
+            email = payload.get("email")
+            if not email or '@' not in email:
+                raise ValueError("유효한 이메일 주소가 필요합니다.")
+            if not isinstance(payload.get("rules"), list):
+                raise ValueError("rules 필드가 배열이어야 합니다.")
+            schedule = payload.get("schedule", "daily_1")
+            if schedule not in ["realtime", "daily_1", "daily_2", "daily_3"]:
+                raise ValueError("올바른 schedule 값이 필요합니다.")
+
+            save_alert_config(payload)
+            return {"success": True, "message": "알림 설정이 저장되었습니다."}
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    # Session-based save (requires auth) - existing logic
     _require_username(request)
     session_id = _sanitize_alert_session_id(payload.get("session_id", ""))
 
@@ -2837,8 +2857,16 @@ async def save_alert_config(request: Request, payload: dict) -> dict[str, Any]:
 
 
 @app.get("/api/alerts/config")
-async def get_alert_config(request: Request, session_id: str = "") -> dict[str, Any]:
-    """다중 규칙 기반 알림 설정 조회."""
+async def get_alert_config_endpoint(request: Request, session_id: str = "", email: str = "") -> dict[str, Any]:
+    """다중 규칙 기반 알림 설정 조회. session_id(인증 필요) 또는 email(공개) 지원."""
+    # Email-based lookup (public access for alert registration)
+    if email:
+        try:
+            return get_alert_config(email)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    # Session-based lookup (requires auth)
     _require_username(request)
     session_id = _sanitize_alert_session_id(session_id)
 

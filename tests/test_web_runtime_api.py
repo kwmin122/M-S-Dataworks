@@ -261,3 +261,61 @@ def test_chat_gap_query_returns_gap_list_when_latest_matching_has_issues(monkeyp
     assert "보완 필요 항목입니다" in data["answer"]
     assert "필수/미충족" in data["answer"]
     assert "최근 3년 실적증명서 2건을 보완 제출하세요." in data["answer"]
+
+
+def test_get_alert_config_nonexistent_returns_default():
+    """GET /api/alerts/config for new user returns default config"""
+    resp = client.get("/api/alerts/config?email=new@example.com")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["email"] == "new@example.com"
+    assert data["enabled"] is False
+    assert data["rules"] == []
+
+
+def test_save_and_retrieve_alert_config():
+    """POST /api/alerts/config saves and GET retrieves"""
+    config = {
+        "email": "user@example.com",
+        "enabled": True,
+        "schedule": "daily_2",
+        "hours": [9, 18],
+        "rules": [{
+            "id": "1",
+            "keywords": ["교통신호등"],
+            "excludeRegions": ["안산"],
+            "productCodes": ["42101"],
+            "enabled": True,
+        }],
+        "companyProfile": {
+            "description": "교통신호등 제조 전문",
+        }
+    }
+
+    # Save
+    save_resp = client.post("/api/alerts/config", json=config)
+    assert save_resp.status_code == 200
+    assert save_resp.json()["success"] is True
+
+    # Retrieve
+    get_resp = client.get("/api/alerts/config?email=user@example.com")
+    assert get_resp.status_code == 200
+    data = get_resp.json()
+    assert data["email"] == "user@example.com"
+    assert data["schedule"] == "daily_2"
+    assert len(data["rules"]) == 1
+    assert data["rules"][0]["excludeRegions"] == ["안산"]
+    assert data["companyProfile"]["description"] == "교통신호등 제조 전문"
+
+
+def test_save_alert_config_validates_email():
+    """POST /api/alerts/config rejects invalid email"""
+    config = {
+        "email": "invalid-email",
+        "enabled": True,
+        "rules": []
+    }
+
+    resp = client.post("/api/alerts/config", json=config)
+    assert resp.status_code == 400
+    assert "유효한 이메일" in resp.json()["detail"]
