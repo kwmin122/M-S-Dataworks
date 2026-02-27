@@ -2932,8 +2932,13 @@ async def save_alert_config_endpoint(request: Request, payload: dict) -> dict[st
 
             # Validate description length
             if "companyProfile" in payload and payload["companyProfile"]:
+                # Add type check
+                if not isinstance(payload["companyProfile"], dict):
+                    raise ValueError("companyProfile 필드가 객체여야 합니다.")
+
                 desc = payload["companyProfile"].get("description", "")
-                if len(desc) > 2000:
+                # Add None check
+                if desc is not None and len(desc) > 2000:
                     raise ValueError("회사 설명은 2000자를 초과할 수 없습니다.")
 
             # Validate rules
@@ -2942,6 +2947,11 @@ async def save_alert_config_endpoint(request: Request, payload: dict) -> dict[st
 
             for i, rule in enumerate(payload.get("rules", [])):
                 keywords = rule.get("keywords", [])
+
+                # Add type check BEFORE empty check
+                if not isinstance(keywords, list):
+                    raise ValueError(f"규칙 #{i+1}: keywords 필드가 배열이어야 합니다.")
+
                 if not keywords:
                     raise ValueError(f"규칙 #{i+1}: 최소 1개의 키워드가 필요합니다.")
                 if len(keywords) > 50:
@@ -2956,8 +2966,12 @@ async def save_alert_config_endpoint(request: Request, payload: dict) -> dict[st
             if "hours" in payload and not isinstance(payload["hours"], list):
                 raise ValueError("hours 필드가 배열이어야 합니다.")
 
-            save_alert_config(payload)
-            return {"success": True, "message": "알림 설정이 저장되었습니다."}
+            try:
+                save_alert_config(payload)
+                return {"success": True, "message": "알림 설정이 저장되었습니다."}
+            except (IOError, OSError) as e:
+                logger.error(f"Failed to save alert config: {e}")
+                raise HTTPException(status_code=500, detail="설정 저장에 실패했습니다.")
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 

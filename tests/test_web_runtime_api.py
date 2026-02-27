@@ -465,3 +465,35 @@ def test_save_alert_config_accepts_valid_rules():
     resp = client.post("/api/alerts/config", json=config)
     assert resp.status_code == 200
     assert resp.json()["success"] is True
+
+
+def test_save_alert_config_rejects_non_list_keywords():
+    """Keywords must be a list, not a string"""
+    config = {
+        "email": "test@example.com",
+        "enabled": True,
+        "schedule": "daily_2",
+        "hours": [9],
+        "rules": [{"id": "1", "keywords": "not-a-list", "enabled": True}],
+    }
+
+    resp = client.post("/api/alerts/config", json=config)
+    assert resp.status_code == 400
+    assert "keywords" in resp.json()["detail"]
+    assert "배열" in resp.json()["detail"]
+
+
+def test_save_alert_config_rejects_non_dict_company_profile():
+    """companyProfile must be a dict, not a string"""
+    config = {
+        "email": "test@example.com",
+        "enabled": True,
+        "schedule": "daily_2",
+        "hours": [9],
+        "rules": [],
+        "companyProfile": "not-a-dict",
+    }
+
+    resp = client.post("/api/alerts/config", json=config)
+    assert resp.status_code == 400
+    assert "companyProfile" in resp.json()["detail"]
