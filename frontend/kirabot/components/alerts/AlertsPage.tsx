@@ -2,20 +2,48 @@ import React, { useState, useEffect } from 'react';
 import { Bell, Save, X } from 'lucide-react';
 import CompanyProfileSection from './CompanyProfileSection';
 import AlertFilterSection from './AlertFilterSection';
-import type { AlertCompanyProfile, AlertRule } from '../../services/kiraApiService';
+import { getUserAlertConfig, saveUserAlertConfig } from '../../services/kiraApiService';
+import type { AlertCompanyProfile, AlertRule, AlertConfig } from '../../services/kiraApiService';
 
 export const AlertsPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [enabled, setEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [schedule, setSchedule] = useState<'realtime' | 'daily_1' | 'daily_2' | 'daily_3'>('daily_2');
+  const [hours, setHours] = useState<number[]>([9, 18]);
   const [companyProfile, setCompanyProfile] = useState<AlertCompanyProfile>({
     description: '',
   });
   const [rules, setRules] = useState<AlertRule[]>([]);
 
   useEffect(() => {
-    // TODO: Load config from API
-    setLoading(false);
+    const loadConfig = async () => {
+      // Get email from query param or localStorage
+      const urlParams = new URLSearchParams(window.location.search);
+      const emailParam = urlParams.get('email') || localStorage.getItem('alertEmail') || '';
+
+      if (!emailParam) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const config = await getUserAlertConfig(emailParam);
+        setEmail(config.email);
+        setEnabled(config.enabled);
+        setSchedule(config.schedule);
+        setHours(config.hours);
+        setRules(config.rules);
+        setCompanyProfile(config.companyProfile || { description: '' });
+      } catch (error) {
+        console.error('Failed to load alert config:', error);
+        alert('알림 설정을 불러올 수 없습니다.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void loadConfig();
   }, []);
 
   const handleAddRule = () => {
@@ -41,6 +69,42 @@ export const AlertsPage: React.FC = () => {
 
   const handleDeleteRule = (index: number) => {
     setRules(rules.filter((_, i) => i !== index));
+  };
+
+  const handleSave = async () => {
+    if (!email || !email.includes('@')) {
+      alert('유효한 이메일 주소를 입력해주세요.');
+      return;
+    }
+
+    if (rules.length === 0) {
+      if (!confirm('규칙이 없습니다. 알림을 받지 못할 수 있습니다. 계속하시겠습니까?')) {
+        return;
+      }
+    }
+
+    try {
+      setLoading(true);
+      const config: AlertConfig = {
+        email,
+        enabled,
+        schedule,
+        hours,
+        rules,
+        companyProfile: companyProfile?.description ? companyProfile : undefined,
+      };
+
+      const result = await saveUserAlertConfig(config);
+      if (result.success) {
+        localStorage.setItem('alertEmail', email);
+        alert('알림 설정이 저장되었습니다.');
+      }
+    } catch (error) {
+      console.error('Failed to save alert config:', error);
+      alert('저장 실패: ' + (error instanceof Error ? error.message : '알 수 없는 오류'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (loading) {
@@ -120,10 +184,12 @@ export const AlertsPage: React.FC = () => {
           </button>
           <button
             type="button"
-            className="flex items-center gap-1.5 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+            onClick={handleSave}
+            disabled={loading}
+            className="flex items-center gap-1.5 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
           >
             <Save size={16} />
-            저장
+            {loading ? '저장 중...' : '저장'}
           </button>
         </div>
       </div>

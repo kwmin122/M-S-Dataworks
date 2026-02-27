@@ -271,6 +271,108 @@ export async function generateProposalV2(
   return parseJson<ProposalV2Response>(res);
 }
 
+export function getProposalDownloadUrl(filename: string): string {
+  return `${API_BASE_URL}/api/proposal/download/${encodeURIComponent(filename)}`;
+}
+
+// ── 체크리스트 API ──
+
+export interface ChecklistItem {
+  document_name: string;
+  is_mandatory: boolean;
+  format_hint: string;
+  deadline_note: string;
+  status: string;
+}
+
+export interface ChecklistResponse {
+  items: ChecklistItem[];
+  total: number;
+  mandatory_count: number;
+}
+
+export async function getChecklist(sessionId: string): Promise<ChecklistResponse> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/proposal/checklist`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId }),
+    timeoutMs: 60_000,
+  });
+  return parseJson<ChecklistResponse>(res);
+}
+
+// ── 회사 DB 온보딩 API ──
+
+export interface TrackRecord {
+  project_name: string;
+  client: string;
+  contract_amount: string;
+  period: string;
+  description: string;
+}
+
+export interface Personnel {
+  name: string;
+  role: string;
+  experience_years: number;
+  certifications: string[];
+  description: string;
+}
+
+export interface CompanyDbProfile {
+  company_name: string;
+  business_type: string;
+  specializations: string[];
+  employee_count: number;
+  track_record_count: number;
+  personnel_count: number;
+}
+
+export interface CompanyDbStats {
+  track_record_count: number;
+  personnel_count: number;
+  total_knowledge_units: number;
+}
+
+export async function addTrackRecord(record: TrackRecord): Promise<{ id: string; total: number }> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/track-records`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(record),
+  });
+  return parseJson<{ id: string; total: number }>(res);
+}
+
+export async function addPersonnel(person: Personnel): Promise<{ id: string; total: number }> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/personnel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(person),
+  });
+  return parseJson<{ id: string; total: number }>(res);
+}
+
+export async function getCompanyDbProfile(): Promise<CompanyDbProfile | null> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/profile`);
+  const data = await parseJson<{ profile: CompanyDbProfile | null }>(res);
+  return data.profile;
+}
+
+export async function updateCompanyDbProfile(updates: Partial<CompanyDbProfile>): Promise<CompanyDbProfile> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/profile`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+  const data = await parseJson<{ profile: CompanyDbProfile }>(res);
+  return data.profile;
+}
+
+export async function getCompanyDbStats(): Promise<CompanyDbStats> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/stats`);
+  return parseJson<CompanyDbStats>(res);
+}
+
 export async function getStrengthCard(bidNoticeId: string): Promise<unknown> {
   const res = await fetch(`/api/strength-card/${bidNoticeId}`, {
     credentials: 'include',
@@ -370,6 +472,24 @@ export async function saveAlertConfig(sessionId: string, config: AlertConfig): P
     body: JSON.stringify({ session_id: sessionId, ...config }),
   });
   return parseJson<{ ok: boolean }>(response);
+}
+
+// ── Alert Config APIs (Email-based) ──
+
+export async function getUserAlertConfig(email: string): Promise<AlertConfig> {
+  const response = await fetchWithError(
+    `${API_BASE_URL}/api/alerts/config?email=${encodeURIComponent(email)}`
+  );
+  return parseJson<AlertConfig>(response);
+}
+
+export async function saveUserAlertConfig(config: AlertConfig): Promise<{ success: boolean; message: string }> {
+  const response = await fetchWithError(`${API_BASE_URL}/api/alerts/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  return parseJson<{ success: boolean; message: string }>(response);
 }
 
 // ── Forecast APIs ──
