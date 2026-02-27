@@ -252,7 +252,7 @@ export interface ProposalV2QualityIssue {
 }
 
 export interface ProposalV2Response {
-  docx_path: string;
+  docx_filename: string;
   sections: ProposalV2Section[];
   quality_issues: ProposalV2QualityIssue[];
   generation_time_sec: number;
@@ -331,6 +331,20 @@ export interface AlertRule {
   minAmt?: number;
   maxAmt?: number;
   enabled: boolean;
+
+  // 🆕 New filter fields
+  productCodes?: string[];              // 물품분류번호 (undefined = 필터 미사용)
+  detailedItems?: string[];             // 세부품명 (undefined = 필터 미사용)
+  excludeRegions?: string[];            // 제외 지역 (매칭 시 차단)
+  excludeAgencyLocations?: string[];    // 제외 발주처 소재지 (매칭 시 차단)
+}
+
+export interface AlertCompanyProfile {
+  description: string;                  // 자연어 회사 설명 (LLM 프롬프트용)
+  businessTypes?: string[];             // 주요 업종 (선택)
+  certifications?: string[];            // 보유 인증 (선택)
+  mainProducts?: string[];              // 주력 제품 (선택)
+  excludedAreas?: string[];             // 제외 지역/품목 (선택)
 }
 
 export interface AlertConfig {
@@ -339,6 +353,9 @@ export interface AlertConfig {
   schedule: 'realtime' | 'daily_1' | 'daily_2' | 'daily_3';
   hours: number[];
   rules: AlertRule[];
+  companyProfile?: AlertCompanyProfile; // 🆕 회사 프로필
+  createdAt?: string;                   // ISO 8601, 백엔드에서 자동 설정
+  updatedAt?: string;                   // ISO 8601, 백엔드에서 자동 갱신
 }
 
 export async function getAlertConfig(sessionId: string): Promise<AlertConfig> {
