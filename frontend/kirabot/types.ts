@@ -335,7 +335,10 @@ export type MessageAction =
   | { type: 'header_add_company' }
   | { type: 'setup_alert' }
   | { type: 'welcome_action'; value: string }
-  | { type: 'generate_proposal'; bidNoticeId: string; bidTitle: string };
+  | { type: 'generate_proposal'; bidNoticeId: string; bidTitle: string }
+  | { type: 'delete_company_doc'; sourceFile: string }
+  | { type: 'undo_company_upload'; sourceFiles: string[] }
+  | { type: 'go_back' };
 
 // ── 세션 기반 회사 문서 (벡터 DB) ──
 

@@ -495,7 +495,12 @@ export function useConversationFlow() {
                 url: `${api.getApiBaseUrl()}${url}`,
               }));
               const existingDocs = conversation.companyDocUrls || [];
-              updateConv({ companyChunks: result.company_chunks, companyDocUrls: [...existingDocs, ...newCompanyDocs] });
+              updateConv({
+                companyChunks: result.company_chunks,
+                companyDocUrls: [...existingDocs, ...newCompanyDocs],
+                companyDocuments: result.documents || [],
+                _justUploadedFiles: files.map(f => f.name),
+              });
 
               // 헤더 버튼으로 추가 업로드한 경우 → 이전 phase로 복귀
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1078,6 +1083,82 @@ export function useConversationFlow() {
             pushStatus('error', `제안서 생성 실패: ${msg}`);
           } finally {
             setProcessing(false);
+          }
+          break;
+        }
+
+        case 'delete_company_doc': {
+          const { sourceFile } = action;
+          const sid = conversation.sessionId;
+          if (!sid) break;
+
+          try {
+            const result = await api.deleteSessionCompanyDocument(sid, sourceFile);
+            // 문서 목록 갱신
+            const docs = conversation.companyDocuments?.filter(d => d.source_file !== sourceFile) || [];
+            const urls = conversation.companyDocUrls?.filter(d => !d.name.includes(sourceFile)) || [];
+            updateConv({
+              companyChunks: result.remaining_chunks,
+              companyDocuments: docs,
+              companyDocUrls: urls,
+            });
+            pushText(`"${sourceFile}" 문서가 삭제되었습니다. (남은 청크: ${result.remaining_chunks})`);
+
+            // 분석 결과 있으면 자동 rematch
+            if (result.remaining_chunks > 0 && conversation.phase === 'doc_chat') {
+              pushStatus('loading', '삭제 후 자격 요건을 재평가하고 있어요...');
+              try {
+                const rematchResult = await api.rematchWithCompanyDocs(sid);
+                removeLastStatus();
+                push({
+                  id: msgId(),
+                  role: 'bot',
+                  type: 'analysis_result',
+                  timestamp: Date.now(),
+                  analysis: rematchResult,
+                  opinionMode: conversation.opinionMode,
+                } as AnalysisResultMessage);
+              } catch {
+                removeLastStatus();
+              }
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : '삭제 실패';
+            pushStatus('error', msg);
+          }
+          break;
+        }
+
+        case 'undo_company_upload': {
+          const { sourceFiles } = action;
+          const sid = conversation.sessionId;
+          if (!sid) break;
+
+          for (const sf of sourceFiles) {
+            try {
+              await api.deleteSessionCompanyDocument(sid, sf);
+            } catch { /* 일부 실패 무시 */ }
+          }
+          // 목록 새로 가져오기
+          try {
+            const listResult = await api.listCompanyDocuments(sid);
+            updateConv({
+              companyChunks: listResult.total_chunks,
+              companyDocuments: listResult.documents,
+              _justUploadedFiles: undefined,
+            });
+            pushText('업로드가 취소되었습니다.');
+          } catch { /* ignore */ }
+          break;
+        }
+
+        case 'go_back': {
+          const phase = conversation.phase;
+          if (phase === 'doc_upload_target') {
+            setPhase('doc_upload_company');
+            pushText('회사 문서 업로드 단계로 돌아왔습니다.');
+          } else if (phase === 'doc_upload_company') {
+            setPhase('greeting');
           }
           break;
         }
