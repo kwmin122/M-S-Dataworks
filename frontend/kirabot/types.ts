@@ -293,6 +293,8 @@ export interface Conversation {
   uploadedFileUrl?: string;
   uploadedFileName?: string;
   companyDocUrls?: { name: string; url: string }[];
+  companyDocuments?: CompanyDocInfo[];
+  _justUploadedFiles?: string[];
   companyProfile?: CompanyProfile | null;
 }
 
@@ -334,6 +336,14 @@ export type MessageAction =
   | { type: 'setup_alert' }
   | { type: 'welcome_action'; value: string }
   | { type: 'generate_proposal'; bidNoticeId: string; bidTitle: string };
+
+// ── 세션 기반 회사 문서 (벡터 DB) ──
+
+export interface CompanyDocInfo {
+  source_file: string;
+  chunks: number;
+  url: string;
+}
 
 // ── 회사 프로필 ──
 

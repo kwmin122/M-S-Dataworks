@@ -3,6 +3,7 @@ import {
   BidNotice,
   BidSearchResponse,
   ChatResponse,
+  CompanyDocInfo,
   CompanyProfile,
   EvalBatchResponse,
   EvalJob,
@@ -70,7 +71,7 @@ export async function getSessionStats(sessionId: string): Promise<SessionStats> 
   return parseJson<SessionStats>(response);
 }
 
-export async function uploadCompanyDocuments(sessionId: string, files: File[]): Promise<{ company_chunks: number; added_chunks: number; fileUrls?: string[] }> {
+export async function uploadCompanyDocuments(sessionId: string, files: File[]): Promise<{ company_chunks: number; added_chunks: number; fileUrls?: string[]; documents?: CompanyDocInfo[] }> {
   const form = new FormData();
   form.append('session_id', sessionId);
   files.forEach((file) => form.append('files', file));
@@ -79,7 +80,7 @@ export async function uploadCompanyDocuments(sessionId: string, files: File[]): 
     method: 'POST',
     body: form,
   });
-  return parseJson<{ company_chunks: number; added_chunks: number; fileUrls?: string[] }>(response);
+  return parseJson<{ company_chunks: number; added_chunks: number; fileUrls?: string[]; documents?: CompanyDocInfo[] }>(response);
 }
 
 export async function clearCompanyDocuments(sessionId: string): Promise<{ company_chunks: number }> {
@@ -89,6 +90,20 @@ export async function clearCompanyDocuments(sessionId: string): Promise<{ compan
     body: JSON.stringify({ session_id: sessionId }),
   });
   return parseJson<{ company_chunks: number }>(response);
+}
+
+export async function listCompanyDocuments(sessionId: string): Promise<{ documents: CompanyDocInfo[]; total_chunks: number }> {
+  const response = await fetchWithError(`${API_BASE_URL}/api/company/list?session_id=${encodeURIComponent(sessionId)}`);
+  return parseJson<{ documents: CompanyDocInfo[]; total_chunks: number }>(response);
+}
+
+export async function deleteSessionCompanyDocument(sessionId: string, sourceFile: string): Promise<{ deleted_chunks: number; remaining_chunks: number }> {
+  const response = await fetchWithError(`${API_BASE_URL}/api/company/delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, source_file: sourceFile }),
+  });
+  return parseJson<{ deleted_chunks: number; remaining_chunks: number }>(response);
 }
 
 export async function analyzeDocument(sessionId: string, file: File): Promise<AnalyzeResponse> {
