@@ -17,6 +17,7 @@ Example:
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Literal, Optional
 from dataclasses import dataclass, field
 from enum import Enum
@@ -746,10 +747,19 @@ class QualificationMatcher:
             result.recommendation = "UNKNOWN"
             return result
         
-        # STEP 4-1: 각 자격요건별 매칭 수행
-        for req in rfx_analysis.requirements:
-            match = self._match_single_requirement(req)
-            result.matches.append(match)
+        # STEP 4-1: 각 자격요건별 매칭 수행 (병렬)
+        reqs = rfx_analysis.requirements
+        if len(reqs) == 1:
+            result.matches.append(self._match_single_requirement(reqs[0]))
+        else:
+            with ThreadPoolExecutor(max_workers=min(6, len(reqs))) as pool:
+                futures = {pool.submit(self._match_single_requirement, req): i
+                           for i, req in enumerate(reqs)}
+                indexed: list[tuple[int, RequirementMatch]] = []
+                for future in as_completed(futures):
+                    indexed.append((futures[future], future.result()))
+                indexed.sort(key=lambda x: x[0])
+                result.matches = [m for _, m in indexed]
         
         # STEP 4-2: 종합 점수 산출
         result.overall_score = self._calculate_overall_score(result.matches)

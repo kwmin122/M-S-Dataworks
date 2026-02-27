@@ -16,6 +16,7 @@ import json
 import time
 import hashlib
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional, Literal
 from dataclasses import dataclass, field
 from enum import Enum
@@ -587,15 +588,32 @@ class RFxAnalyzer:
         chunks = self._split_text_for_multipass(text)
         partial_results: list[RFxAnalysisResult] = []
 
-        for chunk_idx, chunk_text in enumerate(chunks, start=1):
-            if is_rfx_like:
-                prompt = self._build_extraction_prompt(chunk_text)
-            else:
-                prompt = self._build_general_extraction_prompt(chunk_text)
-
+        if len(chunks) == 1:
+            # 단일 청크 — 스레드풀 오버헤드 없이 직접 실행
+            prompt = (self._build_extraction_prompt(chunks[0]) if is_rfx_like
+                      else self._build_general_extraction_prompt(chunks[0]))
             parsed = self._extract_single_pass(prompt=prompt, model_name=model_name)
             partial_results.append(parsed)
-            print(f"   ↳ 추출 패스 {chunk_idx}/{len(chunks)} 완료 (요건 {len(parsed.requirements)}개)")
+            print(f"   ↳ 추출 패스 1/1 완료 (요건 {len(parsed.requirements)}개)")
+        else:
+            # 다중 청크 — 병렬 추출 (최대 4 동시)
+            def _extract_chunk(idx_text: tuple[int, str]) -> tuple[int, RFxAnalysisResult]:
+                idx, chunk_text = idx_text
+                prompt = (self._build_extraction_prompt(chunk_text) if is_rfx_like
+                          else self._build_general_extraction_prompt(chunk_text))
+                return idx, self._extract_single_pass(prompt=prompt, model_name=model_name)
+
+            with ThreadPoolExecutor(max_workers=min(4, len(chunks))) as pool:
+                futures = {pool.submit(_extract_chunk, (i, ct)): i
+                           for i, ct in enumerate(chunks, start=1)}
+                indexed: list[tuple[int, RFxAnalysisResult]] = []
+                for future in as_completed(futures):
+                    idx, parsed = future.result()
+                    indexed.append((idx, parsed))
+                    print(f"   ↳ 추출 패스 {idx}/{len(chunks)} 완료 (요건 {len(parsed.requirements)}개)")
+                # 원래 순서대로 정렬
+                indexed.sort(key=lambda x: x[0])
+                partial_results = [p for _, p in indexed]
 
         merged = self._merge_partial_results(partial_results)
         self._validate_parsed_result(merged, require_requirements=is_rfx_like)

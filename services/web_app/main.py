@@ -1417,26 +1417,34 @@ async def analyze_uploaded_document(
         logger.warning("Upload analysis failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"문서 분석 중 오류: {exc}") from exc
 
-    # RFP 3-Section 요약 생성 (병렬 가능하지만 순차로 충분)
+    # RFP 요약 + 매칭을 동시 실행 (둘 다 분석 결과만 필요, 서로 독립적)
     rfp_summary = ""
-    if analysis.raw_text:
+    matching = None
+
+    async def _gen_summary() -> str:
+        if not analysis.raw_text:
+            return ""
         try:
-            rfp_summary = await asyncio.to_thread(analyzer.generate_rfp_summary, analysis.raw_text)
+            return await asyncio.to_thread(analyzer.generate_rfp_summary, analysis.raw_text)
         except Exception as exc:
             logger.warning("RFP summary generation failed: %s", exc)
+            return ""
 
-    # 회사 문서가 있으면 매칭, 없으면 자격요건 추출만
-    matching = None
-    if company_chunk_count > 0:
+    async def _run_matching():
+        if company_chunk_count <= 0:
+            return None
         try:
             matcher = QualificationMatcher(
                 rag_engine=session.rag_engine,
                 api_key=api_key,
                 model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
             )
-            matching = await asyncio.to_thread(matcher.match, analysis)
+            return await asyncio.to_thread(matcher.match, analysis)
         except Exception as exc:
             logger.warning("Matching failed: %s", exc)
+            return None
+
+    rfp_summary, matching = await asyncio.gather(_gen_summary(), _run_matching())
 
     _index_rfx_document(session=session, file_path=str(saved_path), original_name=file.filename or "target")
     session.latest_rfx_analysis = analysis
@@ -1862,21 +1870,26 @@ async def analyze_bid_from_nara(payload: BidAnalyzePayload, request: Request) ->
         logger.warning("Bid analysis failed (bid=%s): %s", payload.bid_ntce_no, exc)
         raise HTTPException(status_code=500, detail=f"문서 분석 중 오류: {exc}") from exc
 
-    # RFP 3-Section 요약 생성
-    rfp_summary = ""
-    if analysis.raw_text:
+    # RFP 요약 + 매칭을 동시 실행 (둘 다 분석 결과만 필요, 서로 독립적)
+    async def _gen_bid_summary() -> str:
+        if not analysis.raw_text:
+            return ""
         try:
-            rfp_summary = await asyncio.to_thread(analyzer.generate_rfp_summary, analysis.raw_text)
+            return await asyncio.to_thread(analyzer.generate_rfp_summary, analysis.raw_text)
         except Exception as exc:
             logger.warning("RFP summary failed (bid=%s): %s", payload.bid_ntce_no, exc)
+            return ""
 
-    # 회사 문서가 있으면 매칭 수행, 없으면 스킵
-    matching = None
-    if company_chunk_count > 0:
+    async def _run_bid_matching():
+        if company_chunk_count <= 0:
+            return None
         try:
-            matching = await asyncio.to_thread(matcher.match, analysis)
+            return await asyncio.to_thread(matcher.match, analysis)
         except Exception as exc:
             logger.warning("Matching failed (bid=%s): %s", payload.bid_ntce_no, exc)
+            return None
+
+    rfp_summary, matching = await asyncio.gather(_gen_bid_summary(), _run_bid_matching())
 
     _index_rfx_document(session=session, file_path=local_path, original_name=best["fileNm"])
     session.latest_rfx_analysis = analysis
