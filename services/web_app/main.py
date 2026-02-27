@@ -152,6 +152,7 @@ class AnalyzeTextPayload(BaseModel):
 class ChatPayload(BaseModel):
     session_id: str
     message: str
+    source_files: list[str] | None = None
 
 
 class BidSearchPayload(BaseModel):
@@ -862,31 +863,131 @@ def _build_gap_answer_from_latest_matching(
     return "\n".join(lines), []
 
 
-def _build_chat_context(session: WebRuntimeSession, message: str) -> tuple[str, str, list[dict[str, Any]]]:
+_ORDINAL_MAP: list[tuple[re.Pattern, int]] = [
+    (re.compile(r"(?:첫\s*번째|첫째|1\s*번째|첫|제\s*1)"), 0),
+    (re.compile(r"(?:두\s*번째|둘째|2\s*번째|제\s*2)"), 1),
+    (re.compile(r"(?:세\s*번째|셋째|3\s*번째|제\s*3)"), 2),
+    (re.compile(r"(?:네\s*번째|넷째|4\s*번째|제\s*4)"), 3),
+    (re.compile(r"(?:다섯\s*번째|5\s*번째|제\s*5)"), 4),
+]
+_LAST_PAT = re.compile(r"(?:마지막|최근|맨\s*끝)")
+_COMPARE_PAT = re.compile(r"(?:비교|가장|중에서|어떤\s*문서|어느\s*문서|모든\s*문서|전체\s*문서|n개)")
+_DOC_CONTEXT_PAT = re.compile(r"(?:문서|파일|자료|서류)")
+
+
+def _resolve_doc_scope(
+    message: str,
+    explicit_files: list[str] | None,
+    company_docs: list[str],
+    rfx_docs: list[str],
+) -> tuple[list[str] | None, bool]:
+    """메시지에서 문서 범위를 결정한다.
+
+    Returns:
+        (source_files, is_compare)
+        - source_files: 필터할 문서명 리스트 (None이면 전체)
+        - is_compare: 비교 모드 여부
+    """
+    # 1. 프론트엔드 명시 지정 → 최우선
+    if explicit_files:
+        if "*" in explicit_files:
+            return None, True  # 전체 비교
+        return explicit_files, len(explicit_files) > 1
+
+    all_docs = company_docs + rfx_docs
+    if not all_docs:
+        return None, False
+
+    # 2. 비교 키워드 감지
+    if _COMPARE_PAT.search(message) and _DOC_CONTEXT_PAT.search(message):
+        return None, True
+
+    # 3. 서수 감지
+    for pat, idx in _ORDINAL_MAP:
+        if pat.search(message) and _DOC_CONTEXT_PAT.search(message):
+            if idx < len(all_docs):
+                return [all_docs[idx]], False
+
+    # 4. 마지막 문서
+    if _LAST_PAT.search(message) and _DOC_CONTEXT_PAT.search(message):
+        return [all_docs[-1]], False
+
+    # 5. 파일명 직접 언급
+    for doc in all_docs:
+        name_no_ext = doc.rsplit(".", 1)[0] if "." in doc else doc
+        if name_no_ext in message or doc in message:
+            return [doc], False
+
+    return None, False
+
+
+def _build_chat_context(
+    session: WebRuntimeSession,
+    message: str,
+    source_files: list[str] | None = None,
+    is_compare: bool = False,
+) -> tuple[str, str, list[dict[str, Any]]]:
     company_context_text = ""
     rfx_context_text = ""
     fallback_refs: list[dict[str, Any]] = []
 
+    # ── 회사 문서 검색 ──
     if session.rag_engine.collection.count() > 0:
-        for result in session.rag_engine.search(message, top_k=12):
-            page_num = _extract_page_number(result.source_file, result.metadata)
-            company_context_text += (
-                f"\n[회사 출처: {result.source_file}, 페이지 {page_num}]\n{result.text}\n---\n"
-            )
-
-    if session.rfx_rag_engine.collection.count() > 0:
-        for result in session.rfx_rag_engine.search(message, top_k=12):
-            page_num = _extract_page_number(result.source_file, result.metadata)
-            rfx_context_text += (
-                f"\n[RFx 출처: {result.source_file}, 페이지 {page_num}]\n{result.text}\n---\n"
-            )
-            if page_num > 0:
-                fallback_refs.append(
-                    {
-                        "page": page_num,
-                        "text": str(result.text or "")[:500],
-                    }
+        if is_compare:
+            for doc_info in session.rag_engine.list_documents():
+                sf = doc_info["source_file"]
+                results = session.rag_engine.search(message, top_k=6,
+                    filter_metadata={"source_file": sf})
+                if results:
+                    company_context_text += f"\n=== 문서: {sf} ===\n"
+                    for result in results:
+                        page_num = _extract_page_number(result.source_file, result.metadata)
+                        company_context_text += f"[{sf}, 페이지 {page_num}]\n{result.text}\n---\n"
+        elif source_files:
+            for sf in source_files:
+                results = session.rag_engine.search(message, top_k=12,
+                    filter_metadata={"source_file": sf})
+                for result in results:
+                    page_num = _extract_page_number(result.source_file, result.metadata)
+                    company_context_text += f"[{sf}, 페이지 {page_num}]\n{result.text}\n---\n"
+        else:
+            for result in session.rag_engine.search(message, top_k=12):
+                page_num = _extract_page_number(result.source_file, result.metadata)
+                company_context_text += (
+                    f"\n[회사 출처: {result.source_file}, 페이지 {page_num}]\n{result.text}\n---\n"
                 )
+
+    # ── RFx 문서 검색 ──
+    if session.rfx_rag_engine.collection.count() > 0:
+        if is_compare:
+            for doc_info in session.rfx_rag_engine.list_documents():
+                sf = doc_info["source_file"]
+                results = session.rfx_rag_engine.search(message, top_k=6,
+                    filter_metadata={"source_file": sf})
+                if results:
+                    rfx_context_text += f"\n=== 문서: {sf} ===\n"
+                    for result in results:
+                        page_num = _extract_page_number(result.source_file, result.metadata)
+                        rfx_context_text += f"[{sf}, 페이지 {page_num}]\n{result.text}\n---\n"
+                        if page_num > 0:
+                            fallback_refs.append({"page": page_num, "text": str(result.text or "")[:500]})
+        elif source_files:
+            for sf in source_files:
+                results = session.rfx_rag_engine.search(message, top_k=12,
+                    filter_metadata={"source_file": sf})
+                for result in results:
+                    page_num = _extract_page_number(result.source_file, result.metadata)
+                    rfx_context_text += f"[{sf}, 페이지 {page_num}]\n{result.text}\n---\n"
+                    if page_num > 0:
+                        fallback_refs.append({"page": page_num, "text": str(result.text or "")[:500]})
+        else:
+            for result in session.rfx_rag_engine.search(message, top_k=12):
+                page_num = _extract_page_number(result.source_file, result.metadata)
+                rfx_context_text += (
+                    f"\n[RFx 출처: {result.source_file}, 페이지 {page_num}]\n{result.text}\n---\n"
+                )
+                if page_num > 0:
+                    fallback_refs.append({"page": page_num, "text": str(result.text or "")[:500]})
 
     return company_context_text, rfx_context_text, fallback_refs
 
@@ -1664,8 +1765,13 @@ def chat_with_references(payload: ChatPayload, request: Request) -> dict[str, An
 
     # ── Step 2: RAG 컨텍스트 구축 ──
     api_key = _openai_api_key()
+    company_docs = [d["source_file"] for d in session.rag_engine.list_documents()]
+    rfx_docs = [d["source_file"] for d in session.rfx_rag_engine.list_documents()]
+    scope_files, is_compare = _resolve_doc_scope(
+        message, payload.source_files, company_docs, rfx_docs
+    )
     company_context_text, rfx_context_text, fallback_refs = _build_chat_context(
-        session, message,
+        session, message, source_files=scope_files, is_compare=is_compare,
     )
     company_scores, rfx_scores = _collect_rag_scores(session, message)
     has_context = bool(
@@ -1723,6 +1829,7 @@ def chat_with_references(payload: ChatPayload, request: Request) -> dict[str, An
         "references": references,
         "suggested_questions": _build_suggested_questions_simple(session),
         "quota": quota,
+        "scoped_to": scope_files,
     }
 
 
