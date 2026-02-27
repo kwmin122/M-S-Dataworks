@@ -1,7 +1,11 @@
 # 사용자 알림 설정 고도화 설계
 
+> **Status:** ✅ **IMPLEMENTED** (2026-02-27)
+> Implementation plan: `2026-02-27-user-alert-filtering-impl-plan.md`
+> All 12 tasks complete. See CLAUDE.md for feature status.
+
 **Date:** 2026-02-27
-**Status:** Design
+**Status:** Design → Implemented
 **Goal:** 일반 사용자가 회사 프로필 기반으로 세부 필터링된 입찰 공고 알림을 직접 설정할 수 있도록 개선
 
 ---
