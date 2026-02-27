@@ -5,6 +5,9 @@ import AlertFilterSection from './AlertFilterSection';
 import { getUserAlertConfig, saveUserAlertConfig } from '../../services/kiraApiService';
 import type { AlertCompanyProfile, AlertRule, AlertConfig } from '../../services/kiraApiService';
 
+// Email validation regex - must have user@domain.extension format
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export const AlertsPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [enabled, setEnabled] = useState(false);
@@ -37,7 +40,16 @@ export const AlertsPage: React.FC = () => {
         setCompanyProfile(config.companyProfile || { description: '' });
       } catch (error) {
         console.error('Failed to load alert config:', error);
-        alert('알림 설정을 불러올 수 없습니다.');
+
+        // Check if it's a 404 (new user)
+        if (error instanceof Error && (error.message.includes('404') || error.message.includes('Not Found'))) {
+          // New user - don't show error, just use default config
+          console.log('No existing config found, using defaults');
+        } else {
+          // Real error
+          const errorMsg = error instanceof Error ? error.message : '알 수 없는 오류';
+          alert(`알림 설정을 불러올 수 없습니다.\n오류: ${errorMsg}`);
+        }
       } finally {
         setLoading(false);
       }
@@ -72,8 +84,8 @@ export const AlertsPage: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!email || !email.includes('@')) {
-      alert('유효한 이메일 주소를 입력해주세요.');
+    if (!email || !EMAIL_REGEX.test(email.trim())) {
+      alert('유효한 이메일 주소를 입력해주세요. (예: user@example.com)');
       return;
     }
 
@@ -101,7 +113,8 @@ export const AlertsPage: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to save alert config:', error);
-      alert('저장 실패: ' + (error instanceof Error ? error.message : '알 수 없는 오류'));
+      const errorMsg = error instanceof Error ? error.message : '알 수 없는 오류';
+      alert(`저장 실패\n오류: ${errorMsg}\n\n인터넷 연결을 확인해주세요.`);
     } finally {
       setLoading(false);
     }
@@ -177,6 +190,28 @@ export const AlertsPage: React.FC = () => {
         <div className="mx-auto flex max-w-3xl justify-end gap-2">
           <button
             type="button"
+            onClick={() => {
+              if (confirm('변경사항을 취소하시겠습니까?')) {
+                const urlParams = new URLSearchParams(window.location.search);
+                const emailParam = urlParams.get('email') || localStorage.getItem('alertEmail') || '';
+                if (emailParam) {
+                  // Reload original config
+                  void getUserAlertConfig(emailParam).then(config => {
+                    setEmail(config.email);
+                    setEnabled(config.enabled);
+                    setSchedule(config.schedule);
+                    setHours(config.hours);
+                    setRules(config.rules);
+                    setCompanyProfile(config.companyProfile || { description: '' });
+                  }).catch(() => {
+                    alert('원래 설정을 불러올 수 없습니다.');
+                  });
+                } else {
+                  // Navigate back
+                  window.history.back();
+                }
+              }
+            }}
             className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             <X size={16} />

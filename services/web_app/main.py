@@ -2456,6 +2456,130 @@ async def generate_proposal_v2(payload: ProposalGenerateV2Payload) -> dict[str, 
         raise HTTPException(status_code=502, detail=f"rag_engine 연결 실패: {exc}") from exc
 
 
+# ── 제안서 DOCX 다운로드 프록시 ──
+
+
+@app.get("/api/proposal/download/{filename}")
+async def download_proposal_proxy(filename: str):
+    """Proxy DOCX download from rag_engine."""
+    import re as _re
+    if not _re.match(r'^[a-zA-Z0-9가-힣._\-]+\.docx$', filename) or len(filename) > 150:
+        raise HTTPException(status_code=400, detail="잘못된 파일명입니다.")
+
+    fastapi_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(f"{fastapi_url}/api/proposals/download/{filename}")
+        if resp.status_code == 200:
+            from fastapi.responses import Response
+            return Response(
+                content=resp.content,
+                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+        elif resp.status_code == 404:
+            raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
+        else:
+            raise HTTPException(status_code=502, detail=f"rag_engine 응답 오류: {resp.text[:200]}")
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"rag_engine 연결 실패: {exc}") from exc
+
+
+# ── 체크리스트 프록시 ──
+
+
+class ChecklistProxyPayload(BaseModel):
+    session_id: str
+
+
+@app.post("/api/proposal/checklist")
+async def checklist_proxy(payload: ChecklistProxyPayload) -> dict[str, Any]:
+    """Proxy checklist extraction from rag_engine using session's rfx_analysis."""
+    session = _get_or_create_session(payload.session_id)
+    if session.latest_rfx_analysis is None:
+        raise HTTPException(status_code=400, detail="분석된 RFP가 없습니다. 먼저 공고를 분석해주세요.")
+
+    analysis = session.latest_rfx_analysis
+    rfx_dict: dict[str, Any] = {
+        "title": analysis.title,
+        "issuing_org": analysis.issuing_org,
+        "budget": analysis.budget,
+        "project_period": analysis.project_period,
+        "evaluation_criteria": [
+            {"category": ec.category, "max_score": ec.score, "description": ec.item}
+            for ec in (analysis.evaluation_criteria or [])
+        ],
+        "requirements": [
+            {"category": r.category, "description": r.description}
+            for r in (analysis.requirements or [])
+        ],
+        "rfp_text_summary": "",
+    }
+
+    fastapi_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                f"{fastapi_url}/api/checklist",
+                json={"rfx_result": rfx_dict},
+            )
+        if resp.status_code == 200:
+            return resp.json()
+        else:
+            detail = resp.text[:200]
+            raise HTTPException(status_code=502, detail=f"rag_engine 응답 오류: {detail}")
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"rag_engine 연결 실패: {exc}") from exc
+
+
+# ── 회사 DB 온보딩 프록시 ──
+
+
+async def _proxy_to_rag(method: str, path: str, json_body: dict | None = None, timeout: int = 30) -> dict:
+    """Helper to proxy requests to rag_engine."""
+    fastapi_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        if method == "GET":
+            resp = await client.get(f"{fastapi_url}{path}")
+        elif method == "PUT":
+            resp = await client.put(f"{fastapi_url}{path}", json=json_body)
+        else:
+            resp = await client.post(f"{fastapi_url}{path}", json=json_body)
+    if resp.status_code == 200:
+        return resp.json()
+    raise HTTPException(status_code=502, detail=f"rag_engine 오류: {resp.text[:200]}")
+
+
+@app.post("/api/company-db/track-records")
+async def proxy_add_track_record(payload: dict) -> dict[str, Any]:
+    """Proxy: add track record to rag_engine company DB."""
+    return await _proxy_to_rag("POST", "/api/company-db/track-records", payload)
+
+
+@app.post("/api/company-db/personnel")
+async def proxy_add_personnel(payload: dict) -> dict[str, Any]:
+    """Proxy: add personnel to rag_engine company DB."""
+    return await _proxy_to_rag("POST", "/api/company-db/personnel", payload)
+
+
+@app.get("/api/company-db/profile")
+async def proxy_get_company_db_profile() -> dict[str, Any]:
+    """Proxy: get company DB profile from rag_engine."""
+    return await _proxy_to_rag("GET", "/api/company-db/profile")
+
+
+@app.put("/api/company-db/profile")
+async def proxy_update_company_db_profile(payload: dict) -> dict[str, Any]:
+    """Proxy: update company DB profile in rag_engine."""
+    return await _proxy_to_rag("PUT", "/api/company-db/profile", payload)
+
+
+@app.get("/api/company-db/stats")
+async def proxy_get_company_db_stats() -> dict[str, Any]:
+    """Proxy: get company DB stats from rag_engine."""
+    return await _proxy_to_rag("GET", "/api/company-db/stats")
+
+
 # ── 알림 설정 CRUD ──
 
 ALERT_SETTINGS_DIR = ROOT_DIR / "data" / "alert_settings"
@@ -2791,8 +2915,19 @@ async def save_alert_config_endpoint(request: Request, payload: dict) -> dict[st
         try:
             # Basic validation (email first, then schedule, then rules)
             email = payload.get("email")
-            if not email or '@' not in email:
+            if not email:
+                raise ValueError("이메일이 필요합니다.")
+
+            # Email validation
+            if not re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', email) or len(email) > 254:
                 raise ValueError("유효한 이메일 주소가 필요합니다.")
+
+            # Validate description length
+            if "companyProfile" in payload and payload["companyProfile"]:
+                desc = payload["companyProfile"].get("description", "")
+                if len(desc) > 2000:
+                    raise ValueError("회사 설명은 2000자를 초과할 수 없습니다.")
+
             if not isinstance(payload.get("rules"), list):
                 raise ValueError("rules 필드가 배열이어야 합니다.")
             schedule = payload.get("schedule", "daily_1")
