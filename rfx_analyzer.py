@@ -295,7 +295,8 @@ class RFxAnalyzer:
         self.api_key = api_key
         self.model = model
         self.small_model = os.getenv("OPENAI_MODEL_SMALL", model or "gpt-4o-mini")
-        self.large_model = os.getenv("OPENAI_MODEL_LARGE", "gpt-4o")
+        # Rate limit 방지: large_model도 gpt-4o-mini 사용
+        self.large_model = os.getenv("OPENAI_MODEL_LARGE", "gpt-4o-mini")
         self.routing_enabled = os.getenv("OPENAI_ROUTING_ENABLED", "1").strip().lower() not in {"0", "false", "off"}
         self.strict_json_only = os.getenv("OPENAI_STRICT_JSON_ONLY", "1").strip().lower() not in {
             "0",
@@ -303,8 +304,9 @@ class RFxAnalyzer:
             "off",
             "no",
         }
-        self.large_doc_char_threshold = int(os.getenv("OPENAI_ROUTING_CHAR_THRESHOLD", "28000"))
-        self.large_doc_page_threshold = int(os.getenv("OPENAI_ROUTING_PAGE_THRESHOLD", "35"))
+        # 큰 문서 처리: threshold 증가 (28000 → 50000, 35 → 60)
+        self.large_doc_char_threshold = int(os.getenv("OPENAI_ROUTING_CHAR_THRESHOLD", "50000"))
+        self.large_doc_page_threshold = int(os.getenv("OPENAI_ROUTING_PAGE_THRESHOLD", "60"))
         self.parser = DocumentParser()
         self._init_llm()
     
@@ -346,48 +348,69 @@ class RFxAnalyzer:
 
         finish_reason='length'(토큰 초과)이면 max_tokens를 늘려 1회 재시도.
         JSON 파싱 실패 시에도 1회 재시도한다.
+        Rate limit (429) 에러 시 exponential backoff로 재시도한다.
         """
+        from openai import RateLimitError
+
         last_error: Exception | None = None
         current_max_tokens = max_tokens
-        for attempt in range(2):
-            response = self.client.chat.completions.create(
-                model=model or self.model,
-                max_tokens=current_max_tokens,
-                temperature=temperature,
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": schema_name,
-                        "strict": True,
-                        "schema": schema,
-                    },
-                },
-                messages=[{"role": "user", "content": prompt}],
-            )
-            choice = response.choices[0]
-            # 토큰 초과로 JSON이 잘린 경우 → max_tokens 증가 후 재시도
-            if choice.finish_reason == "length":
-                current_max_tokens = min(current_max_tokens * 2, 16384)
-                last_error = RFxParseError(
-                    f"Structured Output 토큰 초과 (finish_reason=length, "
-                    f"max_tokens={current_max_tokens // 2})"
-                )
-                if attempt == 0:
-                    print(f"   ⚠️ 토큰 초과, max_tokens={current_max_tokens}으로 재시도")
-                    continue
-                raise last_error
-            content = (choice.message.content or "").strip()
+        max_retries = 3  # 최대 재시도 횟수 증가 (429 에러 대응)
+
+        for attempt in range(max_retries):
             try:
-                parsed = json.loads(content)
-            except json.JSONDecodeError as exc:
-                last_error = RFxParseError(f"Structured Output JSON 파싱 실패: {exc}")
-                if attempt == 0:
-                    print(f"   ⚠️ JSON 파싱 실패, 재시도 중... ({exc})")
+                response = self.client.chat.completions.create(
+                    model=model or self.model,
+                    max_tokens=current_max_tokens,
+                    temperature=temperature,
+                    response_format={
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": schema_name,
+                            "strict": True,
+                            "schema": schema,
+                        },
+                    },
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                choice = response.choices[0]
+
+                # 토큰 초과로 JSON이 잘린 경우 → max_tokens 증가 후 재시도
+                if choice.finish_reason == "length":
+                    current_max_tokens = min(current_max_tokens * 2, 16384)
+                    last_error = RFxParseError(
+                        f"Structured Output 토큰 초과 (finish_reason=length, "
+                        f"max_tokens={current_max_tokens // 2})"
+                    )
+                    if attempt < max_retries - 1:
+                        print(f"   ⚠️ 토큰 초과, max_tokens={current_max_tokens}으로 재시도")
+                        continue
+                    raise last_error
+
+                content = (choice.message.content or "").strip()
+                try:
+                    parsed = json.loads(content)
+                except json.JSONDecodeError as exc:
+                    last_error = RFxParseError(f"Structured Output JSON 파싱 실패: {exc}")
+                    if attempt < max_retries - 1:
+                        print(f"   ⚠️ JSON 파싱 실패, 재시도 중... ({exc})")
+                        time.sleep(1)  # 짧은 대기
+                        continue
+                    raise last_error from exc
+
+                if not isinstance(parsed, dict):
+                    raise RFxParseError("Structured Output이 객체(dict) 형식이 아닙니다.")
+                return parsed
+
+            except RateLimitError as exc:
+                # 429 Rate Limit 에러 처리 - exponential backoff
+                wait_time = 2 ** attempt  # 1초, 2초, 4초
+                last_error = RFxParseError(f"Rate limit 초과 (429): {exc}")
+                if attempt < max_retries - 1:
+                    print(f"   ⚠️ Rate limit 초과, {wait_time}초 대기 후 재시도... (시도 {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
                     continue
                 raise last_error from exc
-            if not isinstance(parsed, dict):
-                raise RFxParseError("Structured Output이 객체(dict) 형식이 아닙니다.")
-            return parsed
+
         raise last_error or RFxParseError("Structured Output 호출 실패")
     
     # ============================================================
@@ -627,7 +650,7 @@ class RFxAnalyzer:
                           else self._build_general_extraction_prompt(chunk_text))
                 return idx, self._extract_single_pass(prompt=prompt, model_name=model_name)
 
-            with ThreadPoolExecutor(max_workers=min(4, len(chunks))) as pool:
+            with ThreadPoolExecutor(max_workers=min(2, len(chunks))) as pool:  # rate limit 방지: 4→2
                 futures = {pool.submit(_extract_chunk, (i, ct)): i
                            for i, ct in enumerate(chunks, start=1)}
                 indexed: list[tuple[int, RFxAnalysisResult]] = []

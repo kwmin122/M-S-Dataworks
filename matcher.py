@@ -538,45 +538,67 @@ class QualificationMatcher:
 
         finish_reason='length'(토큰 초과)이면 max_tokens를 늘려 1회 재시도.
         JSON 파싱 실패 시에도 1회 재시도한다.
+        Rate limit (429) 에러 시 exponential backoff로 재시도한다.
         """
+        import time
+        from openai import RateLimitError
+
         last_error: Exception | None = None
         current_max_tokens = max_tokens
-        for attempt in range(2):
-            response = self.client.chat.completions.create(
-                model=model or self.model,
-                max_tokens=current_max_tokens,
-                temperature=temperature,
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": schema_name,
-                        "strict": True,
-                        "schema": schema,
-                    },
-                },
-                messages=[{"role": "user", "content": prompt}],
-            )
-            choice = response.choices[0]
-            if choice.finish_reason == "length":
-                current_max_tokens = min(current_max_tokens * 2, 16384)
-                last_error = ValueError(
-                    f"Structured Output 토큰 초과 (finish_reason=length, "
-                    f"max_tokens={current_max_tokens // 2})"
-                )
-                if attempt == 0:
-                    continue
-                raise last_error
-            content = (choice.message.content or "").strip()
+        max_retries = 3  # 최대 재시도 횟수 증가 (429 에러 대응)
+
+        for attempt in range(max_retries):
             try:
-                parsed = json.loads(content)
-            except json.JSONDecodeError as exc:
-                last_error = ValueError(f"Structured Output JSON 파싱 실패: {exc}")
-                if attempt == 0:
+                response = self.client.chat.completions.create(
+                    model=model or self.model,
+                    max_tokens=current_max_tokens,
+                    temperature=temperature,
+                    response_format={
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": schema_name,
+                            "strict": True,
+                            "schema": schema,
+                        },
+                    },
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                choice = response.choices[0]
+
+                if choice.finish_reason == "length":
+                    current_max_tokens = min(current_max_tokens * 2, 16384)
+                    last_error = ValueError(
+                        f"Structured Output 토큰 초과 (finish_reason=length, "
+                        f"max_tokens={current_max_tokens // 2})"
+                    )
+                    if attempt < max_retries - 1:
+                        continue
+                    raise last_error
+
+                content = (choice.message.content or "").strip()
+                try:
+                    parsed = json.loads(content)
+                except json.JSONDecodeError as exc:
+                    last_error = ValueError(f"Structured Output JSON 파싱 실패: {exc}")
+                    if attempt < max_retries - 1:
+                        time.sleep(1)
+                        continue
+                    raise last_error from exc
+
+                if not isinstance(parsed, dict):
+                    raise ValueError("Structured Output이 객체(dict) 형식이 아닙니다.")
+                return parsed
+
+            except RateLimitError as exc:
+                # 429 Rate Limit 에러 처리 - exponential backoff
+                wait_time = 2 ** attempt  # 1초, 2초, 4초
+                last_error = ValueError(f"Rate limit 초과 (429): {exc}")
+                if attempt < max_retries - 1:
+                    print(f"   ⚠️ Rate limit 초과, {wait_time}초 대기 후 재시도... (시도 {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
                     continue
                 raise last_error from exc
-            if not isinstance(parsed, dict):
-                raise ValueError("Structured Output이 객체(dict) 형식이 아닙니다.")
-            return parsed
+
         raise last_error or ValueError("Structured Output 호출 실패")
 
     @staticmethod
@@ -776,7 +798,7 @@ class QualificationMatcher:
         if len(reqs) == 1:
             result.matches.append(self._match_single_requirement(reqs[0]))
         else:
-            with ThreadPoolExecutor(max_workers=min(6, len(reqs))) as pool:
+            with ThreadPoolExecutor(max_workers=min(3, len(reqs))) as pool:  # rate limit 방지: 6→3
                 futures = {pool.submit(self._match_single_requirement, req): i
                            for i, req in enumerate(reqs)}
                 indexed: list[tuple[int, RequirementMatch]] = []
