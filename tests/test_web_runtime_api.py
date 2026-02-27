@@ -385,3 +385,83 @@ def test_alert_config_full_workflow():
     assert rule["minAmt"] == 50000000
     assert rule["maxAmt"] == 200000000
     assert rule["enabled"] is True
+
+
+def test_save_alert_config_rejects_empty_keywords():
+    """Rules with empty keywords should be rejected"""
+    config = {
+        "email": "test@example.com",
+        "enabled": True,
+        "schedule": "daily_2",
+        "hours": [9],
+        "rules": [{"id": "1", "keywords": [], "enabled": True}],
+    }
+
+    resp = client.post("/api/alerts/config", json=config)
+    assert resp.status_code == 400
+    assert "키워드" in resp.json()["detail"]
+
+
+def test_save_alert_config_rejects_invalid_schedule():
+    """Invalid schedule value should be rejected"""
+    config = {
+        "email": "test@example.com",
+        "enabled": True,
+        "schedule": "invalid_schedule",
+        "hours": [],
+        "rules": [],
+    }
+
+    resp = client.post("/api/alerts/config", json=config)
+    assert resp.status_code == 400
+    assert "schedule" in resp.json()["detail"]
+
+
+def test_save_alert_config_rejects_too_many_keywords():
+    """Rules with more than 50 keywords should be rejected"""
+    config = {
+        "email": "test@example.com",
+        "enabled": True,
+        "schedule": "daily_1",
+        "hours": [],
+        "rules": [{"id": "1", "keywords": [f"keyword{i}" for i in range(51)], "enabled": True}],
+    }
+
+    resp = client.post("/api/alerts/config", json=config)
+    assert resp.status_code == 400
+    assert "키워드" in resp.json()["detail"]
+    assert "50" in resp.json()["detail"]
+
+
+def test_save_alert_config_rejects_invalid_hours_type():
+    """Hours field must be a list"""
+    config = {
+        "email": "test@example.com",
+        "enabled": True,
+        "schedule": "daily_2",
+        "hours": "not-a-list",
+        "rules": [],
+    }
+
+    resp = client.post("/api/alerts/config", json=config)
+    assert resp.status_code == 400
+    assert "hours" in resp.json()["detail"]
+    assert "배열" in resp.json()["detail"]
+
+
+def test_save_alert_config_accepts_valid_rules():
+    """Valid rules with 1-50 keywords should be accepted"""
+    config = {
+        "email": "valid@example.com",
+        "enabled": True,
+        "schedule": "daily_1",
+        "hours": [9],
+        "rules": [
+            {"id": "1", "keywords": ["keyword1"], "enabled": True},
+            {"id": "2", "keywords": [f"kw{i}" for i in range(50)], "enabled": True},
+        ],
+    }
+
+    resp = client.post("/api/alerts/config", json=config)
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True

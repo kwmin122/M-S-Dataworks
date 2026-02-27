@@ -2936,11 +2936,25 @@ async def save_alert_config_endpoint(request: Request, payload: dict) -> dict[st
                 if len(desc) > 2000:
                     raise ValueError("회사 설명은 2000자를 초과할 수 없습니다.")
 
+            # Validate rules
             if not isinstance(payload.get("rules"), list):
                 raise ValueError("rules 필드가 배열이어야 합니다.")
+
+            for i, rule in enumerate(payload.get("rules", [])):
+                keywords = rule.get("keywords", [])
+                if not keywords:
+                    raise ValueError(f"규칙 #{i+1}: 최소 1개의 키워드가 필요합니다.")
+                if len(keywords) > 50:
+                    raise ValueError(f"규칙 #{i+1}: 키워드는 최대 50개까지 가능합니다.")
+
+            # Validate schedule
             schedule = payload.get("schedule", "daily_1")
             if schedule not in ["realtime", "daily_1", "daily_2", "daily_3"]:
-                raise ValueError("올바른 schedule 값이 필요합니다.")
+                raise ValueError("올바른 schedule 값이 필요합니다 (realtime, daily_1, daily_2, daily_3).")
+
+            # Validate hours
+            if "hours" in payload and not isinstance(payload["hours"], list):
+                raise ValueError("hours 필드가 배열이어야 합니다.")
 
             save_alert_config(payload)
             return {"success": True, "message": "알림 설정이 저장되었습니다."}
