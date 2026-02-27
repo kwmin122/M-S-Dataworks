@@ -2257,6 +2257,27 @@ async def delete_alert_settings(session_id: str = "") -> dict[str, Any]:
     return {"ok": True}
 
 
+@app.delete("/api/alerts/config")
+async def delete_alert_config(session_id: str = "") -> dict[str, Any]:
+    """다중 규칙 기반 알림 설정 + 상태 완전 삭제."""
+    session_id = _sanitize_alert_session_id(session_id)
+
+    config_path = ALERT_CONFIG_DIR / f"{session_id}.json"
+    if config_path.exists():
+        config_path.unlink()
+
+    state_path = ALERT_STATE_DIR / f"{session_id}.json"
+    if state_path.exists():
+        state_path.unlink()
+
+    # legacy settings도 같이 정리
+    legacy_path = ALERT_SETTINGS_DIR / f"{session_id}.json"
+    if legacy_path.exists():
+        legacy_path.unlink()
+
+    return {"ok": True}
+
+
 # ── 알림 규칙 기반 설정 (Alert Config) ──
 
 ALERT_CONFIG_DIR = ROOT_DIR / "data" / "alert_configs"
@@ -3414,7 +3435,8 @@ def _send_alert_email(to_email: str, subject: str, bids: list[dict],
     )
 
 
-async def _execute_alert_send(config: dict, label: str = "alert") -> dict[str, Any]:
+async def _execute_alert_send(config: dict, label: str = "alert",
+                              session_id: str = "") -> dict[str, Any]:
     """알림 설정 1건에 대해 검색 + 요약 + 이메일 발송. send-now와 스케줄러 공용."""
     import time as _time
     t0 = _time.perf_counter()
@@ -3448,7 +3470,7 @@ async def _execute_alert_send(config: dict, label: str = "alert") -> dict[str, A
     if not all_bids:
         return {"sent": False, "reason": "매칭 공고가 없습니다.", "count": 0, "summaryCount": 0}
 
-    # Step 2: 중복 제거 + 상한 10건 (메모리 절약)
+    # Step 2: 중복 제거 + 이미 발송한 공고 제외
     seen: set[str] = set()
     unique: list[dict] = []
     for b in all_bids:
@@ -3456,8 +3478,19 @@ async def _execute_alert_send(config: dict, label: str = "alert") -> dict[str, A
         if bid_id and bid_id not in seen:
             seen.add(bid_id)
             unique.append(b)
-    total_found = len(unique)
-    unique = unique[:10]
+
+    # 이전에 발송한 공고 ID 필터링 (중복 메일 방지)
+    already_sent: set[str] = set()
+    if session_id:
+        state = _get_alert_state(session_id)
+        already_sent = set(state.get("sent_bid_ids", []))
+    new_bids = [b for b in unique if b.get("id", "") not in already_sent]
+
+    if not new_bids:
+        return {"sent": False, "reason": "새로운 공고가 없습니다.", "count": 0, "summaryCount": 0}
+
+    total_found = len(new_bids)
+    new_bids = new_bids[:10]
 
     # Step 3: 순차 RFP 요약 (메모리 절약: 1건씩 처리)
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
@@ -3474,7 +3507,7 @@ async def _execute_alert_send(config: dict, label: str = "alert") -> dict[str, A
                 return (bid_id, summary)
 
         results = await asyncio.gather(
-            *[_summarize(b) for b in unique], return_exceptions=True,
+            *[_summarize(b) for b in new_bids], return_exceptions=True,
         )
         for r in results:
             if isinstance(r, tuple) and r[1]:
@@ -3484,13 +3517,23 @@ async def _execute_alert_send(config: dict, label: str = "alert") -> dict[str, A
 
     # Step 4: 이메일 발송
     today = datetime.now().strftime("%Y-%m-%d")
-    subject = f"[키라봇] {today} 맞춤 공고 알림 ({len(unique)}건)"
-    sent = _send_alert_email(config["email"], subject, unique, summaries or None)
+    subject = f"[키라봇] {today} 맞춤 공고 알림 ({len(new_bids)}건)"
+    sent = _send_alert_email(config["email"], subject, new_bids, summaries or None)
+
+    # Step 5: 발송한 공고 ID 기록 (중복 발송 방지)
+    if sent and session_id:
+        state = _get_alert_state(session_id)
+        prev_ids = set(state.get("sent_bid_ids", []))
+        new_ids = {b.get("id", "") for b in new_bids if b.get("id")}
+        # 최근 500건만 유지 (무한 증가 방지)
+        all_ids = list(prev_ids | new_ids)[-500:]
+        state["sent_bid_ids"] = all_ids
+        _set_alert_state(session_id, state)
 
     elapsed = _time.perf_counter() - t0
-    logger.info("[%s] %d건, 요약 %d건 (%.1fs)", label, len(unique), len(summaries), elapsed)
+    logger.info("[%s] %d건, 요약 %d건 (%.1fs)", label, len(new_bids), len(summaries), elapsed)
 
-    return {"sent": sent, "count": len(unique), "totalFound": total_found, "summaryCount": len(summaries)}
+    return {"sent": sent, "count": len(new_bids), "totalFound": total_found, "summaryCount": len(summaries)}
 
 
 @app.post("/api/debug/send-now-test")
@@ -3524,7 +3567,7 @@ async def send_alert_now(request: Request, payload: dict) -> dict[str, Any]:
     if not config.get("email"):
         raise HTTPException(status_code=400, detail="수신 이메일이 설정되지 않았습니다.")
 
-    result = await _execute_alert_send(config, label=f"send-now:{session_id}")
+    result = await _execute_alert_send(config, label=f"send-now:{session_id}", session_id=session_id)
     return {"ok": True, **result}
 
 
@@ -3603,7 +3646,7 @@ async def _check_and_send_scheduled_alerts():
         # 순차 발송 (설정 간 동시 실행 방지)
         logger.info("스케줄 알림: session=%s, hour=%d", session_id, current_hour)
         try:
-            result = await _execute_alert_send(config, label=f"sched:{session_id}")
+            result = await _execute_alert_send(config, label=f"sched:{session_id}", session_id=session_id)
             if result.get("sent"):
                 state["last_sent"] = today_hour_key
                 _set_alert_state(session_id, state)

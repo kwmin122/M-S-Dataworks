@@ -228,17 +228,8 @@ const AlertSettingsPage: React.FC = () => {
   const handleDelete = async () => {
     if (!confirm('알림 설정을 삭제하시겠습니까?')) return;
     try {
-      await fetch(`${getApiBaseUrl()}/api/alerts/config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session_id: sessionId,
-          enabled: false,
-          email: '',
-          schedule: 'daily_1',
-          hours: [],
-          rules: [],
-        }),
+      await fetch(`${getApiBaseUrl()}/api/alerts/config?session_id=${encodeURIComponent(sessionId)}`, {
+        method: 'DELETE',
       });
       setEmail('');
       setSchedule('daily_1');
