@@ -2,7 +2,7 @@ import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/TextLayer.css';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
-import { FileX, Download, Copy, Check, FileSpreadsheet, FileText, Presentation, Quote, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { FileX, Download, Copy, Check, FileSpreadsheet, FileText, Presentation, Quote, ZoomIn, ZoomOut, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getFileTextPreview, type TextPreviewPage } from '../../../services/kiraApiService';
 import type { DocFileType } from '../../../types';
 
@@ -39,7 +39,7 @@ const FILE_TYPE_LABELS: Record<DocFileType, string> = {
 
 const ZOOM_STEPS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 
-// ── PDF Viewer with zoom controls ──
+// ── PDF Viewer: single-page mode with zoom + navigation ──
 
 const PdfViewer: React.FC<{ url: string; page: number; highlightText?: string }> = ({
   url,
@@ -47,34 +47,43 @@ const PdfViewer: React.FC<{ url: string; page: number; highlightText?: string }>
   highlightText,
 }) => {
   const [numPages, setNumPages] = useState<number>(0);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [containerWidth, setContainerWidth] = useState(0);
+  const [currentPage, setCurrentPage] = useState<number>(page || 1);
   const [zoom, setZoom] = useState(1.0);
-  const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [isEditingPage, setIsEditingPage] = useState(false);
+  const [pageInput, setPageInput] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const pageInputRef = useRef<HTMLInputElement>(null);
 
+  // Track container width for fit-to-width rendering
   useEffect(() => {
     if (!containerRef.current) return;
     const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width);
-      }
+      for (const entry of entries) setContainerWidth(entry.contentRect.width);
     });
     observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, []);
 
+  // Auto-navigate when page prop changes (reference click)
   useEffect(() => {
-    if (page <= 0 || !numPages) return;
-    const el = pageRefs.current.get(page);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (page > 0 && numPages > 0) {
+      setCurrentPage(Math.min(page, numPages));
     }
   }, [page, numPages]);
 
+  // Reset scroll position when page or zoom changes
+  useEffect(() => {
+    if (wrapperRef.current) wrapperRef.current.scrollTo(0, 0);
+  }, [currentPage, zoom]);
+
   const onDocumentLoadSuccess = useCallback(({ numPages: total }: { numPages: number }) => {
     setNumPages(total);
-  }, []);
+    if (page > 0 && page <= total) setCurrentPage(page);
+  }, [page]);
 
+  // Highlight keywords for yellow marks
   const highlightKeywords = useMemo(() => {
     if (!highlightText) return [];
     return highlightText
@@ -104,22 +113,59 @@ const PdfViewer: React.FC<{ url: string; page: number; highlightText?: string }>
     [highlightKeywords],
   );
 
-  const setPageRef = useCallback((pageNum: number, el: HTMLDivElement | null) => {
-    if (el) pageRefs.current.set(pageNum, el);
-    else pageRefs.current.delete(pageNum);
-  }, []);
+  // Page navigation
+  const goToPage = useCallback((p: number) => {
+    if (p >= 1 && p <= numPages) setCurrentPage(p);
+  }, [numPages]);
+  const goPrev = useCallback(() => goToPage(currentPage - 1), [currentPage, goToPage]);
+  const goNext = useCallback(() => goToPage(currentPage + 1), [currentPage, goToPage]);
 
-  const handleZoomIn = () => {
+  // Zoom controls
+  const handleZoomIn = useCallback(() => {
     const nextIdx = ZOOM_STEPS.findIndex(z => z > zoom);
     if (nextIdx !== -1) setZoom(ZOOM_STEPS[nextIdx]);
-  };
-  const handleZoomOut = () => {
+  }, [zoom]);
+  const handleZoomOut = useCallback(() => {
     const prevSteps = ZOOM_STEPS.filter(z => z < zoom);
     if (prevSteps.length > 0) setZoom(prevSteps[prevSteps.length - 1]);
-  };
-  const handleZoomReset = () => setZoom(1.0);
+  }, [zoom]);
+  const handleZoomReset = useCallback(() => setZoom(1.0), []);
 
-  const pageWidth = containerWidth > 0 ? containerWidth * zoom : undefined;
+  // Page number input
+  const startEditingPage = useCallback(() => {
+    setPageInput(String(currentPage));
+    setIsEditingPage(true);
+    setTimeout(() => pageInputRef.current?.select(), 0);
+  }, [currentPage]);
+
+  const commitPageInput = useCallback(() => {
+    const p = parseInt(pageInput, 10);
+    if (!isNaN(p) && p >= 1 && p <= numPages) setCurrentPage(p);
+    setIsEditingPage(false);
+  }, [pageInput, numPages]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (isEditingPage) return;
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+
+      switch (e.key) {
+        case 'ArrowLeft': case 'ArrowUp': e.preventDefault(); goPrev(); break;
+        case 'ArrowRight': case 'ArrowDown': e.preventDefault(); goNext(); break;
+        case '+': case '=': e.preventDefault(); handleZoomIn(); break;
+        case '-': e.preventDefault(); handleZoomOut(); break;
+        case '0': e.preventDefault(); handleZoomReset(); break;
+        case 'Home': e.preventDefault(); goToPage(1); break;
+        case 'End': e.preventDefault(); goToPage(numPages); break;
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [isEditingPage, goPrev, goNext, handleZoomIn, handleZoomOut, handleZoomReset, goToPage, numPages]);
+
+  const pageWidth = containerWidth > 0 ? containerWidth : undefined;
 
   return (
     <div className="flex h-full flex-col">
@@ -136,25 +182,66 @@ const PdfViewer: React.FC<{ url: string; page: number; highlightText?: string }>
         </div>
       )}
 
-      {/* Zoom controls */}
-      <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-1.5">
-        <span className="text-xs text-slate-500">
-          {numPages > 0 ? `${numPages}페이지` : '로딩 중...'}
-        </span>
-        <div className="flex items-center gap-1">
+      {/* Toolbar: navigation + zoom + download */}
+      <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-slate-50 px-2 py-1">
+        {/* Page navigation */}
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={goPrev}
+            disabled={currentPage <= 1}
+            className="rounded p-1 text-slate-500 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30"
+            title="이전 페이지 (←)"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          {isEditingPage ? (
+            <input
+              ref={pageInputRef}
+              type="text"
+              value={pageInput}
+              onChange={(e) => setPageInput(e.target.value.replace(/\D/g, ''))}
+              onBlur={commitPageInput}
+              onKeyDown={(e) => { if (e.key === 'Enter') commitPageInput(); if (e.key === 'Escape') setIsEditingPage(false); }}
+              className="w-10 rounded border border-slate-300 bg-white px-1 py-0.5 text-center text-xs text-slate-700 outline-none focus:border-primary-400"
+              autoFocus
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={startEditingPage}
+              className="rounded px-1.5 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-200 tabular-nums"
+              title="페이지로 이동 (클릭)"
+            >
+              {numPages > 0 ? `${currentPage} / ${numPages}` : '...'}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={goNext}
+            disabled={currentPage >= numPages}
+            className="rounded p-1 text-slate-500 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30"
+            title="다음 페이지 (→)"
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
+
+        {/* Zoom controls */}
+        <div className="flex items-center gap-0.5">
           <button
             type="button"
             onClick={handleZoomOut}
             disabled={zoom <= ZOOM_STEPS[0]}
             className="rounded p-1 text-slate-500 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30"
-            title="축소"
+            title="축소 (−)"
           >
             <ZoomOut size={15} />
           </button>
           <button
             type="button"
             onClick={handleZoomReset}
-            className="min-w-[42px] rounded px-1.5 py-0.5 text-center text-xs font-medium text-slate-600 hover:bg-slate-200"
+            className="min-w-[40px] rounded px-1 py-0.5 text-center text-xs font-medium text-slate-600 hover:bg-slate-200 tabular-nums"
             title="원본 크기"
           >
             {Math.round(zoom * 100)}%
@@ -164,56 +251,59 @@ const PdfViewer: React.FC<{ url: string; page: number; highlightText?: string }>
             onClick={handleZoomIn}
             disabled={zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]}
             className="rounded p-1 text-slate-500 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30"
-            title="확대"
+            title="확대 (+)"
           >
             <ZoomIn size={15} />
           </button>
-          {zoom !== 1.0 && (
-            <button
-              type="button"
-              onClick={handleZoomReset}
-              className="ml-1 rounded p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
-              title="초기화"
-            >
-              <RotateCcw size={13} />
-            </button>
-          )}
+          <a
+            href={url}
+            download
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ml-1 rounded p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+            title="다운로드"
+          >
+            <Download size={14} />
+          </a>
         </div>
       </div>
 
-      {/* PDF pages scroll */}
-      <div ref={containerRef} className="flex-1 overflow-auto bg-slate-100">
-        <Document
-          file={url}
-          onLoadSuccess={onDocumentLoadSuccess}
-          loading={
-            <div className="flex items-center justify-center p-12">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary-500 border-t-transparent" />
-            </div>
-          }
-          error={
-            <div className="flex flex-col items-center justify-center gap-2 p-12 text-center">
-              <FileX size={32} className="text-slate-300" />
-              <p className="text-sm text-slate-500">PDF를 불러올 수 없습니다.</p>
-            </div>
-          }
+      {/* Single-page PDF render with zoom */}
+      <div ref={containerRef} className="relative flex-1 overflow-hidden bg-slate-100">
+        <div
+          ref={wrapperRef}
+          className="absolute inset-0 overflow-auto"
         >
-          {numPages > 0 && Array.from({ length: numPages }, (_, i) => i + 1).map((pageNum) => (
-            <div
-              key={pageNum}
-              ref={(el) => setPageRef(pageNum, el)}
-              className="border-b border-slate-200 last:border-b-0"
+          <div
+            style={zoom !== 1.0 ? { transform: `scale(${zoom})`, transformOrigin: 'top center', width: `${100 / zoom}%` } : undefined}
+          >
+            <Document
+              file={url}
+              onLoadSuccess={onDocumentLoadSuccess}
+              loading={
+                <div className="flex items-center justify-center p-12">
+                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary-500 border-t-transparent" />
+                </div>
+              }
+              error={
+                <div className="flex flex-col items-center justify-center gap-2 p-12 text-center">
+                  <FileX size={32} className="text-slate-300" />
+                  <p className="text-sm text-slate-500">PDF를 불러올 수 없습니다.</p>
+                </div>
+              }
             >
-              <Page
-                pageNumber={pageNum}
-                width={pageWidth}
-                renderTextLayer={true}
-                renderAnnotationLayer={true}
-                customTextRenderer={highlightText && pageNum === page ? customTextRenderer : undefined}
-              />
-            </div>
-          ))}
-        </Document>
+              {numPages > 0 && (
+                <Page
+                  pageNumber={currentPage}
+                  width={pageWidth}
+                  renderTextLayer={true}
+                  renderAnnotationLayer={true}
+                  customTextRenderer={highlightText && currentPage === page ? customTextRenderer : undefined}
+                />
+              )}
+            </Document>
+          </div>
+        </div>
       </div>
     </div>
   );
