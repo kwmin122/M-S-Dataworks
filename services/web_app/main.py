@@ -139,6 +139,11 @@ class SessionPayload(BaseModel):
     session_id: str
 
 
+class CompanyDeletePayload(BaseModel):
+    session_id: str
+    source_file: str
+
+
 class AnalyzeTextPayload(BaseModel):
     session_id: str
     document_text: str
@@ -1364,6 +1369,57 @@ async def upload_company_documents(
         "fileUrls": file_urls,
         "added_chunks": total_chunks,
         "company_chunks": stats.get("total_documents", 0),
+        "documents": session.rag_engine.list_documents(),
+    }
+
+
+@app.get("/api/company/list")
+def list_company_documents(session_id: str) -> dict[str, Any]:
+    session = _get_or_create_session(session_id)
+    docs = session.rag_engine.list_documents()
+
+    # 디스크 파일과 매칭하여 URL 생성
+    upload_dir = ROOT_DIR / "data" / "web_uploads" / session.session_id / "company"
+    for doc in docs:
+        matched_file = None
+        if upload_dir.exists():
+            for f in upload_dir.iterdir():
+                if f.name.endswith(doc["source_file"]) or doc["source_file"] in f.name:
+                    matched_file = f.name
+                    break
+        doc["url"] = f"/api/files/{session.session_id}/company/{matched_file}" if matched_file else ""
+
+    return {
+        "ok": True,
+        "documents": docs,
+        "total_chunks": sum(d["chunks"] for d in docs),
+    }
+
+
+@app.post("/api/company/delete")
+def delete_company_document(payload: CompanyDeletePayload) -> dict[str, Any]:
+    session = _get_or_create_session(payload.session_id)
+    deleted = session.rag_engine.delete_document(payload.source_file)
+
+    if deleted == 0:
+        raise HTTPException(status_code=404, detail="해당 문서를 찾을 수 없습니다.")
+
+    # 디스크에서도 삭제
+    upload_dir = ROOT_DIR / "data" / "web_uploads" / session.session_id / "company"
+    if upload_dir.exists():
+        for f in upload_dir.iterdir():
+            if f.name.endswith(payload.source_file) or payload.source_file in f.name:
+                f.unlink(missing_ok=True)
+                break
+
+    # 매칭 결과 무효화
+    session.latest_matching_result = None
+
+    remaining = session.rag_engine.get_stats().get("total_documents", 0)
+    return {
+        "ok": True,
+        "deleted_chunks": deleted,
+        "remaining_chunks": remaining,
     }
 
 
