@@ -1,10 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, Save, X } from 'lucide-react';
+import CompanyProfileSection from './CompanyProfileSection';
+import type { AlertCompanyProfile } from '../../services/kiraApiService';
 
 export const AlertsPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [enabled, setEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [companyProfile, setCompanyProfile] = useState<AlertCompanyProfile>({
+    description: '',
+  });
 
   useEffect(() => {
     // TODO: Load config from API
@@ -59,6 +64,12 @@ export const AlertsPage: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* Company Profile Section */}
+          <CompanyProfileSection
+            profile={companyProfile}
+            onChange={setCompanyProfile}
+          />
         </div>
       </div>
 
