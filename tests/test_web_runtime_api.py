@@ -359,8 +359,29 @@ def test_alert_config_full_workflow():
     assert get_resp.status_code == 200
 
     data = get_resp.json()
+
+    # Top-level fields
     assert data["email"] == "integration@example.com"
-    assert data["companyProfile"]["description"] == "교통신호등 제조 전문. ISO 9001 보유."
-    assert len(data["companyProfile"]["mainProducts"]) == 2
-    assert data["rules"][0]["excludeRegions"] == ["안산"]
-    assert data["rules"][0]["productCodes"] == ["42101", "42105"]
+    assert data["enabled"] is True
+    assert data["schedule"] == "daily_2"
+    assert data["hours"] == [9, 18]
+
+    # Company profile
+    profile = data["companyProfile"]
+    assert profile["description"] == "교통신호등 제조 전문. ISO 9001 보유."
+    assert profile["mainProducts"] == ["교통신호등", "CCTV"]
+    assert profile["excludedAreas"] == ["안산", "부산"]
+
+    # Rules[0] - all fields
+    rule = data["rules"][0]
+    assert rule["id"] == "rule1"
+    assert rule["keywords"] == ["교통신호등", "CCTV"]
+    assert rule["excludeKeywords"] == ["유지보수"]
+    assert rule["categories"] == ["물품"]
+    assert rule["regions"] == ["서울", "경기"]
+    assert rule["excludeRegions"] == ["안산"]
+    assert rule["productCodes"] == ["42101", "42105"]
+    assert rule["detailedItems"] == ["교통신호등 주"]
+    assert rule["minAmt"] == 50000000
+    assert rule["maxAmt"] == 200000000
+    assert rule["enabled"] is True
