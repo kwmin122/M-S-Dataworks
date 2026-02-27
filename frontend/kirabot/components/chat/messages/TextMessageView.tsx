@@ -1,4 +1,5 @@
 import React from 'react';
+import { FileText } from 'lucide-react';
 import type { TextChatMessage, MessageAction } from '../../../types';
 
 interface Props {
@@ -47,6 +48,12 @@ const TextMessageView: React.FC<Props> = ({ message, onAction }) => {
   return (
     <div>
       <p className="whitespace-pre-line">{renderMarkdown(message.text)}</p>
+      {message.scoped_to && message.scoped_to.length > 0 && (
+        <div className="flex items-center gap-1 mt-2 text-xs text-slate-400">
+          <FileText size={10} />
+          <span>기반 문서: {message.scoped_to.join(', ')}</span>
+        </div>
+      )}
       {message.references && message.references.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
           {message.references.slice(0, 5).map((ref, idx) => (

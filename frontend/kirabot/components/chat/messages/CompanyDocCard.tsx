@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { FileText, X, Undo2, Plus } from 'lucide-react';
+import { FileText, X, Undo2, Plus, MessageCircle } from 'lucide-react';
 import type { CompanyDocInfo } from '../../../types';
 
 interface CompanyDocCardProps {
   documents: CompanyDocInfo[];
   onDelete: (sourceFile: string) => void;
   onAddMore?: () => void;
+  onAskAbout?: (sourceFile: string) => void;
   /** 방금 업로드한 파일명들 (Undo 대상) */
   justUploaded?: string[];
   onUndo?: () => void;
@@ -15,6 +16,7 @@ const CompanyDocCard: React.FC<CompanyDocCardProps> = ({
   documents,
   onDelete,
   onAddMore,
+  onAskAbout,
   justUploaded,
   onUndo,
 }) => {
@@ -58,6 +60,16 @@ const CompanyDocCard: React.FC<CompanyDocCardProps> = ({
             <FileText size={14} className="text-slate-400 flex-shrink-0" />
             <span className="flex-1 truncate text-slate-700">{doc.source_file}</span>
             <span className="text-xs text-slate-400 flex-shrink-0">{doc.chunks}</span>
+            {onAskAbout && (
+              <button
+                type="button"
+                onClick={() => onAskAbout(doc.source_file)}
+                className="p-0.5 rounded text-slate-300 hover:text-kira-500 transition-colors"
+                title="이 문서에 질문"
+              >
+                <MessageCircle size={14} />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => handleDelete(doc.source_file)}

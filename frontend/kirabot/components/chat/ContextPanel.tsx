@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, FileText } from 'lucide-react';
+import { X, FileText, MessageCircle } from 'lucide-react';
 import { useChatContext } from '../../context/ChatContext';
 import { useActiveConversation } from '../../hooks/useActiveConversation';
 import { useConversationFlow } from '../../hooks/useConversationFlow';
@@ -114,6 +114,14 @@ const ContextPanel: React.FC = () => {
                 <FileText size={14} className="text-slate-400" />
                 <span className="flex-1 text-sm text-slate-700 truncate">{doc.source_file}</span>
                 <span className="text-xs text-slate-400">{doc.chunks}</span>
+                <button
+                  type="button"
+                  onClick={() => handleAction({ type: 'ask_about_doc', sourceFile: doc.source_file })}
+                  className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-300 hover:text-kira-500 transition-all"
+                  title="이 문서에 질문"
+                >
+                  <MessageCircle size={14} />
+                </button>
                 <button
                   type="button"
                   onClick={() => handleAction({ type: 'delete_company_doc', sourceFile: doc.source_file })}
