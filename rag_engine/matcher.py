@@ -533,26 +533,50 @@ class QualificationMatcher:
         schema: dict[str, Any],
         model: Optional[str] = None,
     ) -> dict[str, Any]:
-        """OpenAI Structured Outputs(json_schema strict) 호출"""
-        response = self.client.chat.completions.create(
-            model=model or self.model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": schema_name,
-                    "strict": True,
-                    "schema": schema,
+        """OpenAI Structured Outputs(json_schema strict) 호출.
+
+        finish_reason='length'(토큰 초과)이면 max_tokens를 늘려 1회 재시도.
+        JSON 파싱 실패 시에도 1회 재시도한다.
+        """
+        last_error: Exception | None = None
+        current_max_tokens = max_tokens
+        for attempt in range(2):
+            response = self.client.chat.completions.create(
+                model=model or self.model,
+                max_tokens=current_max_tokens,
+                temperature=temperature,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": schema_name,
+                        "strict": True,
+                        "schema": schema,
+                    },
                 },
-            },
-            messages=[{"role": "user", "content": prompt}],
-        )
-        content = (response.choices[0].message.content or "").strip()
-        parsed = json.loads(content)
-        if not isinstance(parsed, dict):
-            raise ValueError("Structured Output이 객체(dict) 형식이 아닙니다.")
-        return parsed
+                messages=[{"role": "user", "content": prompt}],
+            )
+            choice = response.choices[0]
+            if choice.finish_reason == "length":
+                current_max_tokens = min(current_max_tokens * 2, 16384)
+                last_error = ValueError(
+                    f"Structured Output 토큰 초과 (finish_reason=length, "
+                    f"max_tokens={current_max_tokens // 2})"
+                )
+                if attempt == 0:
+                    continue
+                raise last_error
+            content = (choice.message.content or "").strip()
+            try:
+                parsed = json.loads(content)
+            except json.JSONDecodeError as exc:
+                last_error = ValueError(f"Structured Output JSON 파싱 실패: {exc}")
+                if attempt == 0:
+                    continue
+                raise last_error from exc
+            if not isinstance(parsed, dict):
+                raise ValueError("Structured Output이 객체(dict) 형식이 아닙니다.")
+            return parsed
+        raise last_error or ValueError("Structured Output 호출 실패")
 
     @staticmethod
     def _extract_json_block(response_text: str) -> str:

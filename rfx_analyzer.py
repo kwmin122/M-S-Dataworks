@@ -342,29 +342,53 @@ class RFxAnalyzer:
         schema: dict[str, Any],
         model: Optional[str] = None,
     ) -> dict[str, Any]:
-        """OpenAI Structured Outputs(json_schema strict) 호출"""
-        response = self.client.chat.completions.create(
-            model=model or self.model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": schema_name,
-                    "strict": True,
-                    "schema": schema,
+        """OpenAI Structured Outputs(json_schema strict) 호출.
+
+        finish_reason='length'(토큰 초과)이면 max_tokens를 늘려 1회 재시도.
+        JSON 파싱 실패 시에도 1회 재시도한다.
+        """
+        last_error: Exception | None = None
+        current_max_tokens = max_tokens
+        for attempt in range(2):
+            response = self.client.chat.completions.create(
+                model=model or self.model,
+                max_tokens=current_max_tokens,
+                temperature=temperature,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": schema_name,
+                        "strict": True,
+                        "schema": schema,
+                    },
                 },
-            },
-            messages=[{"role": "user", "content": prompt}],
-        )
-        content = (response.choices[0].message.content or "").strip()
-        try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError as exc:
-            raise RFxParseError(f"Structured Output JSON 파싱 실패: {exc}") from exc
-        if not isinstance(parsed, dict):
-            raise RFxParseError("Structured Output이 객체(dict) 형식이 아닙니다.")
-        return parsed
+                messages=[{"role": "user", "content": prompt}],
+            )
+            choice = response.choices[0]
+            # 토큰 초과로 JSON이 잘린 경우 → max_tokens 증가 후 재시도
+            if choice.finish_reason == "length":
+                current_max_tokens = min(current_max_tokens * 2, 16384)
+                last_error = RFxParseError(
+                    f"Structured Output 토큰 초과 (finish_reason=length, "
+                    f"max_tokens={current_max_tokens // 2})"
+                )
+                if attempt == 0:
+                    print(f"   ⚠️ 토큰 초과, max_tokens={current_max_tokens}으로 재시도")
+                    continue
+                raise last_error
+            content = (choice.message.content or "").strip()
+            try:
+                parsed = json.loads(content)
+            except json.JSONDecodeError as exc:
+                last_error = RFxParseError(f"Structured Output JSON 파싱 실패: {exc}")
+                if attempt == 0:
+                    print(f"   ⚠️ JSON 파싱 실패, 재시도 중... ({exc})")
+                    continue
+                raise last_error from exc
+            if not isinstance(parsed, dict):
+                raise RFxParseError("Structured Output이 객체(dict) 형식이 아닙니다.")
+            return parsed
+        raise last_error or RFxParseError("Structured Output 호출 실패")
     
     # ============================================================
     # STEP 3: RFx 문서 분석 메인 함수
