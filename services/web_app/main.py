@@ -2258,8 +2258,9 @@ async def delete_alert_settings(session_id: str = "") -> dict[str, Any]:
 
 
 @app.delete("/api/alerts/config")
-async def delete_alert_config(session_id: str = "") -> dict[str, Any]:
+async def delete_alert_config(request: Request, session_id: str = "") -> dict[str, Any]:
     """다중 규칙 기반 알림 설정 + 상태 완전 삭제."""
+    _require_username(request)
     session_id = _sanitize_alert_session_id(session_id)
 
     config_path = ALERT_CONFIG_DIR / f"{session_id}.json"
@@ -2297,10 +2298,12 @@ def _get_alert_state(session_id: str) -> dict:
 
 
 def _set_alert_state(session_id: str, state: dict):
-    """알림 발송 상태 저장."""
+    """알림 발송 상태 저장 (atomic write)."""
     ALERT_STATE_DIR.mkdir(parents=True, exist_ok=True)
     state_path = ALERT_STATE_DIR / f"{session_id}.json"
-    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), "utf-8")
+    tmp_path = state_path.with_suffix(".tmp")
+    tmp_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), "utf-8")
+    os.replace(str(tmp_path), str(state_path))
 
 
 def _send_email_brevo(to_email: str, subject: str, html: str,
@@ -2518,8 +2521,9 @@ def _sanitize_alert_session_id(raw: str) -> str:
 
 
 @app.post("/api/alerts/config")
-async def save_alert_config(payload: dict) -> dict[str, Any]:
+async def save_alert_config(request: Request, payload: dict) -> dict[str, Any]:
     """다중 규칙 기반 알림 설정 저장."""
+    _require_username(request)
     session_id = _sanitize_alert_session_id(payload.get("session_id", ""))
 
     config = {
@@ -2537,7 +2541,9 @@ async def save_alert_config(payload: dict) -> dict[str, Any]:
     config_path = ALERT_CONFIG_DIR / f"{session_id}.json"
 
     is_new = not config_path.exists()
-    config_path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_path = config_path.with_suffix(".tmp")
+    tmp_path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(str(tmp_path), str(config_path))
 
     # 확인 이메일 (10분 디바운스)
     confirmation_sent = False
@@ -2569,8 +2575,9 @@ async def save_alert_config(payload: dict) -> dict[str, Any]:
 
 
 @app.get("/api/alerts/config")
-async def get_alert_config(session_id: str = "") -> dict[str, Any]:
+async def get_alert_config(request: Request, session_id: str = "") -> dict[str, Any]:
     """다중 규칙 기반 알림 설정 조회."""
+    _require_username(request)
     session_id = _sanitize_alert_session_id(session_id)
 
     config_path = ALERT_CONFIG_DIR / f"{session_id}.json"
@@ -3523,11 +3530,17 @@ async def _execute_alert_send(config: dict, label: str = "alert",
     # Step 5: 발송한 공고 ID 기록 (중복 발송 방지)
     if sent and session_id:
         state = _get_alert_state(session_id)
-        prev_ids = set(state.get("sent_bid_ids", []))
-        new_ids = {b.get("id", "") for b in new_bids if b.get("id")}
-        # 최근 500건만 유지 (무한 증가 방지)
-        all_ids = list(prev_ids | new_ids)[-500:]
-        state["sent_bid_ids"] = all_ids
+        prev_ids: list[str] = state.get("sent_bid_ids", [])
+        new_ids = [b.get("id", "") for b in new_bids if b.get("id")]
+        # 기존 목록 뒤에 새 ID 추가 (순서 유지), 중복 제거
+        seen = set(prev_ids)
+        merged = list(prev_ids)
+        for bid_id in new_ids:
+            if bid_id not in seen:
+                merged.append(bid_id)
+                seen.add(bid_id)
+        # 최근 500건만 유지 (오래된 것부터 제거)
+        state["sent_bid_ids"] = merged[-500:]
         _set_alert_state(session_id, state)
 
     elapsed = _time.perf_counter() - t0

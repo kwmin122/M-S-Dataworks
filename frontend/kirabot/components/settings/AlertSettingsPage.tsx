@@ -134,7 +134,7 @@ const AlertSettingsPage: React.FC = () => {
 
     const baseUrl = getApiBaseUrl();
 
-    fetch(`${baseUrl}/api/alerts/config?session_id=${sessionId}`)
+    fetch(`${baseUrl}/api/alerts/config?session_id=${sessionId}`, { credentials: 'include' })
       .then(res => res.json())
       .then(async (data) => {
         if (data.email) {
@@ -145,12 +145,13 @@ const AlertSettingsPage: React.FC = () => {
         const legacyId = localStorage.getItem(LEGACY_ALERT_SESSION_KEY);
         if (legacyId) {
           try {
-            const legacyRes = await fetch(`${baseUrl}/api/alerts/config?session_id=${legacyId}`);
+            const legacyRes = await fetch(`${baseUrl}/api/alerts/config?session_id=${legacyId}`, { credentials: 'include' });
             const legacyData = await legacyRes.json();
             if (legacyData.email) {
               // Migrate: save under new user-scoped session ID
               await fetch(`${baseUrl}/api/alerts/config`, {
                 method: 'POST',
+                credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ...legacyData, session_id: sessionId }),
               });
@@ -176,6 +177,7 @@ const AlertSettingsPage: React.FC = () => {
     try {
       const res = await fetch(`${getApiBaseUrl()}/api/alerts/config`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           session_id: sessionId,
@@ -230,6 +232,7 @@ const AlertSettingsPage: React.FC = () => {
     try {
       await fetch(`${getApiBaseUrl()}/api/alerts/config?session_id=${encodeURIComponent(sessionId)}`, {
         method: 'DELETE',
+        credentials: 'include',
       });
       setEmail('');
       setSchedule('daily_1');
