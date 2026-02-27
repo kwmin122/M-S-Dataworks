@@ -218,7 +218,7 @@ export function useConversationFlow() {
   // ── Handle user text input ──
 
   const handleUserText = useCallback(
-    async (text: string) => {
+    async (text: string, _sourceFiles?: string[]) => {
       if (!conversationId || !conversation) return;
 
       push({

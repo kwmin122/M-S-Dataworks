@@ -95,7 +95,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({ user }) => {
         </div>
       )}
       <MessageList onAction={onAction} />
-      <ChatInput onSendText={(text) => void handleUserText(text)} onAction={onAction} />
+      <ChatInput onSendText={(text, sourceFiles) => void handleUserText(text, sourceFiles)} onAction={onAction} />
     </div>
   );
 };
