@@ -11,16 +11,21 @@ if str(ROOT) not in sys.path:
 from chat_tools import CHAT_TOOLS, parse_tool_call_result
 
 
-def test_four_tools_defined():
-    assert len(CHAT_TOOLS) == 4
+def test_five_tools_defined():
+    assert len(CHAT_TOOLS) == 5
     names = {t["function"]["name"] for t in CHAT_TOOLS}
-    assert names == {"document_qa", "general_response", "bid_search", "bid_analyze"}
+    assert names == {"document_qa", "general_response", "bid_search", "bid_analyze", "need_more_context"}
 
 
 def test_all_tools_have_answer_param():
+    # need_more_context uses suggested_query instead of answer
     for tool in CHAT_TOOLS:
+        name = tool["function"]["name"]
         props = tool["function"]["parameters"]["properties"]
-        assert "answer" in props
+        if name == "need_more_context":
+            assert "suggested_query" in props
+        else:
+            assert "answer" in props
 
 
 def test_parse_document_qa():

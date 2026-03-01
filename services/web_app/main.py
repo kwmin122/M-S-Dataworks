@@ -64,6 +64,7 @@ from matcher import MatchStatus, MatchingResult, QualificationMatcher  # noqa: E
 from rfx_analyzer import RFxAnalysisResult, RFxAnalyzer  # noqa: E402
 from document_parser import DocumentParser  # noqa: E402
 from chat_tools import CHAT_TOOLS, TOOL_USE_SYSTEM_PROMPT, parse_tool_call_result  # noqa: E402
+from services.web_app.react_chat import react_chat_loop  # noqa: E402
 from chat_router import (  # noqa: E402
     ChatPolicy,
     RouteDecision,
@@ -1887,9 +1888,9 @@ def chat_with_references(payload: ChatPayload, request: Request) -> dict[str, An
         or (session.rfx_rag_engine.collection.count() > 0)
     )
 
-    # ── Step 3: LLM Tool Use 단일 호출 (라우팅 + 응답 생성) ──
+    # ── Step 3: ReAct 루프 (최대 3턴, 재검색 가능) ──
     try:
-        tool_name, answer, references = _generate_chat_answer_with_tools(
+        tool_name, answer, references = react_chat_loop(
             api_key=api_key,
             message=message,
             company_context_text=company_context_text,

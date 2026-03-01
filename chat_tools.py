@@ -96,6 +96,35 @@ CHAT_TOOLS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "need_more_context",
+            "description": (
+                "현재 컨텍스트로 충분한 답변이 불가능할 때 사용. "
+                "다른 검색어나 문서 범위로 재검색이 필요할 때."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "description": "왜 현재 컨텍스트가 불충분한지 설명",
+                    },
+                    "suggested_query": {
+                        "type": "string",
+                        "description": "재검색할 쿼리 (더 구체적이거나 다른 각도)",
+                    },
+                    "search_scope": {
+                        "type": "string",
+                        "enum": ["company", "rfx", "both"],
+                        "description": "재검색 대상 (회사문서/RFx/둘다)",
+                    },
+                },
+                "required": ["reason", "suggested_query", "search_scope"],
+            },
+        },
+    },
 ]
 
 
@@ -143,6 +172,12 @@ def parse_tool_call_result(
 
     answer = str(args.get("answer", "")).strip()
     references: list[dict[str, Any]] = []
+    if tool_name == "need_more_context":
+        reason = str(args.get("reason", ""))
+        suggested_query = str(args.get("suggested_query", ""))
+        search_scope = str(args.get("search_scope", "both"))
+        return tool_name, suggested_query, [{"reason": reason, "scope": search_scope}]
+
     if tool_name == "document_qa":
         for ref in (args.get("references") or [])[:10]:
             if not isinstance(ref, dict):
