@@ -1055,59 +1055,6 @@ def _write_tool_telemetry(
 
 
 
-def _generate_chat_answer_with_tools(
-    *,
-    api_key: str,
-    message: str,
-    company_context_text: str,
-    rfx_context_text: str,
-    session: WebRuntimeSession,
-) -> tuple[str, str, list[dict[str, Any]]]:
-    """Tool Use 단일 호출로 라우팅 + 응답 생성. Returns (tool_name, answer, references)."""
-    from openai import OpenAI
-
-    matching_context = ""
-    if session.latest_matching_result:
-        m = session.latest_matching_result
-        matching_context = (
-            f"적합도: {m.overall_score:.0f}%, 추천: {m.recommendation}, "
-            f"충족/부분/미충족: {m.met_count}/{m.partially_met_count}/{m.not_met_count}"
-        )
-
-    rfx_meta = ""
-    if session.latest_rfx_analysis:
-        a = session.latest_rfx_analysis
-        rfx_meta = f"공고명: {a.title}, 발주기관: {a.issuing_org}, 마감일: {a.deadline}"
-
-    ctx_parts: list[str] = []
-    if company_context_text:
-        ctx_parts.append(f"\n### 회사 정보\n{company_context_text}")
-    if rfx_context_text:
-        ctx_parts.append(f"\n### RFx 원문\n{rfx_context_text}")
-    if rfx_meta:
-        ctx_parts.append(f"\n### RFx 메타\n{rfx_meta}")
-    if matching_context:
-        ctx_parts.append(f"\n### 매칭 요약\n{matching_context}")
-    if not ctx_parts:
-        ctx_parts.append("\n### 문서 컨텍스트: 없음")
-
-    full_system = TOOL_USE_SYSTEM_PROMPT + "\n".join(ctx_parts)
-
-    model = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
-    client = OpenAI(api_key=api_key)
-    response = client.chat.completions.create(
-        model=model,
-        max_tokens=4096,
-        temperature=0.3,
-        tools=CHAT_TOOLS,
-        tool_choice="required",
-        messages=[
-            {"role": "system", "content": full_system},
-            {"role": "user", "content": message},
-        ],
-    )
-    return parse_tool_call_result(response.choices[0].message)
-
 
 
 def _index_rfx_document(session: WebRuntimeSession, file_path: str, original_name: str) -> None:
@@ -1904,7 +1851,7 @@ def chat_with_references(payload: ChatPayload, request: Request) -> dict[str, An
             "blocked": False,
             "policy": "ALLOW",
             "intent": "error_fallback",
-            "reason": str(exc),
+            "reason": "llm_call_failed",
             "answer": "죄송합니다, 답변 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
             "references": [],
             "suggested_questions": _build_suggested_questions_simple(session),

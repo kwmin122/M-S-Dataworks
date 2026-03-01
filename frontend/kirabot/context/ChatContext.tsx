@@ -94,8 +94,12 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         conversations: state.conversations.map((c) => {
           if (c.id !== action.conversationId) return c;
           const msgs = c.messages;
-          if (msgs.length > 0 && msgs[msgs.length - 1].type === 'status') {
-            return { ...c, messages: msgs.slice(0, -1) };
+          let lastStatusIdx = -1;
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            if (msgs[i].type === 'status') { lastStatusIdx = i; break; }
+          }
+          if (lastStatusIdx >= 0) {
+            return { ...c, messages: [...msgs.slice(0, lastStatusIdx), ...msgs.slice(lastStatusIdx + 1)] };
           }
           return c;
         }),

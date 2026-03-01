@@ -226,6 +226,7 @@ export function useConversationFlow() {
   const handleUserText = useCallback(
     async (text: string, sourceFiles?: string[]) => {
       if (!conversationId || !conversation) return;
+      if (state.isProcessing) return;
 
       push({
         id: msgId(),
@@ -494,7 +495,7 @@ export function useConversationFlow() {
         updateConv({ _onboardingStep: 'basic_info' });
       }
     },
-    [conversationId, conversation, push, pushText, setPhase, navigate, updateConv],
+    [conversationId, conversation, push, pushText, setPhase, navigate, updateConv, state.isProcessing],
   );
 
   // ── Handle message actions (FSM transitions) ──
@@ -1193,6 +1194,8 @@ export function useConversationFlow() {
           const currentUrl = conversation?.uploadedFileUrl ||
             (state.contextPanel.type === 'pdf' ? state.contextPanel.blobUrl : '') ||
             (state.contextPanel.type === 'documents' ? state.contextPanel.tabs[0]?.url : '');
+
+          if (!currentUrl) break;
 
           // If we have a documents panel, update the active tab's page/highlight
           if (state.contextPanel.type === 'documents') {

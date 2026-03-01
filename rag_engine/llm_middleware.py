@@ -62,6 +62,8 @@ class LLMMiddleware:
         result = wrapped(messages=[...])
     """
 
+    _MAX_RECORDS = 10_000
+
     def __init__(
         self,
         enable_logging: bool = True,
@@ -104,7 +106,8 @@ class LLMMiddleware:
                     success=True,
                 )
                 with self._lock:
-                    self.records.append(record)
+                    if len(self.records) < self._MAX_RECORDS:
+                        self.records.append(record)
 
                 if self.enable_logging:
                     logger.info(
@@ -130,7 +133,8 @@ class LLMMiddleware:
                     error_message=str(exc),
                 )
                 with self._lock:
-                    self.records.append(record)
+                    if len(self.records) < self._MAX_RECORDS:
+                        self.records.append(record)
 
                 if self.enable_logging:
                     logger.error("LLM [%s] FAILED: %s (%.0fms)", caller_name, exc, latency)

@@ -113,10 +113,10 @@ class ProposalPlanningAgent:
                 max_tokens=3000,
             )
 
-        fn = _do_call
-        if self.middleware:
-            fn = self.middleware.wrap(_do_call, caller_name="proposal_agent")
-        resp = call_with_retry(fn)
+        # call_with_retry INSIDE middleware — retry must see raw OpenAI errors
+        retried = lambda: call_with_retry(_do_call)
+        fn = self.middleware.wrap(retried, caller_name="proposal_agent") if self.middleware else retried
+        resp = fn()
         return resp.choices[0].message.content or ""
 
     def _parse_strategy(self, raw: str) -> ProposalStrategy:

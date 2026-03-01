@@ -11,12 +11,15 @@ import os
 import sys
 from typing import Any
 
-# Ensure project root is on sys.path for chat_tools import
+# Ensure project root + rag_engine are on sys.path
 _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
+_RAG = os.path.join(_ROOT, "rag_engine")
+for _p in (_ROOT, _RAG):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from chat_tools import CHAT_TOOLS, TOOL_USE_SYSTEM_PROMPT, parse_tool_call_result
+from llm_utils import call_with_retry, LLM_DEFAULT_TIMEOUT
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
@@ -95,7 +98,7 @@ def _single_turn(
         t for t in CHAT_TOOLS if t["function"]["name"] != "need_more_context"
     ]
 
-    # Build system prompt (same as _generate_chat_answer_with_tools)
+    # Build system prompt with context
     matching_context = ""
     if hasattr(session, "latest_matching_result") and session.latest_matching_result:
         m = session.latest_matching_result
@@ -124,18 +127,22 @@ def _single_turn(
     full_system = TOOL_USE_SYSTEM_PROMPT + "\n".join(ctx_parts)
 
     model = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
-    client = OpenAI(api_key=api_key)
-    response = client.chat.completions.create(
-        model=model,
-        max_tokens=4096,
-        temperature=0.3,
-        tools=tools,
-        tool_choice="required",
-        messages=[
-            {"role": "system", "content": full_system},
-            {"role": "user", "content": message},
-        ],
-    )
+    client = OpenAI(api_key=api_key, timeout=LLM_DEFAULT_TIMEOUT)
+
+    def _do_call():
+        return client.chat.completions.create(
+            model=model,
+            max_tokens=4096,
+            temperature=0.3,
+            tools=tools,
+            tool_choice="required",
+            messages=[
+                {"role": "system", "content": full_system},
+                {"role": "user", "content": message},
+            ],
+        )
+
+    response = call_with_retry(_do_call)
     return parse_tool_call_result(response.choices[0].message)
 
 

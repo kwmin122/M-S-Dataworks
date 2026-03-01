@@ -109,6 +109,7 @@ def _write_and_check_section(
     company_name: str | None,
     strategy_memo=None,
     middleware=None,
+    total_pages: int = 50,
 ) -> tuple[str, str, list[QualityIssue]]:
     """Write section, quality check, rewrite if critical issues found.
 
@@ -124,6 +125,7 @@ def _write_and_check_section(
         profile_md=profile_md,
         strategy_memo=strategy_memo,
         middleware=middleware,
+        total_pages=total_pages,
     )
 
     issues = check_quality(text, company_name=company_name)
@@ -144,6 +146,7 @@ def _write_and_check_section(
         issues=critical,
         strategy_memo=strategy_memo,
         middleware=middleware,
+        total_pages=total_pages,
     )
 
     # Check again — residuals are logged but don't block
@@ -239,6 +242,7 @@ def generate_proposal(
             company_name=company_name,
             strategy_memo=memo,
             middleware=middleware,
+            total_pages=total_pages,
         )
         return name, text, residuals
 
@@ -247,7 +251,13 @@ def generate_proposal(
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_write_one, s): s for s in outline.sections}
         for future in as_completed(futures):
-            name, text, residuals = future.result()
+            section = futures[future]
+            try:
+                name, text, residuals = future.result()
+            except Exception as exc:
+                _logger.error("Section '%s' failed: %s", section.name, exc)
+                results_map[section.name] = f"[섹션 생성 실패: {section.name}]"
+                continue
             results_map[name] = text
             all_residuals.extend(residuals)
 

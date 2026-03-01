@@ -26,6 +26,7 @@ def _assemble_prompt(
     company_context: str = "",
     profile_md: str = "",
     strategy_memo: Optional[StrategyMemo] = None,
+    total_pages: int = 50,
 ) -> str:
     """Assemble multi-layer prompt for section writing."""
     parts: list[str] = []
@@ -74,7 +75,7 @@ def _assemble_prompt(
     parts.append(f"## 이번 공고 정보:\n{rfp_context}")
 
     # Task
-    page_target = max(1, int(section.weight * 50))
+    page_target = max(1, int(section.weight * total_pages))
     parts.append(
         f"## 작성할 섹션: {section.name}\n"
         f"평가항목: {section.evaluation_item}\n"
@@ -105,10 +106,11 @@ def _call_llm_for_section(prompt: str, api_key: Optional[str] = None, middleware
             max_tokens=4000,
         )
 
-    fn = _do_call
-    if middleware:
-        fn = middleware.wrap(_do_call, caller_name="section_writer")
-    resp = call_with_retry(fn)
+    # call_with_retry INSIDE middleware — retry must see raw OpenAI errors,
+    # not LLMError from middleware wrapping.
+    retried = lambda: call_with_retry(_do_call)
+    fn = middleware.wrap(retried, caller_name="section_writer") if middleware else retried
+    resp = fn()
     return resp.choices[0].message.content or ""
 
 
@@ -121,9 +123,10 @@ def write_section(
     profile_md: str = "",
     strategy_memo: Optional[StrategyMemo] = None,
     middleware=None,
+    total_pages: int = 50,
 ) -> str:
     """Generate one proposal section with Layer 1 knowledge injection."""
-    prompt = _assemble_prompt(section, knowledge, rfp_context, company_context, profile_md, strategy_memo)
+    prompt = _assemble_prompt(section, knowledge, rfp_context, company_context, profile_md, strategy_memo, total_pages=total_pages)
     return _call_llm_for_section(prompt, api_key, middleware=middleware)
 
 
@@ -138,13 +141,14 @@ def rewrite_section(
     issues: Optional[list] = None,
     strategy_memo: Optional[StrategyMemo] = None,
     middleware=None,
+    total_pages: int = 50,
 ) -> str:
     """Rewrite a section incorporating quality checker feedback.
 
     Builds the same prompt as write_section but appends the original text
     and specific issues to fix. Max 1 rewrite per section.
     """
-    base_prompt = _assemble_prompt(section, knowledge, rfp_context, company_context, profile_md, strategy_memo)
+    base_prompt = _assemble_prompt(section, knowledge, rfp_context, company_context, profile_md, strategy_memo, total_pages=total_pages)
 
     fix_instructions = []
     for issue in (issues or []):

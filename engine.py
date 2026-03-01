@@ -11,6 +11,7 @@ Example:
 """
 
 import os
+import threading
 import uuid
 from typing import Any, Optional
 from dataclasses import dataclass, field
@@ -90,6 +91,7 @@ class RAGEngine:
         self._bm25 = None
         self._bm25_entries: list = []   # {id, chunk_key, doc, metadata}
         self._bm25_dirty: bool = False
+        self._bm25_lock = threading.Lock()
 
         # STEP 1: ChromaDB 초기화
         self._init_vectordb()
@@ -252,8 +254,9 @@ class RAGEngine:
         RAG_HYBRID_ENABLED=1 또는 hybrid_enabled=True 이면 BM25+벡터 RRF 사용.
         """
         if self.hybrid_enabled:
-            if self._bm25 is None or self._bm25_dirty:
-                self._rebuild_bm25()
+            with self._bm25_lock:
+                if self._bm25 is None or self._bm25_dirty:
+                    self._rebuild_bm25()
             return self._search_hybrid(query, top_k, filter_metadata)
         return self._search_vector(query, top_k, filter_metadata)
 
@@ -322,9 +325,9 @@ class RAGEngine:
                 })
             if docs:
                 self._bm25 = _BM25Okapi([d.split() for d in docs])
+            self._bm25_dirty = False
         except Exception as exc:
             print(f"⚠️ BM25 인덱스 재구성 실패 (벡터 검색으로 fallback): {exc}")
-        self._bm25_dirty = False
 
     @staticmethod
     def _matches_filter(metadata: dict, filter_metadata: Optional[dict]) -> bool:
