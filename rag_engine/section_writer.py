@@ -88,7 +88,7 @@ def _assemble_prompt(
     return "\n\n".join(parts)
 
 
-def _call_llm_for_section(prompt: str, api_key: Optional[str] = None) -> str:
+def _call_llm_for_section(prompt: str, api_key: Optional[str] = None, middleware=None) -> str:
     client = OpenAI(
         api_key=api_key or os.environ.get("OPENAI_API_KEY"),
         timeout=LLM_DEFAULT_TIMEOUT,
@@ -105,7 +105,10 @@ def _call_llm_for_section(prompt: str, api_key: Optional[str] = None) -> str:
             max_tokens=4000,
         )
 
-    resp = call_with_retry(_do_call)
+    fn = _do_call
+    if middleware:
+        fn = middleware.wrap(_do_call, caller_name="section_writer")
+    resp = call_with_retry(fn)
     return resp.choices[0].message.content or ""
 
 
@@ -117,10 +120,11 @@ def write_section(
     api_key: Optional[str] = None,
     profile_md: str = "",
     strategy_memo: Optional[StrategyMemo] = None,
+    middleware=None,
 ) -> str:
     """Generate one proposal section with Layer 1 knowledge injection."""
     prompt = _assemble_prompt(section, knowledge, rfp_context, company_context, profile_md, strategy_memo)
-    return _call_llm_for_section(prompt, api_key)
+    return _call_llm_for_section(prompt, api_key, middleware=middleware)
 
 
 def rewrite_section(
@@ -133,6 +137,7 @@ def rewrite_section(
     original_text: str = "",
     issues: Optional[list] = None,
     strategy_memo: Optional[StrategyMemo] = None,
+    middleware=None,
 ) -> str:
     """Rewrite a section incorporating quality checker feedback.
 
@@ -157,4 +162,4 @@ def rewrite_section(
         + "\n\n위 문제점을 모두 수정한 새 버전을 작성하세요. 전체 섹션을 다시 작성합니다."
     )
 
-    return _call_llm_for_section(rewrite_prompt, api_key)
+    return _call_llm_for_section(rewrite_prompt, api_key, middleware=middleware)

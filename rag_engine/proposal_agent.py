@@ -66,8 +66,9 @@ class ProposalPlanningAgent:
     Falls back to empty strategy on parse failure.
     """
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, middleware=None):
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        self.middleware = middleware
 
     def generate_strategy(
         self,
@@ -112,7 +113,10 @@ class ProposalPlanningAgent:
                 max_tokens=3000,
             )
 
-        resp = call_with_retry(_do_call)
+        fn = _do_call
+        if self.middleware:
+            fn = self.middleware.wrap(_do_call, caller_name="proposal_agent")
+        resp = call_with_retry(fn)
         return resp.choices[0].message.content or ""
 
     def _parse_strategy(self, raw: str) -> ProposalStrategy:

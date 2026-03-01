@@ -108,6 +108,7 @@ def _write_and_check_section(
     profile_md: str,
     company_name: str | None,
     strategy_memo=None,
+    middleware=None,
 ) -> tuple[str, str, list[QualityIssue]]:
     """Write section, quality check, rewrite if critical issues found.
 
@@ -122,6 +123,7 @@ def _write_and_check_section(
         api_key=api_key,
         profile_md=profile_md,
         strategy_memo=strategy_memo,
+        middleware=middleware,
     )
 
     issues = check_quality(text, company_name=company_name)
@@ -141,6 +143,7 @@ def _write_and_check_section(
         original_text=text,
         issues=critical,
         strategy_memo=strategy_memo,
+        middleware=middleware,
     )
 
     # Check again — residuals are logged but don't block
@@ -168,8 +171,14 @@ def generate_proposal(
     Layer 1 (범용 지식) + Layer 2 (회사 맞춤) 결합.
     company_context가 비어있으면 CompanyDB에서 자동 빌드.
     """
+    import logging as _log
+    _logger = _log.getLogger(__name__)
     start = time.time()
     os.makedirs(output_dir, exist_ok=True)
+
+    # 0.5. Initialize LLM middleware for observability
+    from llm_middleware import LLMMiddleware
+    middleware = LLMMiddleware()
 
     # 0. Build company context from CompanyDB if not provided
     if not company_context:
@@ -177,8 +186,7 @@ def generate_proposal(
             from company_context_builder import build_company_context
             company_context = build_company_context(rfx_result, company_db_path=company_db_path)
         except Exception as exc:
-            import logging
-            logging.getLogger(__name__).warning("Company context build skipped: %s", exc)
+            _logger.warning("Company context build skipped: %s", exc)
 
     # 1. Build outline
     outline = build_proposal_outline(rfx_result, total_pages)
@@ -188,18 +196,16 @@ def generate_proposal(
     strategy = ProposalStrategy()
     try:
         from proposal_agent import ProposalPlanningAgent
-        agent = ProposalPlanningAgent(api_key=api_key)
+        agent = ProposalPlanningAgent(api_key=api_key, middleware=middleware)
         strategy = agent.generate_strategy(
             rfx_result=rfx_result,
             outline=outline,
             company_context=company_context,
         )
         if strategy.overall_approach:
-            import logging as _log
-            _log.getLogger(__name__).info("Strategy: %s", strategy.overall_approach)
+            _logger.info("Strategy: %s", strategy.overall_approach)
     except Exception as exc:
-        import logging as _log
-        _log.getLogger(__name__).warning("Planning agent skipped: %s", exc)
+        _logger.warning("Planning agent skipped: %s", exc)
 
     # 2. Initialize knowledge DB (Layer 1)
     kb = KnowledgeDB(persist_directory=knowledge_db_path)
@@ -214,8 +220,7 @@ def generate_proposal(
             from company_profile_builder import load_profile_md
             profile_md = load_profile_md(company_skills_dir)
         except Exception as exc:
-            import logging
-            logging.getLogger(__name__).debug("Profile load skipped: %s", exc)
+            _logger.debug("Profile load skipped: %s", exc)
 
     # 4. Write sections with self-correction (parallel with ThreadPoolExecutor)
     def _write_one(section):
@@ -233,6 +238,7 @@ def generate_proposal(
             profile_md=profile_md,
             company_name=company_name,
             strategy_memo=memo,
+            middleware=middleware,
         )
         return name, text, residuals
 
@@ -285,6 +291,16 @@ def generate_proposal(
         )
 
     elapsed = round(time.time() - start, 1)
+
+    # Log LLM middleware session stats
+    stats = middleware.get_session_stats()
+    _logger.info(
+        "LLM stats: %d calls, %d tokens, $%.4f, %.0fms avg",
+        stats["total_calls"],
+        stats["total_tokens"],
+        stats["total_cost_usd"],
+        stats["avg_latency_ms"],
+    )
 
     return ProposalResult(
         docx_path=docx_path,
