@@ -16,6 +16,10 @@ import asyncio
 import logging
 import os
 import sys
+
+from dotenv import load_dotenv
+
+load_dotenv()  # Load .env (OPENAI_API_KEY, etc.) before anything else
 import threading
 import traceback
 from contextlib import asynccontextmanager
@@ -58,6 +62,12 @@ async def lifespan(app: FastAPI):
     this_dir = os.path.dirname(os.path.abspath(__file__))
     if this_dir not in sys.path:
         sys.path.insert(0, this_dir)
+
+    # Verify OPENAI_API_KEY is available (required for all LLM calls)
+    if not os.environ.get("OPENAI_API_KEY"):
+        logger.error("OPENAI_API_KEY not found in environment. Check .env file.")
+    else:
+        logger.info("OPENAI_API_KEY loaded successfully.")
 
     try:
         from rfx_analyzer import RFxAnalyzer          # noqa: F401
@@ -130,10 +140,10 @@ async def analyze_bid(request: AnalyzeBidRequest) -> AnalyzeBidResponse:
 
     Returns HTTP 503 if the RAG stack failed to load at startup.
     """
-    if _engine_error:
+    if _engine_error or _rfx_analyzer_cls is None:
         raise HTTPException(
             status_code=503,
-            detail=f"RAG engine unavailable: {_engine_error}",
+            detail=f"RAG engine unavailable: {_engine_error or 'stack not loaded'}",
         )
 
     api_key = os.getenv("OPENAI_API_KEY", "")
@@ -299,6 +309,9 @@ async def generate_proposal_v2(req: GenerateProposalV2Request):
             rfx_result=req.rfx_result.model_dump(),
             company_context=req.company_context,
             company_name=req.company_name,
+            company_db_path=_COMPANY_DB_DIR,
+            knowledge_db_path=_KNOWLEDGE_DB_DIR,
+            company_skills_dir=_get_company_skills_dir(),
             total_pages=req.total_pages,
         )
     except Exception as exc:
@@ -323,12 +336,21 @@ async def generate_proposal_v2(req: GenerateProposalV2Request):
 # ---------------------------------------------------------------------------
 
 _PROPOSALS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "proposals")
-_SAFE_FILENAME_RE = _re.compile(r'^[a-zA-Z0-9가-힣._\-]+\.docx$')
+_COMPANY_DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "company_db")
+_KNOWLEDGE_DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "knowledge_db")
+_SAFE_FILENAME_RE = _re.compile(r'^[a-zA-Z0-9가-힣._\-]+\.(docx|xlsx|pptx|png)$')
+
+_MIME_TYPES: dict[str, str] = {
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".png": "image/png",
+}
 
 
 @app.get("/api/proposals/download/{filename}")
 async def download_proposal(filename: str):
-    """Serve a generated DOCX file for download.
+    """Serve a generated file for download.
 
     Security:
       - Filename must match whitelist regex (no path separators)
@@ -346,9 +368,12 @@ async def download_proposal(filename: str):
     if not os.path.isfile(real):
         raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
 
+    ext = os.path.splitext(filename)[1].lower()
+    media_type = _MIME_TYPES.get(ext, "application/octet-stream")
+
     return FileResponse(
         real,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        media_type=media_type,
         filename=filename,
     )
 
@@ -388,14 +413,152 @@ async def extract_checklist_endpoint(req: ChecklistRequest):
 
 
 # ---------------------------------------------------------------------------
+# Phase 2: WBS generation
+# ---------------------------------------------------------------------------
+
+class GenerateWbsRequest(BaseModel):
+    rfx_result: RfxResultInput
+    methodology: str = ""  # "waterfall" | "agile" | "hybrid" or empty for auto
+
+
+@app.post("/api/generate-wbs")
+async def generate_wbs_endpoint(req: GenerateWbsRequest):
+    """Generate WBS (XLSX + Gantt + DOCX) from RFP analysis."""
+    from wbs_orchestrator import generate_wbs as _generate_wbs
+    from phase2_models import MethodologyType
+
+    methodology = None
+    if req.methodology:
+        try:
+            methodology = MethodologyType(req.methodology)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"잘못된 방법론: {req.methodology}. waterfall/agile/hybrid 중 택일",
+            )
+
+    try:
+        result = await asyncio.to_thread(
+            _generate_wbs,
+            rfx_result=req.rfx_result.model_dump(),
+            output_dir=_PROPOSALS_DIR,
+            methodology=methodology,
+            knowledge_db_path=_KNOWLEDGE_DB_DIR,
+            company_db_path=_COMPANY_DB_DIR,
+        )
+    except Exception as exc:
+        logger.error("generate_wbs failed: %s\n%s", exc, traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"WBS 생성 실패: {exc}") from exc
+
+    return {
+        "xlsx_filename": os.path.basename(result.xlsx_path) if result.xlsx_path else "",
+        "gantt_filename": os.path.basename(result.gantt_path) if result.gantt_path else "",
+        "docx_filename": os.path.basename(result.docx_path) if result.docx_path else "",
+        "tasks_count": len(result.tasks),
+        "total_months": result.total_months,
+        "generation_time_sec": result.generation_time_sec,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: PPT generation
+# ---------------------------------------------------------------------------
+
+class ProposalSectionInput(BaseModel):
+    name: str = ""
+    text: str = ""
+
+
+class GeneratePptRequest(BaseModel):
+    rfx_result: RfxResultInput
+    proposal_sections: list[ProposalSectionInput] = Field(default_factory=list)
+    duration_min: int = Field(default=30, ge=10, le=60)
+    qna_count: int = Field(default=10, ge=0, le=20)
+    company_name: str = ""
+
+
+@app.post("/api/generate-ppt")
+async def generate_ppt_endpoint(req: GeneratePptRequest):
+    """Generate PPT presentation (PPTX + QnA) from RFP analysis."""
+    from ppt_orchestrator import generate_ppt as _generate_ppt
+
+    sections = None
+    if req.proposal_sections:
+        sections = [{"name": s.name, "text": s.text} for s in req.proposal_sections]
+
+    try:
+        result = await asyncio.to_thread(
+            _generate_ppt,
+            rfx_result=req.rfx_result.model_dump(),
+            output_dir=_PROPOSALS_DIR,
+            proposal_sections=sections,
+            duration_min=req.duration_min,
+            qna_count=req.qna_count,
+            company_name=req.company_name,
+            knowledge_db_path=_KNOWLEDGE_DB_DIR,
+            company_db_path=_COMPANY_DB_DIR,
+        )
+    except Exception as exc:
+        logger.error("generate_ppt failed: %s\n%s", exc, traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"PPT 생성 실패: {exc}") from exc
+
+    return {
+        "pptx_filename": os.path.basename(result.pptx_path) if result.pptx_path else "",
+        "slide_count": result.slide_count,
+        "qna_pairs": [
+            {"question": q.question, "answer": q.answer, "category": q.category}
+            for q in result.qna_pairs
+        ],
+        "total_duration_min": result.total_duration_min,
+        "generation_time_sec": result.generation_time_sec,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: Track record document generation
+# ---------------------------------------------------------------------------
+
+class GenerateTrackRecordRequest(BaseModel):
+    rfx_result: RfxResultInput
+    max_records: int = Field(default=10, ge=1, le=20)
+    max_personnel: int = Field(default=10, ge=1, le=20)
+
+
+@app.post("/api/generate-track-record")
+async def generate_track_record_endpoint(req: GenerateTrackRecordRequest):
+    """Generate track record / personnel document (DOCX)."""
+    from track_record_orchestrator import generate_track_record_doc as _generate
+
+    try:
+        result = await asyncio.to_thread(
+            _generate,
+            rfx_result=req.rfx_result.model_dump(),
+            output_dir=_PROPOSALS_DIR,
+            max_records=req.max_records,
+            max_personnel=req.max_personnel,
+        )
+    except Exception as exc:
+        logger.error("generate_track_record failed: %s\n%s", exc, traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"실적기술서 생성 실패: {exc}") from exc
+
+    return {
+        "docx_filename": os.path.basename(result.docx_path) if result.docx_path else "",
+        "track_record_count": result.track_record_count,
+        "personnel_count": result.personnel_count,
+        "generation_time_sec": result.generation_time_sec,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Edit feedback (diff learning)
 # ---------------------------------------------------------------------------
 
 class EditFeedbackRequest(BaseModel):
-    company_id: str = Field(min_length=1)
-    section_name: str = Field(min_length=1)
-    original_text: str
-    edited_text: str
+    company_id: str = Field(min_length=1, max_length=256)
+    section_name: str = Field(min_length=1, max_length=512)
+    original_text: str = Field(max_length=50_000)
+    edited_text: str = Field(max_length=50_000)
+    doc_type: str = Field(default="proposal", pattern=r"^(proposal|wbs|ppt|track_record)$")
 
 
 @app.post("/api/edit-feedback")
@@ -403,11 +566,13 @@ async def edit_feedback_endpoint(req: EditFeedbackRequest):
     """Process user edits for auto-learning pipeline."""
     try:
         from auto_learner import process_edit_feedback
-        result = process_edit_feedback(
+        result = await asyncio.to_thread(
+            process_edit_feedback,
             company_id=req.company_id,
             section_name=req.section_name,
             original_text=req.original_text,
             edited_text=req.edited_text,
+            doc_type=req.doc_type,
         )
     except Exception as exc:
         logger.error("edit feedback failed: %s", exc)
@@ -595,6 +760,113 @@ async def get_company_db_stats():
         "personnel_count": len(profile.personnel) if profile else 0,
         "total_knowledge_units": db.count(),
     }
+
+
+class AnalyzeStyleRequest(BaseModel):
+    documents: list[str] = Field(
+        min_length=1,
+        max_length=20,
+        description="과거 제안서 텍스트 목록 (최대 20개, 각 100,000자 이내)",
+    )
+
+
+_MAX_DOC_CHARS = 100_000
+
+
+@app.post("/api/company-db/analyze-style")
+async def analyze_company_style_endpoint(req: AnalyzeStyleRequest):
+    """Analyze writing style from past proposal texts and save to profile."""
+    from company_analyzer import analyze_company_style
+    from dataclasses import asdict
+
+    # Per-document size validation
+    truncated = [doc[:_MAX_DOC_CHARS] for doc in req.documents]
+    style = await asyncio.to_thread(analyze_company_style, truncated)
+    style_dict = asdict(style)
+
+    # Save to CompanyDB profile
+    db = _get_company_db()
+    async with _company_db_profile_lock:
+        from company_db import CompanyCapabilityProfile
+        profile = db.load_profile()
+        if profile is None:
+            profile = CompanyCapabilityProfile(name="미설정")
+        profile.writing_style = style_dict
+        db.save_profile(profile)
+
+    return {"ok": True, "writing_style": style_dict}
+
+
+# ---------------------------------------------------------------------------
+# Company profile.md CRUD
+# ---------------------------------------------------------------------------
+
+def _get_company_skills_dir(company_id: str = "default") -> str:
+    """Get company skills directory path."""
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "company_skills")
+    return os.path.join(base, company_id)
+
+
+class GenerateProfileRequest(BaseModel):
+    company_name: str = Field(min_length=1, max_length=100)
+    documents: list[str] = Field(min_length=1, max_length=20)
+
+
+class UpdateProfileRequest(BaseModel):
+    profile_md: str = Field(min_length=1, max_length=50_000)
+
+
+@app.post("/api/company-profile/generate")
+async def generate_company_profile(req: GenerateProfileRequest):
+    """Generate profile.md from past proposal documents via style analysis."""
+    from company_analyzer import analyze_company_style
+    import company_profile_builder
+
+    truncated = [doc[:_MAX_DOC_CHARS] for doc in req.documents]
+
+    try:
+        style = await asyncio.to_thread(analyze_company_style, truncated)
+    except Exception as exc:
+        logger.error("analyze_company_style failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"스타일 분석 실패: {exc}") from exc
+
+    try:
+        profile_md = company_profile_builder.build_profile_md(
+            company_name=req.company_name,
+            style=style,
+        )
+        skills_dir = _get_company_skills_dir()
+        company_profile_builder.save_profile_md(skills_dir, profile_md)
+    except Exception as exc:
+        logger.error("build/save profile.md failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"프로필 저장 실패: {exc}") from exc
+
+    return {"ok": True, "profile_md": profile_md}
+
+
+@app.get("/api/company-profile")
+async def get_company_profile():
+    """Load the current company profile.md content."""
+    import company_profile_builder
+
+    skills_dir = _get_company_skills_dir()
+    content = company_profile_builder.load_profile_md(skills_dir)
+    return {"profile_md": content}
+
+
+@app.put("/api/company-profile")
+async def update_company_profile(req: UpdateProfileRequest):
+    """Overwrite company profile.md with user-edited content."""
+    import company_profile_builder
+
+    skills_dir = _get_company_skills_dir()
+    try:
+        company_profile_builder.save_profile_md(skills_dir, req.profile_md)
+    except Exception as exc:
+        logger.error("save profile.md failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"프로필 저장 실패: {exc}") from exc
+
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------

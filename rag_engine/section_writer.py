@@ -24,6 +24,7 @@ def _assemble_prompt(
     knowledge: list[KnowledgeUnit],
     rfp_context: str,
     company_context: str = "",
+    profile_md: str = "",
 ) -> str:
     """Assemble multi-layer prompt for section writing."""
     parts: list[str] = []
@@ -51,6 +52,10 @@ def _assemble_prompt(
     # Layer 2 — company context + learned patterns
     if company_context:
         parts.append(f"## 이 회사의 과거 제안서 스타일 및 역량:\n{company_context}")
+
+    # Profile — company skill file (profile.md)
+    if profile_md:
+        parts.append(f"## 이 회사의 제안서 프로필 (반드시 준수):\n{profile_md}")
 
     # RFP context
     parts.append(f"## 이번 공고 정보:\n{rfp_context}")
@@ -97,7 +102,8 @@ def write_section(
     knowledge: list[KnowledgeUnit],
     company_context: str = "",
     api_key: Optional[str] = None,
+    profile_md: str = "",
 ) -> str:
     """Generate one proposal section with Layer 1 knowledge injection."""
-    prompt = _assemble_prompt(section, knowledge, rfp_context, company_context)
+    prompt = _assemble_prompt(section, knowledge, rfp_context, company_context, profile_md)
     return _call_llm_for_section(prompt, api_key)

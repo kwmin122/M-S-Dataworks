@@ -61,3 +61,59 @@ def test_write_section_returns_text():
         )
     assert "사업 이해도" in result
     assert len(result) > 20
+
+
+def test_write_section_with_profile_md():
+    """profile_md가 프롬프트에 주입되는지 확인."""
+    from unittest.mock import patch
+    from knowledge_models import ProposalSection
+
+    section = ProposalSection(
+        name="기술 방안",
+        evaluation_item="기술이해도",
+        max_score=20,
+        weight=0.25,
+    )
+    profile_md = "## 문체\n- 어미: ~합니다 (경어체)\n- 핵심 키워드: 클라우드, 보안"
+
+    with patch("section_writer._call_llm_for_section") as mock_llm:
+        mock_llm.return_value = "## 기술 방안\n\n내용입니다."
+        from section_writer import write_section
+        result = write_section(
+            section=section,
+            rfp_context="사업명: 테스트",
+            knowledge=[],
+            company_context="",
+            profile_md=profile_md,
+        )
+        # profile_md가 프롬프트에 포함되었는지 확인
+        called_prompt = mock_llm.call_args[0][0]
+        assert "제안서 프로필" in called_prompt
+        assert "경어체" in called_prompt
+        assert "클라우드" in called_prompt
+
+
+def test_write_section_without_profile_md():
+    """profile_md 없이도 기존과 동일하게 동작."""
+    from unittest.mock import patch
+    from knowledge_models import ProposalSection
+
+    section = ProposalSection(
+        name="사업 이해",
+        evaluation_item="사업이해도",
+        max_score=15,
+        weight=0.15,
+    )
+
+    with patch("section_writer._call_llm_for_section") as mock_llm:
+        mock_llm.return_value = "## 사업 이해\n\n내용입니다."
+        from section_writer import write_section
+        result = write_section(
+            section=section,
+            rfp_context="사업명: 테스트",
+            knowledge=[],
+        )
+        assert result == "## 사업 이해\n\n내용입니다."
+        # profile 관련 텍스트 없음
+        called_prompt = mock_llm.call_args[0][0]
+        assert "제안서 프로필" not in called_prompt

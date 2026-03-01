@@ -4,3 +4,5 @@ pydantic==2.10.4
 httpx==0.28.1
 python-multipart==0.0.20
 pytest==8.3.4
+lxml>=5.0.0
+python-hwpx>=0.3.0

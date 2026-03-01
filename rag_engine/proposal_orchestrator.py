@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 from knowledge_db import KnowledgeDB
 from knowledge_models import ProposalOutline
+from phase2_models import build_rfp_context
 from proposal_planner import build_proposal_outline
 from section_writer import write_section
 from quality_checker import check_quality, QualityIssue
@@ -35,16 +36,28 @@ def generate_proposal(
     knowledge_db_path: str = "./data/knowledge_db",
     company_context: str = "",
     company_name: Optional[str] = None,
+    company_db_path: str = "./data/company_db",
+    company_skills_dir: str = "",
     total_pages: int = 50,
     api_key: Optional[str] = None,
     max_workers: int = 3,
 ) -> ProposalResult:
     """Generate a complete proposal DOCX from RFP analysis result.
 
-    A-lite mode: Layer 1 knowledge only, no company DB required.
+    Layer 1 (범용 지식) + Layer 2 (회사 맞춤) 결합.
+    company_context가 비어있으면 CompanyDB에서 자동 빌드.
     """
     start = time.time()
     os.makedirs(output_dir, exist_ok=True)
+
+    # 0. Build company context from CompanyDB if not provided
+    if not company_context:
+        try:
+            from company_context_builder import build_company_context
+            company_context = build_company_context(rfx_result, company_db_path=company_db_path)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("Company context build skipped: %s", exc)
 
     # 1. Build outline
     outline = build_proposal_outline(rfx_result, total_pages)
@@ -53,15 +66,17 @@ def generate_proposal(
     kb = KnowledgeDB(persist_directory=knowledge_db_path)
 
     # 3. Build RFP context string
-    rfp_context_parts = [
-        f"사업명: {rfx_result.get('title', '')}",
-        f"발주기관: {rfx_result.get('issuing_org', '')}",
-        f"사업비: {rfx_result.get('budget', '')}",
-        f"사업기간: {rfx_result.get('project_period', '')}",
-    ]
-    if rfx_result.get("rfp_text_summary"):
-        rfp_context_parts.append(f"RFP 요약: {rfx_result['rfp_text_summary']}")
-    rfp_context = "\n".join(rfp_context_parts)
+    rfp_context = build_rfp_context(rfx_result)
+
+    # 3.5. Load profile.md if available
+    profile_md = ""
+    if company_skills_dir:
+        try:
+            from company_profile_builder import load_profile_md
+            profile_md = load_profile_md(company_skills_dir)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).debug("Profile load skipped: %s", exc)
 
     # 4. Write sections (parallel with ThreadPoolExecutor)
     def _write_one(section):
@@ -75,6 +90,7 @@ def generate_proposal(
             knowledge=knowledge,
             company_context=company_context,
             api_key=api_key,
+            profile_md=profile_md,
         )
         return (section.name, text)
 
@@ -106,6 +122,7 @@ def generate_proposal(
         title=rfx_result.get("title", "기술제안서"),
         sections=sections,
         output_path=docx_path,
+        company_name=company_name or "",
     )
 
     elapsed = round(time.time() - start, 1)
