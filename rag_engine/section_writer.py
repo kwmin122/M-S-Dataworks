@@ -107,3 +107,39 @@ def write_section(
     """Generate one proposal section with Layer 1 knowledge injection."""
     prompt = _assemble_prompt(section, knowledge, rfp_context, company_context, profile_md)
     return _call_llm_for_section(prompt, api_key)
+
+
+def rewrite_section(
+    section: ProposalSection,
+    rfp_context: str,
+    knowledge: list[KnowledgeUnit],
+    company_context: str = "",
+    api_key: Optional[str] = None,
+    profile_md: str = "",
+    original_text: str = "",
+    issues: Optional[list] = None,
+) -> str:
+    """Rewrite a section incorporating quality checker feedback.
+
+    Builds the same prompt as write_section but appends the original text
+    and specific issues to fix. Max 1 rewrite per section.
+    """
+    base_prompt = _assemble_prompt(section, knowledge, rfp_context, company_context, profile_md)
+
+    fix_instructions = []
+    for issue in (issues or []):
+        fix_instructions.append(
+            f"- [{issue.category}] {issue.detail}"
+            + (f" → 수정방법: {issue.suggestion}" if issue.suggestion else "")
+        )
+
+    rewrite_prompt = (
+        base_prompt
+        + "\n\n## 이전 생성 결과 (수정 필요):\n"
+        + original_text
+        + "\n\n## 발견된 문제점 — 반드시 수정하세요:\n"
+        + "\n".join(fix_instructions)
+        + "\n\n위 문제점을 모두 수정한 새 버전을 작성하세요. 전체 섹션을 다시 작성합니다."
+    )
+
+    return _call_llm_for_section(rewrite_prompt, api_key)

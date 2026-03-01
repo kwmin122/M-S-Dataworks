@@ -16,7 +16,7 @@ from knowledge_db import KnowledgeDB
 from knowledge_models import ProposalOutline
 from phase2_models import build_rfp_context
 from proposal_planner import build_proposal_outline
-from section_writer import write_section
+from section_writer import write_section, rewrite_section
 from quality_checker import check_quality, QualityIssue
 from document_assembler import assemble_docx
 
@@ -28,6 +28,7 @@ class ProposalResult:
     sections: list[tuple[str, str]] = field(default_factory=list)
     outline: Optional[ProposalOutline] = None
     quality_issues: list[QualityIssue] = field(default_factory=list)
+    residual_issues: list[QualityIssue] = field(default_factory=list)
     generation_time_sec: float = 0.0
 
 
@@ -97,6 +98,55 @@ def _try_hwpx_output(
         return ""
 
 
+def _write_and_check_section(
+    *,
+    section,
+    rfp_context: str,
+    knowledge: list,
+    company_context: str,
+    api_key,
+    profile_md: str,
+    company_name: str | None,
+) -> tuple[str, str, list[QualityIssue]]:
+    """Write section, quality check, rewrite if critical issues found.
+
+    Returns (section_name, final_text, residual_critical_issues).
+    Residuals are critical issues that remain after 1 rewrite attempt.
+    """
+    text = write_section(
+        section=section,
+        rfp_context=rfp_context,
+        knowledge=knowledge,
+        company_context=company_context,
+        api_key=api_key,
+        profile_md=profile_md,
+    )
+
+    issues = check_quality(text, company_name=company_name)
+    critical = [i for i in issues if i.severity == "critical"]
+
+    if not critical:
+        return section.name, text, []
+
+    # One rewrite attempt for critical issues
+    text = rewrite_section(
+        section=section,
+        rfp_context=rfp_context,
+        knowledge=knowledge,
+        company_context=company_context,
+        api_key=api_key,
+        profile_md=profile_md,
+        original_text=text,
+        issues=critical,
+    )
+
+    # Check again — residuals are logged but don't block
+    remaining = check_quality(text, company_name=company_name)
+    residuals = [i for i in remaining if i.severity == "critical"]
+
+    return section.name, text, residuals
+
+
 def generate_proposal(
     rfx_result: dict[str, Any],
     output_dir: str = "./data/proposals",
@@ -146,28 +196,31 @@ def generate_proposal(
             import logging
             logging.getLogger(__name__).debug("Profile load skipped: %s", exc)
 
-    # 4. Write sections (parallel with ThreadPoolExecutor)
+    # 4. Write sections with self-correction (parallel with ThreadPoolExecutor)
     def _write_one(section):
         knowledge = kb.search(
             f"{section.name} {section.evaluation_item}",
             top_k=10,
         )
-        text = write_section(
+        name, text, residuals = _write_and_check_section(
             section=section,
             rfp_context=rfp_context,
             knowledge=knowledge,
             company_context=company_context,
             api_key=api_key,
             profile_md=profile_md,
+            company_name=company_name,
         )
-        return (section.name, text)
+        return name, text, residuals
 
     results_map: dict[str, str] = {}
+    all_residuals: list[QualityIssue] = []
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_write_one, s): s for s in outline.sections}
         for future in as_completed(futures):
-            name, text = future.result()
+            name, text, residuals = future.result()
             results_map[name] = text
+            all_residuals.extend(residuals)
 
     # Preserve original section order
     sections: list[tuple[str, str]] = []
@@ -216,5 +269,6 @@ def generate_proposal(
         sections=sections,
         outline=outline,
         quality_issues=quality_issues,
+        residual_issues=all_residuals,
         generation_time_sec=elapsed,
     )
