@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Settings, RefreshCw } from 'lucide-react';
 import { motion } from 'framer-motion';
 import ProfileSection from './ProfileSection';
@@ -13,48 +13,74 @@ export default function ProfileEditor() {
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<ProfileVersion[]>([]);
   const [saveMsg, setSaveMsg] = useState('');
+  const [saveMsgType, setSaveMsgType] = useState<'success' | 'error'>('success');
+  const mountedRef = useRef(true);
   const companyId = 'default';
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
+    setSaveMsg(msg);
+    setSaveMsgType(type);
+    setTimeout(() => { if (mountedRef.current) setSaveMsg(''); }, 3000);
+  }, []);
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
     try {
       const data = await getProfileMd(companyId);
+      if (!mountedRef.current) return;
       setSections(data.sections);
       setVersion(data.metadata.version);
     } catch (e) {
-      setSaveMsg(e instanceof Error ? e.message : '프로필 로드 실패');
+      if (!mountedRef.current) return;
+      showToast(e instanceof Error ? e.message : '프로필 로드 실패', 'error');
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
-  }, [companyId]);
+  }, [companyId, showToast]);
 
   useEffect(() => { loadProfile(); }, [loadProfile]);
 
   const handleSave = async (sectionName: string, content: string) => {
-    const result = await updateProfileSection(companyId, sectionName, content);
-    if (result.success) {
-      setVersion(result.version);
-      setSaveMsg('저장되었습니다.');
-      setTimeout(() => setSaveMsg(''), 3000);
-      await loadProfile();
-    } else {
-      throw new Error('섹션을 찾을 수 없습니다.');
+    try {
+      const result = await updateProfileSection(companyId, sectionName, content);
+      if (result.success) {
+        setVersion(result.version);
+        showToast('저장되었습니다.');
+        await loadProfile();
+      } else {
+        showToast('섹션을 찾을 수 없습니다.', 'error');
+      }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '저장 실패', 'error');
+      throw e; // ProfileSection의 finally block이 saving=false로 리셋하도록
     }
   };
 
   const handleShowHistory = async () => {
-    const data = await getProfileHistory(companyId);
-    setHistory(data.versions);
-    setShowHistory(true);
+    try {
+      const data = await getProfileHistory(companyId);
+      setHistory(data.versions);
+      setShowHistory(true);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '이력 조회 실패', 'error');
+    }
   };
 
   const handleRollback = async (targetVersion: number) => {
-    const result = await rollbackProfile(companyId, targetVersion);
-    if (result.success) {
-      setShowHistory(false);
-      setSaveMsg(`v${targetVersion}으로 되돌렸습니다.`);
-      setTimeout(() => setSaveMsg(''), 3000);
-      await loadProfile();
+    try {
+      const result = await rollbackProfile(companyId, targetVersion);
+      if (result.success) {
+        setShowHistory(false);
+        showToast(`v${targetVersion}으로 되돌렸습니다.`);
+        await loadProfile();
+      }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '롤백 실패', 'error');
     }
   };
 
@@ -107,7 +133,11 @@ export default function ProfileEditor() {
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-xl border border-emerald-200 bg-emerald-50 shadow-lg px-5 py-3 text-sm text-emerald-700"
+          className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-xl border shadow-lg px-5 py-3 text-sm ${
+            saveMsgType === 'error'
+              ? 'border-red-200 bg-red-50 text-red-700'
+              : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+          }`}
         >
           {saveMsg}
         </motion.div>

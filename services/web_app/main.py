@@ -2648,9 +2648,14 @@ async def _proxy_to_rag(method: str, path: str, json_body: dict | None = None, t
                 resp = await client.put(f"{fastapi_url}{path}", json=json_body)
             else:
                 resp = await client.post(f"{fastapi_url}{path}", json=json_body)
-        if resp.status_code == 200:
+        if 200 <= resp.status_code < 300:
             return resp.json()
-        raise HTTPException(status_code=502, detail=f"rag_engine 오류: {resp.text[:200]}")
+        # Pass through 4xx status codes so frontend gets correct error info
+        try:
+            detail = resp.json().get("detail", resp.text[:200])
+        except Exception:
+            detail = resp.text[:200]
+        raise HTTPException(status_code=resp.status_code, detail=detail)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"rag_engine 연결 실패: {exc}") from exc
 

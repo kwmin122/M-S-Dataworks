@@ -3,9 +3,12 @@ import { useSearchParams } from 'react-router-dom';
 import DocumentTabNav, { type DocumentTab } from './DocumentTabNav';
 import ProfileEditor from './ProfileEditor';
 
+const VALID_TABS: Set<string> = new Set(['profile', 'rfp', 'proposal', 'wbs', 'ppt']);
+
 export default function DocumentWorkspace() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = (searchParams.get('tab') as DocumentTab) || 'profile';
+  const rawTab = searchParams.get('tab') || 'profile';
+  const activeTab: DocumentTab = VALID_TABS.has(rawTab) ? (rawTab as DocumentTab) : 'profile';
 
   const handleTabChange = (tab: DocumentTab) => {
     setSearchParams({ tab });

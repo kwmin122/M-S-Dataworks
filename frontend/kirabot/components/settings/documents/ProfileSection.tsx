@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Pencil, Save, X, History } from 'lucide-react';
 
 interface Props {
@@ -13,6 +13,11 @@ export default function ProfileSection({ name, content, editable, onSave, onShow
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(content);
   const [saving, setSaving] = useState(false);
+
+  // Sync draft with external content changes (e.g. after rollback or reload)
+  useEffect(() => {
+    if (!editing) setDraft(content);
+  }, [content, editing]);
 
   const handleSave = async () => {
     setSaving(true);
