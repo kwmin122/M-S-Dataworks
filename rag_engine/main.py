@@ -935,6 +935,152 @@ async def upload_hwpx_template(file: UploadFile = File(...)):
 
 
 # ---------------------------------------------------------------------------
+# Profile.md section-level CRUD
+# ---------------------------------------------------------------------------
+
+class UpdateProfileSectionRequest(BaseModel):
+    company_id: str = Field(default="default", min_length=1, max_length=256)
+    section_name: str = Field(min_length=1, max_length=256)
+    content: str = Field(max_length=50_000)
+
+
+class RollbackProfileRequest(BaseModel):
+    company_id: str = Field(default="default", min_length=1, max_length=256)
+    target_version: int = Field(ge=1)
+
+
+_NON_EDITABLE_SECTIONS = {"학습 이력"}
+
+
+def _parse_profile_sections(content: str) -> list[dict]:
+    """Parse profile.md into sections [{name, content, editable}].
+
+    Splits on ``## `` headings.  The 학습 이력 section is marked as
+    non-editable; all others are editable.
+    """
+    if not content or not content.strip():
+        return []
+
+    import re
+
+    # Split on ## headings, keeping the heading text
+    parts = re.split(r"(?:^|\n)(## .+)\n", content)
+    # parts[0] is the preamble (title, date), then alternating heading / body
+    sections: list[dict] = []
+    i = 1  # skip preamble
+    while i < len(parts) - 1:
+        heading = parts[i].strip()
+        body = parts[i + 1] if i + 1 < len(parts) else ""
+        # Extract section name from "## SectionName"
+        name = heading.removeprefix("## ").strip()
+        # Trim trailing whitespace but keep internal structure
+        body_clean = body.strip()
+        sections.append({
+            "name": name,
+            "content": body_clean,
+            "editable": name not in _NON_EDITABLE_SECTIONS,
+        })
+        i += 2
+
+    return sections
+
+
+@app.get("/api/company-profile/md")
+async def get_profile_md_sections(company_id: str = "default"):
+    """Parse profile.md into an array of named sections."""
+    import company_profile_builder
+
+    skills_dir = _get_company_skills_dir(company_id)
+    content = await asyncio.to_thread(
+        company_profile_builder.load_profile_md, skills_dir
+    )
+    sections = _parse_profile_sections(content)
+    return {"ok": True, "sections": sections}
+
+
+@app.put("/api/company-profile/md/section")
+async def update_profile_md_section(req: UpdateProfileSectionRequest):
+    """Update a single section inside profile.md (with automatic backup)."""
+    import company_profile_builder
+    from company_profile_updater import update_profile_section
+
+    skills_dir = _get_company_skills_dir(req.company_id)
+
+    # Check profile exists
+    content = await asyncio.to_thread(
+        company_profile_builder.load_profile_md, skills_dir
+    )
+    if not content:
+        raise HTTPException(status_code=404, detail="profile.md가 존재하지 않습니다.")
+
+    async with _company_db_profile_lock:
+        ok = await asyncio.to_thread(
+            update_profile_section,
+            skills_dir,
+            req.section_name,
+            req.content,
+            True,  # backup=True
+        )
+
+    if not ok:
+        raise HTTPException(
+            status_code=400,
+            detail=f"섹션 '{req.section_name}'을(를) 찾을 수 없습니다 (section not found).",
+        )
+
+    return {"ok": True, "section_name": req.section_name}
+
+
+@app.get("/api/company-profile/md/history")
+async def get_profile_md_history(company_id: str = "default"):
+    """Return the version history (changelog) for profile.md."""
+    from company_profile_updater import load_changelog
+
+    skills_dir = _get_company_skills_dir(company_id)
+    changelog = await asyncio.to_thread(load_changelog, skills_dir)
+    return {"ok": True, "versions": changelog.get("versions", [])}
+
+
+@app.post("/api/company-profile/md/rollback")
+async def rollback_profile_md(req: RollbackProfileRequest):
+    """Rollback profile.md to a specific version from profile_history/."""
+    from company_profile_updater import backup_profile_version, load_changelog
+    import company_profile_builder
+
+    skills_dir = _get_company_skills_dir(req.company_id)
+    history_dir = os.path.join(skills_dir, "profile_history")
+    backup_file = os.path.join(
+        history_dir, f"profile_v{req.target_version:03d}.md"
+    )
+
+    if not os.path.isfile(backup_file):
+        raise HTTPException(
+            status_code=404,
+            detail=f"버전 {req.target_version}의 백업 파일이 존재하지 않습니다.",
+        )
+
+    async with _company_db_profile_lock:
+        # Backup current state before overwriting
+        profile_path = os.path.join(skills_dir, "profile.md")
+        if os.path.isfile(profile_path):
+            await asyncio.to_thread(
+                backup_profile_version,
+                skills_dir,
+                f"v{req.target_version} 롤백 전 백업",
+            )
+
+        # Read the target version and restore it
+        def _restore():
+            with open(backup_file, "r", encoding="utf-8") as f:
+                old_content = f.read()
+            company_profile_builder.save_profile_md(skills_dir, old_content)
+
+        await asyncio.to_thread(_restore)
+
+    return {"ok": True, "restored_version": req.target_version}
+
+
+# ---------------------------------------------------------------------------
 # HWP parsing
 # ---------------------------------------------------------------------------
 
