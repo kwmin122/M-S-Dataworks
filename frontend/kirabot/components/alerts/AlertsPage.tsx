@@ -144,6 +144,7 @@ export const AlertsPage: React.FC = () => {
               checked={enabled}
               onChange={(e) => setEnabled(e.target.checked)}
               className="rounded border-slate-300"
+              aria-label="전체 활성화"
             />
           </label>
         </div>

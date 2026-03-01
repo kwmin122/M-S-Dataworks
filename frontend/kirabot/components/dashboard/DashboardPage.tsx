@@ -43,8 +43,9 @@ const DashboardPage: React.FC = () => {
       const updated = { ...alertConfig, enabled: !alertConfig.enabled };
       await saveAlertConfig(sessionId, updated);
       setAlertConfig(updated);
-    } catch { /* silently ignore */ }
-    finally { setAlertToggling(false); }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '알림 설정 변경 실패');
+    } finally { setAlertToggling(false); }
   };
 
   if (loading) {

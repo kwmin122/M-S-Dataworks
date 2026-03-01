@@ -39,6 +39,9 @@ const FILE_TYPE_LABELS: Record<DocFileType, string> = {
 
 const ZOOM_STEPS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
 // ── PDF Viewer: single-page mode with zoom + navigation ──
 
 const PdfViewer: React.FC<{ url: string; page: number; highlightText?: string }> = ({
@@ -95,20 +98,18 @@ const PdfViewer: React.FC<{ url: string; page: number; highlightText?: string }>
 
   const customTextRenderer = useCallback(
     ({ str }: { str: string }) => {
-      if (highlightKeywords.length === 0) return str;
+      if (highlightKeywords.length === 0) return escapeHtml(str);
       const lower = str.toLowerCase();
-      let result = str;
       for (const kw of highlightKeywords) {
         const idx = lower.indexOf(kw.toLowerCase());
         if (idx !== -1) {
-          const before = result.slice(0, idx);
-          const match = result.slice(idx, idx + kw.length);
-          const after = result.slice(idx + kw.length);
-          result = `${before}<mark style="background-color:#fde68a;border-radius:2px;padding:1px 2px;">${match}</mark>${after}`;
-          break;
+          const before = escapeHtml(str.slice(0, idx));
+          const match = escapeHtml(str.slice(idx, idx + kw.length));
+          const after = escapeHtml(str.slice(idx + kw.length));
+          return `${before}<mark style="background-color:#fde68a;border-radius:2px;padding:1px 2px;">${match}</mark>${after}`;
         }
       }
-      return result;
+      return escapeHtml(str);
     },
     [highlightKeywords],
   );
@@ -192,6 +193,7 @@ const PdfViewer: React.FC<{ url: string; page: number; highlightText?: string }>
             disabled={currentPage <= 1}
             className="rounded p-1 text-slate-500 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30"
             title="이전 페이지 (←)"
+            aria-label="이전 페이지"
           >
             <ChevronLeft size={16} />
           </button>
@@ -222,6 +224,7 @@ const PdfViewer: React.FC<{ url: string; page: number; highlightText?: string }>
             disabled={currentPage >= numPages}
             className="rounded p-1 text-slate-500 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30"
             title="다음 페이지 (→)"
+            aria-label="다음 페이지"
           >
             <ChevronRight size={16} />
           </button>
@@ -235,6 +238,7 @@ const PdfViewer: React.FC<{ url: string; page: number; highlightText?: string }>
             disabled={zoom <= ZOOM_STEPS[0]}
             className="rounded p-1 text-slate-500 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30"
             title="축소 (−)"
+            aria-label="축소"
           >
             <ZoomOut size={15} />
           </button>
@@ -252,6 +256,7 @@ const PdfViewer: React.FC<{ url: string; page: number; highlightText?: string }>
             disabled={zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]}
             className="rounded p-1 text-slate-500 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-30"
             title="확대 (+)"
+            aria-label="확대"
           >
             <ZoomIn size={15} />
           </button>
@@ -274,35 +279,32 @@ const PdfViewer: React.FC<{ url: string; page: number; highlightText?: string }>
           ref={wrapperRef}
           className="absolute inset-0 overflow-auto"
         >
-          <div
-            style={zoom !== 1.0 ? { transform: `scale(${zoom})`, transformOrigin: 'top center', width: `${100 / zoom}%` } : undefined}
+          <Document
+            file={url}
+            onLoadSuccess={onDocumentLoadSuccess}
+            loading={
+              <div className="flex items-center justify-center p-12">
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary-500 border-t-transparent" />
+              </div>
+            }
+            error={
+              <div className="flex flex-col items-center justify-center gap-2 p-12 text-center">
+                <FileX size={32} className="text-slate-300" />
+                <p className="text-sm text-slate-500">PDF를 불러올 수 없습니다.</p>
+              </div>
+            }
           >
-            <Document
-              file={url}
-              onLoadSuccess={onDocumentLoadSuccess}
-              loading={
-                <div className="flex items-center justify-center p-12">
-                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary-500 border-t-transparent" />
-                </div>
-              }
-              error={
-                <div className="flex flex-col items-center justify-center gap-2 p-12 text-center">
-                  <FileX size={32} className="text-slate-300" />
-                  <p className="text-sm text-slate-500">PDF를 불러올 수 없습니다.</p>
-                </div>
-              }
-            >
-              {numPages > 0 && (
-                <Page
-                  pageNumber={currentPage}
-                  width={pageWidth}
-                  renderTextLayer={true}
-                  renderAnnotationLayer={true}
-                  customTextRenderer={highlightText && currentPage === page ? customTextRenderer : undefined}
-                />
-              )}
-            </Document>
-          </div>
+            {numPages > 0 && (
+              <Page
+                pageNumber={currentPage}
+                width={pageWidth}
+                scale={zoom}
+                renderTextLayer={true}
+                renderAnnotationLayer={true}
+                customTextRenderer={highlightText && currentPage === page ? customTextRenderer : undefined}
+              />
+            )}
+          </Document>
         </div>
       </div>
     </div>

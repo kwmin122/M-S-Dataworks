@@ -291,8 +291,6 @@ export type ConversationPhase =
   | 'bid_analyzing'
   | 'bid_eval_running'
   | 'bid_eval_results'
-  | 'proposal_input'
-  | 'proposal_preview'
   | 'free_chat';
 
 export type OpinionMode = 'conservative' | 'balanced' | 'aggressive';
@@ -348,25 +346,20 @@ export type MessageAction =
   | { type: 'files_uploaded'; files: File[]; messageId: string }
   | { type: 'reference_clicked'; page: number; text?: string }
   | { type: 'retry_action'; action: string }
-  | { type: 'open_bid_detail'; bid: BidNotice }
-  | { type: 'open_proposal'; sections: ProposalSections; bidNoticeId: string }
   | { type: 'analyze_bid'; bid: BidNotice; messageId: string }
   | { type: 'search_page'; page: number; conditions: Record<string, string>; messageId: string }
   | { type: 'header_upload_target' }
   | { type: 'header_add_company' }
   | { type: 'setup_alert' }
   | { type: 'welcome_action'; value: string }
-  | { type: 'generate_proposal'; bidNoticeId: string; bidTitle: string }
   | { type: 'generate_proposal_v2'; bidTitle: string }
   | { type: 'delete_company_doc'; sourceFile: string }
   | { type: 'undo_company_upload'; sourceFiles: string[] }
-  | { type: 'go_back' }
   | { type: 'ask_about_doc'; sourceFile: string }
   | { type: 'view_checklist' }
   | { type: 'generate_wbs' }
   | { type: 'generate_ppt' }
-  | { type: 'generate_track_record' }
-  | { type: 'start_company_onboarding' };
+  | { type: 'generate_track_record' };
 
 // ── 문서 멘션 (다중 문서 질의) ──
 

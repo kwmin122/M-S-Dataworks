@@ -251,3 +251,113 @@ class TestExtractHwpxStyles:
         )
         styles = extract_hwpx_styles(hwpx_path)
         assert styles == {}
+
+
+# ---------------------------------------------------------------------------
+# Reference-based styles (header.xml charPr + fontface)
+# ---------------------------------------------------------------------------
+
+# Header XML with fontface + charPr definitions
+HEADER_XML_REF_STYLES = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head">
+  <hh:refList>
+    <hh:fontfaces>
+      <hh:fontface lang="HANGUL" fontCnt="3">
+        <hh:font id="0" face="굴림체" type="TTF" isEmbedded="0"/>
+        <hh:font id="1" face="맑은 고딕" type="TTF" isEmbedded="0"/>
+        <hh:font id="2" face="함초롬바탕" type="TTF" isEmbedded="0"/>
+      </hh:fontface>
+      <hh:fontface lang="LATIN" fontCnt="1">
+        <hh:font id="0" face="Arial" type="TTF" isEmbedded="0"/>
+      </hh:fontface>
+    </hh:fontfaces>
+    <hh:charProperties>
+      <hh:charPr id="0" height="1000" textColor="#000000" borderFillIDRef="1">
+        <hh:fontRef hangul="0" latin="0"/>
+        <hh:relSz hangul="100"/>
+      </hh:charPr>
+      <hh:charPr id="1" height="1300" textColor="#000000" borderFillIDRef="1">
+        <hh:fontRef hangul="2" latin="0"/>
+        <hh:relSz hangul="100"/>
+      </hh:charPr>
+      <hh:charPr id="2" height="2200" textColor="#000000" borderFillIDRef="1">
+        <hh:fontRef hangul="1" latin="0"/>
+        <hh:relSz hangul="100"/>
+      </hh:charPr>
+    </hh:charProperties>
+  </hh:refList>
+</hh:head>
+"""
+
+# Section XML that uses charPrIDRef (no inline rPr)
+SECTION_XML_REF_BASED = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section"
+         xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">
+  <hp:p>
+    <hp:run charPrIDRef="1"><hp:t>본문 텍스트입니다.</hp:t></hp:run>
+  </hp:p>
+  <hp:p>
+    <hp:run charPrIDRef="1"><hp:t>두 번째 본문입니다.</hp:t></hp:run>
+  </hp:p>
+  <hp:p>
+    <hp:run charPrIDRef="2"><hp:t>제목 텍스트</hp:t></hp:run>
+  </hp:p>
+  <hp:p>
+    <hp:run charPrIDRef="1"><hp:t>세 번째 본문입니다.</hp:t></hp:run>
+  </hp:p>
+</hs:sec>
+"""
+
+
+def _make_hwpx_with_header(tmp_path, name, section_xml, header_xml):
+    """Build HWPX archive with both section and header XML."""
+    path = str(tmp_path / name)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("Contents/section0.xml", section_xml)
+        zf.writestr("Contents/header.xml", header_xml)
+        zf.writestr("Contents/content.hpf", "<hpf/>")
+        zf.writestr("mimetype", "application/hwp+zip")
+    return path
+
+
+class TestRefBasedStyles:
+    """Tests for reference-based style extraction via header.xml."""
+
+    def test_ref_based_body_font(self, tmp_path):
+        """body_font is the most frequent font via charPrIDRef resolution."""
+        hwpx_path = _make_hwpx_with_header(
+            tmp_path, "ref.hwpx", SECTION_XML_REF_BASED, HEADER_XML_REF_STYLES,
+        )
+        styles = extract_hwpx_styles(hwpx_path)
+        # charPrIDRef="1" → fontRef hangul="2" → font id=2 "함초롬바탕" (3 times)
+        assert styles["body_font"] == "함초롬바탕"
+
+    def test_ref_based_heading_font(self, tmp_path):
+        """heading_font is the font used at the largest size."""
+        hwpx_path = _make_hwpx_with_header(
+            tmp_path, "ref.hwpx", SECTION_XML_REF_BASED, HEADER_XML_REF_STYLES,
+        )
+        styles = extract_hwpx_styles(hwpx_path)
+        # charPrIDRef="2" → height=2200 → fontRef hangul="1" → "맑은 고딕"
+        assert styles["heading_font"] == "맑은 고딕"
+
+    def test_ref_based_font_sizes(self, tmp_path):
+        """Font sizes extracted correctly from charPr height attribute."""
+        hwpx_path = _make_hwpx_with_header(
+            tmp_path, "ref.hwpx", SECTION_XML_REF_BASED, HEADER_XML_REF_STYLES,
+        )
+        styles = extract_hwpx_styles(hwpx_path)
+        assert styles["body_font_size"] == 13.0   # height=1300 → 13.0pt
+        assert styles["heading_font_size"] == 22.0  # height=2200 → 22.0pt
+
+    def test_inline_takes_priority_over_header(self, tmp_path):
+        """When section XML has inline rPr, header.xml is not used."""
+        hwpx_path = _make_hwpx_with_header(
+            tmp_path, "inline.hwpx", SECTION_XML_WITH_STYLES, HEADER_XML_REF_STYLES,
+        )
+        styles = extract_hwpx_styles(hwpx_path)
+        # Should use inline styles (함초롬돋움/함초롬바탕) not header styles
+        assert styles["body_font"] == "함초롬바탕"
+        assert styles["heading_font"] == "함초롬돋움"

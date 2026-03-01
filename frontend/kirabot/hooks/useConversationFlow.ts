@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChatContext, createNewConversation } from '../context/ChatContext';
 import { useActiveConversation } from './useActiveConversation';
@@ -120,6 +120,10 @@ export function useConversationFlow() {
   const { state, dispatch } = useChatContext();
   const { conversation, conversationId } = useActiveConversation();
   const navigate = useNavigate();
+
+  // Keep latest conversation ref for async operations to avoid stale closures
+  const conversationRef = useRef(conversation);
+  conversationRef.current = conversation;
 
   const push = useCallback(
     (message: ChatMessage) => {
@@ -283,7 +287,7 @@ export function useConversationFlow() {
         setProcessing(true);
         pushStatus('loading', '회사 정보를 등록하고 있어요...');
         try {
-          let sid = conversation.sessionId;
+          let sid = conversationRef.current?.sessionId ?? conversation.sessionId;
           if (!sid) {
             sid = await api.createSession();
             updateConv({ sessionId: sid });
@@ -382,8 +386,8 @@ export function useConversationFlow() {
         // free_chat으로 fall-through
       }
 
-      // 일반 챗봇 모드: AI 대화
-      if (conversation.phase === 'free_chat' || conversation.phase === 'greeting') {
+      // 일반 챗봇 모드 또는 기타 페이즈에서 텍스트 입력 시 generalChat으로 폴백
+      {
         setProcessing(true);
         pushStatus('loading', '답변을 생성하고 있어요...');
 
@@ -498,6 +502,8 @@ export function useConversationFlow() {
   const handleAction = useCallback(
     async (action: MessageAction) => {
       if (!conversationId || !conversation) return;
+      // Guard against concurrent async operations — ignore if already processing
+      if (state.isProcessing) return;
 
       switch (action.type) {
         case 'choice_selected': {
@@ -604,8 +610,8 @@ export function useConversationFlow() {
             pushStatus('loading', '회사 문서를 등록하고 있어요...');
 
             try {
-              // Create session if needed
-              let sid = conversation.sessionId;
+              // Create session if needed — use ref for latest value
+              let sid = conversationRef.current?.sessionId ?? conversation.sessionId;
               if (!sid) {
                 sid = await api.createSession();
                 updateConv({ sessionId: sid });
@@ -686,7 +692,8 @@ export function useConversationFlow() {
             pushStatus('loading', '문서를 분석하고 있어요. 잠시만 기다려주세요...');
 
             try {
-              let sid = conversation.sessionId;
+              // Use ref for latest session value
+              let sid = conversationRef.current?.sessionId ?? conversation.sessionId;
               if (!sid) {
                 sid = await api.createSession();
                 updateConv({ sessionId: sid });
@@ -705,6 +712,9 @@ export function useConversationFlow() {
               }
 
               if (analysisUrl) {
+                // Revoke previous blob URL if it exists
+                const prev = conversation.uploadedFileUrl;
+                if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev);
                 updateConv({ uploadedFileUrl: analysisUrl, uploadedFileName: fileName });
                 const companyDocs = conversation.companyDocUrls || [];
                 const tabs = buildDocumentTabs({ url: analysisUrl, fileName }, companyDocs);
@@ -1017,8 +1027,8 @@ export function useConversationFlow() {
           setProcessing(true);
           setPhase('bid_analyzing');
 
-          // 세션 없으면 생성
-          let sid = conversation.sessionId;
+          // 세션 없으면 생성 — use ref for latest value
+          let sid = conversationRef.current?.sessionId ?? conversation.sessionId;
           if (!sid) {
             try {
               sid = await api.createSession();
@@ -1210,6 +1220,7 @@ export function useConversationFlow() {
         case 'retry_action': {
           // Re-push the appropriate starting message based on retry action
           if (action.action === 'upload_company') {
+            setPhase('doc_upload_company');
             push({
               id: msgId(),
               role: 'bot',
@@ -1220,6 +1231,7 @@ export function useConversationFlow() {
               multiple: true,
             } as FileUploadMessage);
           } else if (action.action === 'analyze') {
+            setPhase('doc_upload_target');
             push({
               id: msgId(),
               role: 'bot',
@@ -1244,22 +1256,6 @@ export function useConversationFlow() {
             pushText('다시 시도하려면 공고 목록에서 [분석하기] 버튼을 눌러주세요.');
             setPhase('bid_search_results');
           }
-          break;
-        }
-
-        case 'open_bid_detail': {
-          dispatch({
-            type: 'SET_CONTEXT_PANEL',
-            content: { type: 'bid_detail', bid: action.bid },
-          });
-          break;
-        }
-
-        case 'open_proposal': {
-          dispatch({
-            type: 'SET_CONTEXT_PANEL',
-            content: { type: 'proposal', sections: action.sections, bidNoticeId: action.bidNoticeId },
-          });
           break;
         }
 
@@ -1312,37 +1308,6 @@ export function useConversationFlow() {
             updateConv({ title: welcomeLabel[action.value] || 'KiraBot' });
           }
           handleFeatureSelection(action.value);
-          break;
-        }
-
-        case 'generate_proposal': {
-          if (!conversation.sessionId) {
-            pushStatus('error', '세션이 없습니다. 먼저 문서를 분석해주세요.');
-            break;
-          }
-
-          setProcessing(true);
-          pushStatus('loading', '제안서 초안을 생성하고 있어요...');
-
-          try {
-            const result = await api.generateProposalDraft(conversation.sessionId, action.bidNoticeId);
-            removeLastStatus();
-
-            // Show proposal in context panel
-            dispatch({
-              type: 'SET_CONTEXT_PANEL',
-              content: { type: 'proposal', sections: result.sections, bidNoticeId: action.bidNoticeId },
-            });
-
-            pushText(`"${action.bidTitle}" 공고에 대한 제안서 초안이 생성되었습니다. 오른쪽 패널에서 내용을 확인하고 수정하세요.`);
-            trackEvent('proposal_generated', { bid_id: action.bidNoticeId });
-          } catch (error) {
-            removeLastStatus();
-            const msg = error instanceof Error ? error.message : '알 수 없는 오류';
-            pushStatus('error', `제안서 생성 실패: ${msg}`);
-          } finally {
-            setProcessing(false);
-          }
           break;
         }
 
@@ -1557,6 +1522,7 @@ export function useConversationFlow() {
                 } as AnalysisResultMessage);
               } catch {
                 removeLastStatus();
+                pushText('재평가 중 오류가 발생했습니다.');
               }
             }
           } catch (err) {
@@ -1574,7 +1540,7 @@ export function useConversationFlow() {
           for (const sf of sourceFiles) {
             try {
               await api.deleteSessionCompanyDocument(sid, sf);
-            } catch { /* 일부 실패 무시 */ }
+            } catch { /* 일부 파일 삭제 실패는 허용 */ }
           }
           // 목록 새로 가져오기
           try {
@@ -1585,28 +1551,14 @@ export function useConversationFlow() {
               _justUploadedFiles: undefined,
             });
             pushText('업로드가 취소되었습니다.');
-          } catch { /* ignore */ }
-          break;
-        }
-
-        case 'go_back': {
-          const phase = conversation.phase;
-          if (phase === 'doc_upload_target') {
-            setPhase('doc_upload_company');
-            pushText('회사 문서 업로드 단계로 돌아왔습니다.');
-          } else if (phase === 'doc_upload_company') {
-            setPhase('greeting');
+          } catch {
+            pushText('업로드 취소 중 일부 오류가 발생했습니다.');
           }
           break;
         }
 
         case 'ask_about_doc': {
           updateConv({ activeDocFilter: [action.sourceFile] });
-          break;
-        }
-
-        case 'start_company_onboarding': {
-          handleFeatureSelection('company_onboarding');
           break;
         }
       }

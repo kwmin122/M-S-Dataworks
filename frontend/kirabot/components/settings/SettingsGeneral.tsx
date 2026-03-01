@@ -32,15 +32,17 @@ const SettingsGeneral: React.FC<SettingsGeneralProps> = ({ user }) => {
   useEffect(() => {
     const uid = ctxUser?.id;
     if (!uid) { setLoadingAlert(false); return; }
+    let cancelled = false;
     const sid = getAlertSessionId(uid);
     fetch(`${getApiBaseUrl()}/api/alerts/config?session_id=${sid}`)
       .then(r => r.json())
       .then(data => {
-        if (data.email) setAlert(data);
+        if (!cancelled && data.email) setAlert(data);
       })
       .catch(() => {})
-      .finally(() => setLoadingAlert(false));
-  }, [ctxUser]);
+      .finally(() => { if (!cancelled) setLoadingAlert(false); });
+    return () => { cancelled = true; };
+  }, [ctxUser?.id]);
 
   const handleDisableAlert = async () => {
     const uid = ctxUser?.id;

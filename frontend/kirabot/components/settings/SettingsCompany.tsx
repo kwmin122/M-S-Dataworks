@@ -51,13 +51,16 @@ const SettingsCompany: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     getCompanyProfile()
       .then((p) => {
+        if (cancelled) return;
         setProfile(p);
         if (p) fillForm(p);
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [fillForm]);
 
   const handleSave = async () => {

@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 NS = {
     "hs": "http://www.hancom.co.kr/hwpml/2011/section",
     "hp": "http://www.hancom.co.kr/hwpml/2011/paragraph",
+    "hh": "http://www.hancom.co.kr/hwpml/2011/head",
 }
 
 # Pattern to match section XML filenames inside Contents/
@@ -138,6 +139,108 @@ def _collect_style_entries(
     return entries
 
 
+def _parse_header_font_map(header_bytes: bytes) -> dict[int, str]:
+    """Parse ``Contents/header.xml`` to build font-id → face-name map for HANGUL.
+
+    HWPX header contains ``<hh:fontface lang="HANGUL">`` with child
+    ``<hh:font id="0" face="굴림체"/>`` elements.
+    """
+    try:
+        root = etree.fromstring(header_bytes)
+    except etree.XMLSyntaxError as exc:
+        logger.warning("Failed to parse header.xml: %s", exc)
+        return {}
+
+    font_map: dict[int, str] = {}
+    for fontface in root.iter("{%s}fontface" % NS["hh"]):
+        if fontface.get("lang") != "HANGUL":
+            continue
+        for font_elem in fontface.findall("{%s}font" % NS["hh"]):
+            fid = font_elem.get("id")
+            face = font_elem.get("face")
+            if fid is not None and face:
+                try:
+                    font_map[int(fid)] = face
+                except (ValueError, TypeError):
+                    pass
+    return font_map
+
+
+def _parse_header_char_properties(
+    header_bytes: bytes,
+) -> dict[int, tuple[int, int]]:
+    """Parse ``<hh:charPr>`` definitions from header.xml.
+
+    Returns ``{charPr_id: (hangul_font_id, height_hundredths_pt)}``.
+
+    Each ``<hh:charPr id="N" height="1200">`` contains a
+    ``<hh:fontRef hangul="5"/>`` child referencing a font by ID.
+    """
+    try:
+        root = etree.fromstring(header_bytes)
+    except etree.XMLSyntaxError:
+        return {}
+
+    char_props: dict[int, tuple[int, int]] = {}
+    for charpr in root.iter("{%s}charPr" % NS["hh"]):
+        cp_id_str = charpr.get("id")
+        height_str = charpr.get("height")
+        if cp_id_str is None or height_str is None:
+            continue
+
+        font_ref = charpr.find("{%s}fontRef" % NS["hh"])
+        if font_ref is None:
+            continue
+
+        hangul_ref = font_ref.get("hangul")
+        if hangul_ref is None:
+            continue
+
+        try:
+            char_props[int(cp_id_str)] = (int(hangul_ref), int(height_str))
+        except (ValueError, TypeError):
+            pass
+
+    return char_props
+
+
+def _collect_ref_based_style_entries(
+    section_bytes: bytes,
+    font_map: dict[int, str],
+    char_props: dict[int, tuple[int, int]],
+) -> list[tuple[str, float]]:
+    """Resolve ``charPrIDRef`` in section XML via header definitions.
+
+    For each ``<hp:run charPrIDRef="N">``, looks up the charPr definition
+    to get font name and size.  Returns ``(font_name, size_pt)`` tuples.
+    """
+    try:
+        root = etree.fromstring(section_bytes)
+    except etree.XMLSyntaxError:
+        return []
+
+    entries: list[tuple[str, float]] = []
+    for run_elem in root.iter("{%s}run" % NS["hp"]):
+        ref_str = run_elem.get("charPrIDRef")
+        if ref_str is None:
+            continue
+        try:
+            ref_id = int(ref_str)
+        except (ValueError, TypeError):
+            continue
+
+        cp = char_props.get(ref_id)
+        if cp is None:
+            continue
+
+        hangul_font_id, height = cp
+        font_name = font_map.get(hangul_font_id)
+        if font_name and height > 0:
+            entries.append((font_name, height / 100.0))
+
+    return entries
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -204,10 +307,30 @@ def extract_hwpx_styles(path: str) -> dict[str, Any]:
     try:
         with zipfile.ZipFile(path, "r") as zf:
             section_names = _iter_section_xmls(zf)
+
+            # Strategy 1: inline rPr elements in section XML
             for section_name in section_names:
                 xml_bytes = zf.read(section_name)
                 entries = _collect_style_entries(xml_bytes)
                 all_entries.extend(entries)
+
+            # Strategy 2: reference-based styles via header.xml
+            if not all_entries and "Contents/header.xml" in zf.namelist():
+                header_bytes = zf.read("Contents/header.xml")
+                font_map = _parse_header_font_map(header_bytes)
+                char_props = _parse_header_char_properties(header_bytes)
+
+                if font_map and char_props:
+                    for section_name in section_names:
+                        xml_bytes = zf.read(section_name)
+                        ref_entries = _collect_ref_based_style_entries(
+                            xml_bytes, font_map, char_props,
+                        )
+                        all_entries.extend(ref_entries)
+                    logger.debug(
+                        "Used header-based style extraction: %d entries", len(all_entries),
+                    )
+
     except (zipfile.BadZipFile, OSError, KeyError) as exc:
         logger.error("HWPX style extraction failed: %s (%s)", path, exc)
         return {}

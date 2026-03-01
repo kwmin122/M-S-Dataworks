@@ -42,6 +42,7 @@ const ContextPanel: React.FC = () => {
           type="button"
           onClick={handleClose}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          aria-label="패널 닫기"
         >
           <X size={18} />
         </button>

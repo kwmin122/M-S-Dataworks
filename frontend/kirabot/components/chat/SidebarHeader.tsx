@@ -60,6 +60,7 @@ const SidebarHeader: React.FC<SidebarHeaderProps> = ({ collapsed, onToggle, onNe
             onClick={onToggle}
             className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-sidebar-hover hover:text-white"
             title="사이드바 접기"
+            aria-expanded={!collapsed}
           >
             <PanelLeftClose size={18} />
           </button>

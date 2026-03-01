@@ -100,6 +100,7 @@ export const AlertFilterSection: React.FC<AlertFilterSectionProps> = ({
                     type="button"
                     onClick={() => toggleRule(index)}
                     className="flex items-center gap-2 flex-1 text-left"
+                    aria-expanded={isExpanded}
                   >
                     {isExpanded ? <ChevronUp size={16} className="text-slate-500" /> : <ChevronDown size={16} className="text-slate-500" />}
                     <span className="text-sm font-medium text-slate-700">

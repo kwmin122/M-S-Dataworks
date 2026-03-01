@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -101,12 +101,27 @@ const ForecastPage: React.FC = () => {
   const [chartReady, setChartReady] = useState(false);
   const [chartTab, setChartTab] = useState<'count' | 'amount'>('count');
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close autocomplete dropdown on outside click
+  useEffect(() => {
+    if (!showDropdown) return;
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showDropdown]);
 
   useEffect(() => {
-    getPopularAgencies().then(r => setAgencies(r.agencies)).catch(() => {});
-    getCompanyProfile().then(p => setCompanyProfile(p)).catch(() => {});
-    const timer = setTimeout(() => setChartReady(true), 300);
-    return () => clearTimeout(timer);
+    let cancelled = false;
+    getPopularAgencies().then(r => { if (!cancelled) setAgencies(r.agencies); }).catch(() => {});
+    getCompanyProfile().then(p => { if (!cancelled) setCompanyProfile(p); }).catch(() => {});
+    const timer = setTimeout(() => { if (!cancelled) setChartReady(true); }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, []);
 
   const handleSearch = useCallback(async (orgName: string) => {
@@ -177,8 +192,9 @@ const ForecastPage: React.FC = () => {
               <input
                 type="text"
                 value={searchInput}
-                onChange={e => setSearchInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && searchInput.trim()) handleSearch(searchInput.trim()); }}
+                onChange={e => { setSearchInput(e.target.value); setShowDropdown(true); }}
+                onKeyDown={e => { if (e.key === 'Enter' && searchInput.trim()) { setShowDropdown(false); handleSearch(searchInput.trim()); } if (e.key === 'Escape') setShowDropdown(false); }}
+                onFocus={() => setShowDropdown(true)}
                 placeholder="기관명 검색 (예: 한국도로공사)"
                 className="w-full rounded-lg border border-slate-300 pl-10 pr-4 py-2.5 text-sm focus:border-kira-500 focus:ring-2 focus:ring-kira-200 outline-none"
               />
@@ -193,13 +209,13 @@ const ForecastPage: React.FC = () => {
           </div>
 
           {/* 자동완성 드롭다운 */}
-          {suggestions.length > 0 && !loading && (
-            <div className="absolute z-10 top-full left-0 right-16 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
+          {showDropdown && suggestions.length > 0 && !loading && (
+            <div ref={dropdownRef} className="absolute z-10 top-full left-0 right-16 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
               {suggestions.map(s => (
                 <button
                   key={s}
                   type="button"
-                  onClick={() => handleSearch(s)}
+                  onClick={() => { setShowDropdown(false); handleSearch(s); }}
                   className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
                 >
                   {s}

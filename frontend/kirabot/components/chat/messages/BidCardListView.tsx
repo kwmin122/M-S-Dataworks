@@ -61,7 +61,7 @@ const BidCardListView: React.FC<Props> = ({ message, onAction }) => {
     a.href = url;
     a.download = '공고검색결과.csv';
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 200);
   };
 
   return (

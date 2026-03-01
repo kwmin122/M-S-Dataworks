@@ -47,7 +47,7 @@ const ProposalPreview: React.FC<Props> = ({ sections, bidNoticeId, onSectionsCha
     a.href = url;
     a.download = `proposal_${bidNoticeId}.md`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 200);
   };
 
   return (

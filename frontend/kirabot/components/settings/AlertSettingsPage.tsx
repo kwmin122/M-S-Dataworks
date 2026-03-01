@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { Bell, Plus, Trash2, Save, CheckCircle, XCircle } from 'lucide-react';
 import { getApiBaseUrl } from '../../services/kiraApiService';
@@ -107,8 +108,10 @@ const AlertSettingsPage: React.FC = () => {
   // Load existing config on mount (with migration from legacy random UUID)
   useEffect(() => {
     if (!sessionId) { setLoading(false); return; }
+    let cancelled = false;
 
     const applyConfig = (data: any) => {
+      if (cancelled) return;
       if (data.email) { setEmail(data.email); setHasSavedConfig(true); }
       if (data.schedule) setSchedule(data.schedule);
       if (Array.isArray(data.hours) && data.hours.length > 0) {
@@ -137,6 +140,7 @@ const AlertSettingsPage: React.FC = () => {
     fetch(`${baseUrl}/api/alerts/config?session_id=${sessionId}`, { credentials: 'include' })
       .then(res => res.json())
       .then(async (data) => {
+        if (cancelled) return;
         if (data.email) {
           applyConfig(data);
           return;
@@ -147,6 +151,7 @@ const AlertSettingsPage: React.FC = () => {
           try {
             const legacyRes = await fetch(`${baseUrl}/api/alerts/config?session_id=${legacyId}`, { credentials: 'include' });
             const legacyData = await legacyRes.json();
+            if (cancelled) return;
             if (legacyData.email) {
               // Migrate: save under new user-scoped session ID
               await fetch(`${baseUrl}/api/alerts/config`, {
@@ -155,6 +160,7 @@ const AlertSettingsPage: React.FC = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ...legacyData, session_id: sessionId }),
               });
+              if (cancelled) return;
               applyConfig(legacyData);
               localStorage.removeItem(LEGACY_ALERT_SESSION_KEY);
               return;
@@ -163,7 +169,9 @@ const AlertSettingsPage: React.FC = () => {
         }
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
   }, [sessionId]);
 
   const handleSave = async () => {
@@ -486,8 +494,8 @@ const AlertSettingsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* 저장 완료 토스트 */}
-        {saveMsg && (
+        {/* 저장 완료 토스트 — Portal로 렌더하여 framer-motion transform 영향 회피 */}
+        {saveMsg && createPortal(
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -499,7 +507,8 @@ const AlertSettingsPage: React.FC = () => {
                 {line}
               </p>
             ))}
-          </motion.div>
+          </motion.div>,
+          document.body,
         )}
       </div>
     </motion.div>

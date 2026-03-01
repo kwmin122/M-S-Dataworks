@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, Paperclip, Building2, FileSearch, X } from 'lucide-react';
 import { useAutoResize } from '../../hooks/useAutoResize';
 import { useChatContext } from '../../context/ChatContext';
@@ -32,8 +32,8 @@ const ChatInput: React.FC<Props> = ({ onSendText, onAction }) => {
 
   const showSuggestions = conversation?.phase === 'doc_chat';
 
-  // Build available document list
-  const allDocs: DocMention[] = [
+  // Build available document list (memoized to prevent infinite re-render in useEffect)
+  const allDocs: DocMention[] = useMemo(() => [
     ...(conversation?.companyDocuments || []).map(d => ({
       sourceFile: d.source_file,
       label: d.source_file,
@@ -44,7 +44,7 @@ const ChatInput: React.FC<Props> = ({ onSendText, onAction }) => {
       label: conversation.uploadedFileName,
       type: 'rfx' as const,
     }] : []),
-  ];
+  ], [conversation?.companyDocuments, conversation?.uploadedFileName]);
 
   const filteredDocs = mentionQuery
     ? allDocs.filter(d => d.label.toLowerCase().includes(mentionQuery.toLowerCase()))
@@ -65,7 +65,7 @@ const ChatInput: React.FC<Props> = ({ onSendText, onAction }) => {
       setDocTags(tags);
       textareaRef.current?.focus();
     }
-  }, [conversation?.activeDocFilter]);
+  }, [conversation?.activeDocFilter, allDocs]);
 
   // 메뉴 외부 클릭 시 닫기
   useEffect(() => {

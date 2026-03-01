@@ -66,11 +66,13 @@ const ConversationList: React.FC<ConversationListProps> = ({
   return (
     <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
       {conversations.map((conv) => (
-        <div
+        <button
+          type="button"
           key={conv.id}
-          className={`group flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer ${
+          className={`group flex w-full items-center gap-2 rounded-lg px-3 py-2 cursor-pointer text-left ${
             conv.id === activeId ? 'bg-sidebar-hover text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white'
           }`}
+          aria-current={conv.id === activeId ? 'true' : undefined}
           onClick={() => onSelect(conv.id)}
         >
           <MessageSquare size={14} className="shrink-0" />
@@ -112,7 +114,7 @@ const ConversationList: React.FC<ConversationListProps> = ({
               <Trash2 size={13} />
             </button>
           </div>
-        </div>
+        </button>
       ))}
       {conversations.length === 0 && (
         <p className="px-3 py-6 text-center text-xs text-slate-500">대화가 없습니다</p>
