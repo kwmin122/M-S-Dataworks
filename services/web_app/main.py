@@ -2685,6 +2685,35 @@ async def proxy_get_company_db_stats() -> dict[str, Any]:
     return await _proxy_to_rag("GET", "/api/company-db/stats")
 
 
+# ── Profile.md 편집 프록시 ──
+
+
+@app.get("/api/profile-md")
+async def proxy_get_profile_md(company_id: str = "default") -> dict[str, Any]:
+    """Proxy: get profile.md sections from rag_engine."""
+    cid = urllib.parse.quote(company_id, safe="")
+    return await _proxy_to_rag("GET", f"/api/company-profile/md?company_id={cid}")
+
+
+@app.put("/api/profile-md/section")
+async def proxy_update_profile_section(payload: dict) -> dict[str, Any]:
+    """Proxy: update a profile.md section in rag_engine."""
+    return await _proxy_to_rag("PUT", "/api/company-profile/md/section", payload)
+
+
+@app.get("/api/profile-md/history")
+async def proxy_get_profile_history(company_id: str = "default") -> dict[str, Any]:
+    """Proxy: get profile.md version history from rag_engine."""
+    cid = urllib.parse.quote(company_id, safe="")
+    return await _proxy_to_rag("GET", f"/api/company-profile/md/history?company_id={cid}")
+
+
+@app.post("/api/profile-md/rollback")
+async def proxy_rollback_profile(payload: dict) -> dict[str, Any]:
+    """Proxy: rollback profile.md to a specific version in rag_engine."""
+    return await _proxy_to_rag("POST", "/api/company-profile/md/rollback", payload)
+
+
 # ── 알림 설정 CRUD ──
 
 ALERT_SETTINGS_DIR = ROOT_DIR / "data" / "alert_settings"
