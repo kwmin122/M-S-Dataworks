@@ -566,6 +566,21 @@ async def edit_feedback_endpoint(req: EditFeedbackRequest):
     """Process user edits for auto-learning pipeline."""
     try:
         from auto_learner import process_edit_feedback
+
+        def _on_pattern_promoted(company_id, patterns):
+            """Auto-learner pattern promotion → profile.md update."""
+            try:
+                from company_profile_updater import update_profile_section
+                skills_dir = _get_company_skills_dir(company_id)
+                for pattern in patterns:
+                    update_profile_section(
+                        company_dir=skills_dir,
+                        section_name=pattern.section_name,
+                        new_content=f"- 학습된 패턴: {pattern.description}",
+                    )
+            except Exception as exc:
+                logger.debug("Profile update from callback skipped: %s", exc)
+
         result = await asyncio.to_thread(
             process_edit_feedback,
             company_id=req.company_id,
@@ -573,6 +588,7 @@ async def edit_feedback_endpoint(req: EditFeedbackRequest):
             original_text=req.original_text,
             edited_text=req.edited_text,
             doc_type=req.doc_type,
+            on_pattern_promoted=_on_pattern_promoted,
         )
     except Exception as exc:
         logger.error("edit feedback failed: %s", exc)
@@ -867,6 +883,55 @@ async def update_company_profile(req: UpdateProfileRequest):
         raise HTTPException(status_code=500, detail=f"프로필 저장 실패: {exc}") from exc
 
     return {"ok": True}
+
+
+@app.post("/api/company-profile/upload-template")
+async def upload_hwpx_template(file: UploadFile = File(...)):
+    """Upload HWPX template and auto-enrich profile.md with extracted styles."""
+    from hwpx_parser import is_hwpx_file, extract_hwpx_styles
+    import company_profile_builder
+
+    if not file.filename or not file.filename.endswith(".hwpx"):
+        raise HTTPException(status_code=400, detail="HWPX 파일만 업로드 가능합니다.")
+
+    skills_dir = _get_company_skills_dir()
+    templates_dir = os.path.join(skills_dir, "templates")
+    os.makedirs(templates_dir, exist_ok=True)
+
+    # Save template with sanitized filename
+    safe_name = _re.sub(r"[^a-zA-Z0-9가-힣._\-]", "_", file.filename)[:100]
+    template_path = os.path.join(templates_dir, safe_name)
+    content = await file.read()
+    with open(template_path, "wb") as f:
+        f.write(content)
+
+    # Validate HWPX format
+    if not is_hwpx_file(template_path):
+        os.unlink(template_path)
+        raise HTTPException(status_code=400, detail="유효하지 않은 HWPX 파일입니다.")
+
+    # Extract styles from template
+    hwpx_styles = await asyncio.to_thread(extract_hwpx_styles, template_path)
+
+    # Load existing profile or create a new one enriched with HWPX styles
+    existing_md = company_profile_builder.load_profile_md(skills_dir)
+    if not existing_md:
+        profile_md = company_profile_builder.build_profile_md(
+            "미설정", hwpx_styles=hwpx_styles,
+        )
+    else:
+        # Re-generate with hwpx_styles merged
+        profile_md = company_profile_builder.build_profile_md(
+            "미설정", hwpx_styles=hwpx_styles,
+        )
+
+    company_profile_builder.save_profile_md(skills_dir, profile_md)
+
+    return {
+        "ok": True,
+        "template_path": safe_name,
+        "extracted_styles": hwpx_styles,
+    }
 
 
 # ---------------------------------------------------------------------------

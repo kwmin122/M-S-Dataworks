@@ -363,6 +363,9 @@ export type MessageAction =
   | { type: 'go_back' }
   | { type: 'ask_about_doc'; sourceFile: string }
   | { type: 'view_checklist' }
+  | { type: 'generate_wbs' }
+  | { type: 'generate_ppt' }
+  | { type: 'generate_track_record' }
   | { type: 'start_company_onboarding' };
 
 // ── 문서 멘션 (다중 문서 질의) ──

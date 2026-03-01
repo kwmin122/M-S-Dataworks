@@ -166,6 +166,19 @@ rag_engine/                       ← FastAPI 0.115 (포트 8001)
   diff_tracker.py                 ← AI vs 사용자 수정 diff 추출 + 패턴 키 해싱
   auto_learner.py                 ← 수정 패턴 → Layer 2 자동 학습 (threading.Lock 스레드 안전)
 
+  # Phase 2 모듈 (B/C/F, 2026-02-27 추가)
+  phase2_models.py                ← WbsTask, PersonnelAllocation, SlideContent, QnaPair 등 공통 모델
+  wbs_planner.py                  ← 방법론 템플릿 + LLM WBS 태스크 생성
+  wbs_generator.py                ← openpyxl XLSX + matplotlib 간트차트 + DOCX
+  wbs_orchestrator.py             ← WBS 파이프라인 오케스트레이터
+  ppt_slide_planner.py            ← 슬라이드 구성 + 예상질문 생성
+  ppt_content_extractor.py        ← 제안서→슬라이드 콘텐츠 추출
+  ppt_assembler.py                ← python-pptx PPTX 조립
+  ppt_orchestrator.py             ← PPT 파이프라인 오케스트레이터
+  track_record_writer.py          ← 실적/인력 매칭 + LLM 서술 생성
+  track_record_assembler.py       ← 실적기술서 DOCX 조립 (표+서술)
+  track_record_orchestrator.py    ← 실적기술서 파이프라인 오케스트레이터
+
 n8n/workflows/                    ← 4종 워크플로우 JSON
   g2b_bid_crawler.json            ← 나라장터 공고 수집 → BidNotice/IngestionJob
   ingestion_worker.json           ← process-ingestion-job 호출
@@ -352,6 +365,17 @@ moduleNameMapper:
 | `test_checklist_extractor.py` | `checklist_extractor.py` 체크리스트 |
 | `test_diff_tracker.py` | `diff_tracker.py` diff 추출 |
 | `test_auto_learner.py` | `auto_learner.py` 자동 학습 |
+| `test_track_record_writer.py` | `track_record_writer.py` 실적/인력 매칭 |
+| `test_track_record_assembler.py` | `track_record_assembler.py` DOCX 조립 |
+| `test_track_record_orchestrator.py` | `track_record_orchestrator.py` 파이프라인 |
+| `test_wbs_planner.py` | `wbs_planner.py` WBS 계획 |
+| `test_wbs_generator.py` | `wbs_generator.py` XLSX/간트/DOCX |
+| `test_wbs_orchestrator.py` | `wbs_orchestrator.py` WBS 파이프라인 |
+| `test_ppt_slide_planner.py` | `ppt_slide_planner.py` 슬라이드 구성 |
+| `test_ppt_content_extractor.py` | `ppt_content_extractor.py` 콘텐츠 추출 |
+| `test_ppt_assembler.py` | `ppt_assembler.py` PPTX 조립 |
+| `test_ppt_orchestrator.py` | `ppt_orchestrator.py` PPT 파이프라인 |
+| `test_phase2_api.py` | `main.py` Phase 2 API 엔드포인트 |
 
 ### web_saas Jest (src/lib/*/\__tests__/)
 | 파일 | 대상 |
@@ -388,16 +412,26 @@ moduleNameMapper:
 | LLM retry + timeout | **동작** | call_with_retry 60초 timeout + 2회 재시도 |
 | 공고 첨부파일 자동 다운로드+분석 | **동작** | e발주 첨부파일 자동 다운로드 → 파싱 → GO/NO-GO 분석 |
 
-### A-lite 제안서 파이프라인 (Phase 1 — 2026-02-27 구현 완료)
+### A-lite 제안서 파이프라인 (Phase 1 — 2026-02-27 구현, 02-28 E2E 검증 통과)
 | 기능 | 상태 | 비고 |
 |------|------|------|
-| A-lite 제안서 DOCX 생성 | **코드 완성** | Layer 1+2 지식 기반, `/api/generate-proposal-v2` |
-| Layer 1 지식 파이프라인 | **코드 완성** | harvester(Pass1)+dedup(Pass2)+ChromaDB. 실제 데이터 수집 미실행 |
+| A-lite 제안서 DOCX 생성 | **동작** | Layer 1+2 지식 기반, `/api/generate-proposal-v2`, E2E 검증 통과 |
+| Layer 1 지식 파이프라인 | **동작** | harvester(Pass1)+dedup(Pass2)+ChromaDB. 495유닛 탑재 완료 |
 | Layer 2 회사 맞춤 학습 | **코드 완성** | company_db + company_analyzer + section_writer 통합 |
-| 수정 diff 학습 루프 | **코드 완성** | diff_tracker + auto_learner (1회=기록, 3회+=자동반영) |
-| 제출 체크리스트 | **API 완성** | `/api/checklist`. 프론트엔드 UI 미구현 |
+| 수정 diff 학습 루프 | **동작** | diff_tracker + auto_learner (1회=기록, 3회+=자동반영) + 영속성(lifespan) |
+| 제출 체크리스트 | **동작** | `/api/checklist` + ChecklistView.tsx 프론트엔드 UI 완성 |
 | 품질 검증 (quality_checker) | **동작** | 블라인드 위반(한글 조사 인식) + 모호 표현 감지 |
 | Pydantic 입력 검증 | **동작** | RfxResultInput 스키마, title 필수, total_pages 10~200 |
+
+### Phase 2: 수행계획서/WBS + PPT + 실적기술서 (2026-02-27 구현, 02-28 E2E 검증 통과)
+| 기능 | 상태 | 비고 |
+|------|------|------|
+| 수행계획서/WBS XLSX+간트차트+DOCX | **동작** | `/api/generate-wbs`, 방법론 LLM감지, Layer1 지식주입, E2E 통과 |
+| PPT 발표자료 PPTX+QnA | **동작** | `/api/generate-ppt`, LLM 콘텐츠 생성, 예상질문 10개, E2E 통과 |
+| 실적/경력 기술서 DOCX | **동작** | `/api/generate-track-record`, CompanyDB 매칭, Layer1 강화 |
+| 프론트엔드 UI 버튼 + 다운로드 | **동작** | AnalysisResultView 5개 버튼 + 채팅 다운로드 링크 |
+| 백엔드 프록시 | **동작** | web_app에 3개 프록시 엔드포인트 |
+| 다운로드 확장 | **동작** | DOCX/XLSX/PPTX/PNG MIME 타입 지원 |
 
 ### 사용자 알림 설정 (2026-02-27 구현 완료)
 | 기능 | 상태 | 비고 |
@@ -412,15 +446,10 @@ moduleNameMapper:
 ### 미구현 / 제한
 | 기능 | 상태 | 비고 |
 |------|------|------|
-| 제안서 DOCX 다운로드 UI | **미구현** | API는 완성, 프론트엔드 다운로드 링크/미리보기 필요 |
-| 체크리스트 프론트엔드 | **미구현** | API 완성, UI 컴포넌트 필요 |
 | 회사 DB 온보딩 UI | **미구현** | API 완성, 실적/인력 입력 화면 필요 |
-| auto_learner 영속성 | **미구현** | 인메모리. lifespan 이벤트에서 save/load 필요 |
-| Layer 1 실제 데이터 | **미수집** | 코드는 완성, URL 큐레이션 확인 후 실행 필요 |
-| 수행계획서/WBS | **미구현** | Phase 2 |
-| PPT 발표자료 | **미구현** | Phase 2 |
-| 실적/경력 기술서 | **미구현** | Phase 2 |
-| Layer 3 승패 분석 | **미구현** | Phase 2~3 |
+| 회사 스타일 분석 연결 | **미구현** | company_analyzer.analyze_company_style() 구현됨, 파이프라인 미연결 |
+| PPT/WBS 회사 맞춤화 | **미구현** | CompanyDB 통합 안 됨 (track_record만 연결) |
+| Layer 3 승패 분석 | **미구현** | Phase 3 |
 | 관심 공고 자동 알림 | **미구현** | SaaS n8n 워크플로우로만 가능 |
 | 엑셀 평가 리포트 다운로드 | **SaaS only** | web_saas의 buildEvaluationExcel, 레거시 미연동 |
 | 강점 카드 | **SaaS only** | web_saas의 buildStrengthCard |

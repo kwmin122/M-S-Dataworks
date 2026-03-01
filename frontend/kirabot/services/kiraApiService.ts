@@ -294,6 +294,81 @@ export async function getChecklist(sessionId: string): Promise<ChecklistResponse
   return parseJson<ChecklistResponse>(res);
 }
 
+// ── Phase 2: WBS / PPT / 실적기술서 API ──
+
+export interface WbsResponse {
+  xlsx_filename: string;
+  gantt_filename: string;
+  docx_filename: string;
+  tasks_count: number;
+  total_months: number;
+  generation_time_sec: number;
+}
+
+export async function generateWbs(
+  sessionId: string,
+  methodology?: string,
+): Promise<WbsResponse> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/proposal/generate-wbs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, methodology: methodology || '' }),
+    timeoutMs: 300_000,
+  });
+  return parseJson<WbsResponse>(res);
+}
+
+export interface PptQnaPair {
+  question: string;
+  answer: string;
+  category: string;
+}
+
+export interface PptResponse {
+  pptx_filename: string;
+  slide_count: number;
+  qna_pairs: PptQnaPair[];
+  total_duration_min: number;
+  generation_time_sec: number;
+}
+
+export async function generatePpt(
+  sessionId: string,
+  durationMin: number = 30,
+  qnaCount: number = 10,
+): Promise<PptResponse> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/proposal/generate-ppt`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, duration_min: durationMin, qna_count: qnaCount }),
+    timeoutMs: 300_000,
+  });
+  return parseJson<PptResponse>(res);
+}
+
+export interface TrackRecordDocResponse {
+  docx_filename: string;
+  track_record_count: number;
+  personnel_count: number;
+  generation_time_sec: number;
+}
+
+export async function generateTrackRecord(
+  sessionId: string,
+): Promise<TrackRecordDocResponse> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/proposal/generate-track-record`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId }),
+    timeoutMs: 300_000,
+  });
+  return parseJson<TrackRecordDocResponse>(res);
+}
+
+export function getFileDownloadUrl(filename: string): string {
+  return `${API_BASE_URL}/api/proposal/download/${encodeURIComponent(filename)}`;
+}
+
 // ── 회사 DB 온보딩 API ──
 
 export interface TrackRecord {

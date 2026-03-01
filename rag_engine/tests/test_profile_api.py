@@ -75,3 +75,57 @@ def test_generate_profile_validates_empty_name():
         "documents": ["텍스트"],
     })
     assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_upload_hwpx_template(tmp_path, monkeypatch):
+    """Upload valid HWPX template → extracts styles → enriches profile."""
+    import zipfile
+
+    # Create a minimal HWPX file
+    hwpx_path = str(tmp_path / "template.hwpx")
+    section_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section"
+         xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">
+  <hp:p><hp:run><hp:rPr><hp:sz val="1100"/><hp:fontRef hangul="함초롬바탕"/></hp:rPr><hp:t>본문</hp:t></hp:run></hp:p>
+</hs:sec>"""
+    with zipfile.ZipFile(hwpx_path, "w") as zf:
+        zf.writestr("Contents/section0.xml", section_xml)
+        zf.writestr("Contents/content.hpf", "<hpf/>")
+
+    # Monkeypatch skills dir
+    skills_dir = str(tmp_path / "skills")
+    monkeypatch.setattr("main._get_company_skills_dir", lambda company_id="default": skills_dir)
+
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        with open(hwpx_path, "rb") as f:
+            resp = await ac.post(
+                "/api/company-profile/upload-template",
+                files={"file": ("template.hwpx", f, "application/octet-stream")},
+            )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["template_path"] == "template.hwpx"
+    assert "extracted_styles" in data
+
+
+@pytest.mark.asyncio
+async def test_upload_non_hwpx_rejected():
+    """Non-HWPX file upload returns 400."""
+    from httpx import AsyncClient, ASGITransport
+    from main import app
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.post(
+            "/api/company-profile/upload-template",
+            files={"file": ("doc.pdf", b"not hwpx", "application/pdf")},
+        )
+
+    assert resp.status_code == 400

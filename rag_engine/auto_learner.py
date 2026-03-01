@@ -55,11 +55,16 @@ _lock = threading.Lock()
 PATTERN_THRESHOLD = 3
 
 
+VALID_DOC_TYPES = {"proposal", "wbs", "ppt", "track_record"}
+
+
 def process_edit_feedback(
     company_id: str,
     section_name: str,
     original_text: str,
     edited_text: str,
+    doc_type: str = "proposal",
+    on_pattern_promoted: Optional[callable] = None,
 ) -> LearningResult:
     """Process user edits and extract/promote patterns.
 
@@ -68,10 +73,18 @@ def process_edit_feedback(
         section_name: Which proposal section was edited.
         original_text: AI-generated text.
         edited_text: User-modified text.
+        doc_type: Document type ("proposal"|"wbs"|"ppt"|"track_record").
+            Each doc_type maintains independent pattern counters.
 
     Returns:
         LearningResult with edit rate, new diffs, promoted patterns, notifications.
     """
+    if doc_type not in VALID_DOC_TYPES:
+        doc_type = "proposal"
+
+    # Use composite key: {doc_type}:{company_id} for independent counters per doc type
+    composite_key = f"{doc_type}:{company_id}"
+
     # Extract diffs (pure computation, no shared state)
     diffs = extract_diffs(section_name, original_text, edited_text)
     if not diffs:
@@ -85,20 +98,22 @@ def process_edit_feedback(
     rate = compute_edit_rate(original_text, edited_text)
 
     with _lock:
-        # Get or create history
-        if company_id not in _histories:
-            _histories[company_id] = EditHistory(company_id=company_id)
-        history = _histories[company_id]
+        # Get or create history (keyed by composite_key for doc_type isolation)
+        if composite_key not in _histories:
+            _histories[composite_key] = EditHistory(company_id=composite_key)
+        history = _histories[composite_key]
 
         # Update history with new diffs
         update_history(history, diffs)
 
         # Check for patterns reaching threshold
         recurring = detect_recurring_patterns(history, threshold=PATTERN_THRESHOLD)
-        already_learned = {p.pattern_key for p in _learned_patterns.get(company_id, [])}
+        already_learned = {p.pattern_key for p in _learned_patterns.get(composite_key, [])}
 
         new_promoted: list[LearnedPattern] = []
         notifications: list[str] = []
+
+        doc_type_label = {"proposal": "제안서", "wbs": "WBS", "ppt": "PPT", "track_record": "실적기술서"}.get(doc_type, doc_type)
 
         for diff in recurring:
             if diff.pattern_key in already_learned:
@@ -115,14 +130,24 @@ def process_edit_feedback(
             )
             new_promoted.append(pattern)
 
-            if company_id not in _learned_patterns:
-                _learned_patterns[company_id] = []
-            _learned_patterns[company_id].append(pattern)
+            if composite_key not in _learned_patterns:
+                _learned_patterns[composite_key] = []
+            _learned_patterns[composite_key].append(pattern)
 
             notifications.append(
-                f"학습 완료: \"{diff.section_name}\" 섹션에서 반복 수정 패턴을 감지했습니다. "
+                f"학습 완료: {doc_type_label} \"{diff.section_name}\" 섹션에서 반복 수정 패턴을 감지했습니다. "
                 f"({diff.occurrence_count}회 반복) 다음 생성 시 자동 반영됩니다."
             )
+
+        # Trigger profile update callback if patterns were promoted
+        if new_promoted and on_pattern_promoted:
+            try:
+                on_pattern_promoted(company_id, new_promoted)
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Profile update callback failed: %s", exc
+                )
 
     return LearningResult(
         edit_rate=rate,
@@ -132,16 +157,18 @@ def process_edit_feedback(
     )
 
 
-def get_learned_patterns(company_id: str) -> list[LearnedPattern]:
-    """Get all learned patterns for a company."""
+def get_learned_patterns(company_id: str, doc_type: str = "proposal") -> list[LearnedPattern]:
+    """Get all learned patterns for a company and doc type."""
+    composite_key = f"{doc_type}:{company_id}"
     with _lock:
-        return list(_learned_patterns.get(company_id, []))
+        return list(_learned_patterns.get(composite_key, []))
 
 
-def get_edit_rate_history(company_id: str) -> list[float]:
+def get_edit_rate_history(company_id: str, doc_type: str = "proposal") -> list[float]:
     """Get historical edit rates for tracking quality improvement."""
+    composite_key = f"{doc_type}:{company_id}"
     with _lock:
-        history = _histories.get(company_id)
+        history = _histories.get(composite_key)
         if not history:
             return []
         return [compute_edit_rate(d.original, d.edited) for d in history.diffs if d.original]
@@ -192,46 +219,61 @@ def load_state(directory: str) -> None:
 
     Reads ``learning_state.json`` and repopulates ``_histories`` and
     ``_learned_patterns``.  Safe to call even if the file does not exist.
+    If the file is corrupt or partially malformed, all state is cleared
+    to avoid inconsistent partial restoration.
     """
     path = os.path.join(directory, "learning_state.json")
     if not os.path.isfile(path):
         return
 
-    with open(path, "r", encoding="utf-8") as f:
-        state = json.load(f)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            state = json.load(f)
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.error("Failed to read learning state file %s: %s", path, exc)
+        return
 
     with _lock:
-        # Restore histories
-        for cid, hdata in state.get("histories", {}).items():
-            history = EditHistory(
-                company_id=hdata.get("company_id", cid),
-                pattern_counts=hdata.get("pattern_counts", {}),
-            )
-            for d in hdata.get("diffs", []):
-                history.diffs.append(EditDiff(
-                    section_name=d.get("section_name", ""),
-                    original=d.get("original", ""),
-                    edited=d.get("edited", ""),
-                    diff_type=d.get("diff_type", "replace"),
-                    pattern_key=d.get("pattern_key", ""),
-                    occurrence_count=d.get("occurrence_count", 1),
-                ))
-            _histories[cid] = history
-
-        # Restore learned patterns
-        for cid, plist in state.get("learned_patterns", {}).items():
-            _learned_patterns[cid] = [
-                LearnedPattern(
-                    pattern_key=p["pattern_key"],
-                    diff_type=p["diff_type"],
-                    section_name=p["section_name"],
-                    original_example=p["original_example"],
-                    edited_example=p["edited_example"],
-                    occurrence_count=p["occurrence_count"],
-                    description=p["description"],
+        try:
+            # Restore histories (migrate old format keys without ":" to "proposal:{key}")
+            for cid, hdata in state.get("histories", {}).items():
+                if ":" not in cid:
+                    cid = f"proposal:{cid}"
+                history = EditHistory(
+                    company_id=hdata.get("company_id", cid),
+                    pattern_counts=hdata.get("pattern_counts", {}),
                 )
-                for p in plist
-            ]
+                for d in hdata.get("diffs", []):
+                    history.diffs.append(EditDiff(
+                        section_name=d.get("section_name", ""),
+                        original=d.get("original", ""),
+                        edited=d.get("edited", ""),
+                        diff_type=d.get("diff_type", "replace"),
+                        pattern_key=d.get("pattern_key", ""),
+                        occurrence_count=d.get("occurrence_count", 1),
+                    ))
+                _histories[cid] = history
+
+            # Restore learned patterns (migrate old format keys)
+            for cid, plist in state.get("learned_patterns", {}).items():
+                if ":" not in cid:
+                    cid = f"proposal:{cid}"
+                _learned_patterns[cid] = [
+                    LearnedPattern(
+                        pattern_key=p["pattern_key"],
+                        diff_type=p["diff_type"],
+                        section_name=p["section_name"],
+                        original_example=p["original_example"],
+                        edited_example=p["edited_example"],
+                        occurrence_count=p["occurrence_count"],
+                        description=p["description"],
+                    )
+                    for p in plist
+                ]
+        except Exception as exc:
+            logger.error("State restore failed mid-way, clearing all state: %s", exc)
+            _histories.clear()
+            _learned_patterns.clear()
 
 
 def _describe_pattern(diff: EditDiff) -> str:

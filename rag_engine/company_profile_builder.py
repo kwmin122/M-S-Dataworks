@@ -28,6 +28,7 @@ _HWPX_PLACEHOLDER = "(HWPX 템플릿 업로드 시 자동 채움)"
 _HWPX_FIELD_LABELS: dict[str, str] = {
     "body_font": "본문 글꼴",
     "heading_font": "제목 글꼴",
+    "body_font_size": "본문 글꼴 크기 (pt)",
     "line_spacing": "줄 간격 (%)",
     "margins": "여백 (mm)",
     "header_text": "머리말",

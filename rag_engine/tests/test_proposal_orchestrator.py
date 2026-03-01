@@ -93,3 +93,78 @@ def test_generate_proposal_with_profile_md(tmp_path):
         assert mock_write.called
         _, kwargs = mock_write.call_args
         assert "합니다" in kwargs.get("profile_md", "")
+
+
+def test_generate_proposal_hwpx_output(tmp_path):
+    """output_format='hwpx' 시 HWPX 파일 생성."""
+    import zipfile
+
+    # Create HWPX template
+    skills_dir = str(tmp_path / "skills")
+    templates_dir = os.path.join(skills_dir, "templates")
+    os.makedirs(templates_dir, exist_ok=True)
+    template_path = os.path.join(templates_dir, "proposal_template.hwpx")
+    section_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section"
+         xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">
+  <hp:p><hp:run><hp:t>{{SECTION:개요}}</hp:t></hp:run></hp:p>
+</hs:sec>"""
+    with zipfile.ZipFile(template_path, "w") as zf:
+        zf.writestr("Contents/section0.xml", section_xml)
+        zf.writestr("Contents/content.hpf", "<hpf/>")
+
+    rfx = {"title": "테스트", "issuing_org": "기관"}
+    mock_kb = MagicMock()
+    mock_kb.search.return_value = []
+
+    with patch("proposal_orchestrator.KnowledgeDB", return_value=mock_kb), \
+         patch("proposal_orchestrator.write_section", return_value="## 개요\n\n내용"), \
+         patch("proposal_orchestrator.build_proposal_outline") as mock_outline:
+        from knowledge_models import ProposalSection, ProposalOutline
+        mock_outline.return_value = ProposalOutline(
+            title="테스트",
+            issuing_org="기관",
+            sections=[ProposalSection(name="개요", evaluation_item="이해도", max_score=10, weight=0.1)],
+        )
+
+        result = generate_proposal(
+            rfx_result=rfx,
+            output_dir=str(tmp_path / "out"),
+            knowledge_db_path=str(tmp_path / "kb"),
+            company_skills_dir=skills_dir,
+            output_format="hwpx",
+        )
+
+    assert result.hwpx_path
+    assert result.hwpx_path.endswith(".hwpx")
+    assert os.path.exists(result.hwpx_path)
+
+
+def test_generate_proposal_hwpx_fallback_to_docx(tmp_path):
+    """HWPX 템플릿 없으면 DOCX 폴백."""
+    rfx = {"title": "테스트", "issuing_org": "기관"}
+    mock_kb = MagicMock()
+    mock_kb.search.return_value = []
+
+    with patch("proposal_orchestrator.KnowledgeDB", return_value=mock_kb), \
+         patch("proposal_orchestrator.write_section", return_value="내용"), \
+         patch("proposal_orchestrator.build_proposal_outline") as mock_outline, \
+         patch("proposal_orchestrator.assemble_docx", return_value=str(tmp_path / "out.docx")):
+        from knowledge_models import ProposalSection, ProposalOutline
+        mock_outline.return_value = ProposalOutline(
+            title="테스트",
+            issuing_org="기관",
+            sections=[ProposalSection(name="개요", evaluation_item="이해도", max_score=10, weight=0.1)],
+        )
+
+        result = generate_proposal(
+            rfx_result=rfx,
+            output_dir=str(tmp_path / "out"),
+            knowledge_db_path=str(tmp_path / "kb"),
+            company_skills_dir=str(tmp_path / "no_skills"),
+            output_format="hwpx",
+        )
+
+    # No template → DOCX fallback
+    assert result.hwpx_path == ""
+    assert result.docx_path.endswith(".docx")

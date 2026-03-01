@@ -1414,6 +1414,116 @@ export function useConversationFlow() {
           break;
         }
 
+        case 'generate_wbs': {
+          if (!conversation.sessionId) {
+            pushStatus('error', '세션이 없습니다. 먼저 문서를 분석해주세요.');
+            break;
+          }
+
+          setProcessing(true);
+          pushStatus('loading', '수행계획서/WBS를 생성하고 있어요... (약 2~3분 소요)');
+
+          try {
+            const result = await api.generateWbs(conversation.sessionId);
+            removeLastStatus();
+
+            let msg = `수행계획서/WBS가 생성되었습니다! (${result.generation_time_sec}초)\n\n`;
+            msg += `**총 ${result.total_months}개월, ${result.tasks_count}개 태스크**\n\n`;
+            if (result.xlsx_filename) {
+              const url = api.getFileDownloadUrl(result.xlsx_filename);
+              msg += `[📊 WBS Excel 다운로드](${url})\n\n`;
+            }
+            if (result.gantt_filename) {
+              const url = api.getFileDownloadUrl(result.gantt_filename);
+              msg += `[📈 간트차트 다운로드](${url})\n\n`;
+            }
+            if (result.docx_filename) {
+              const url = api.getFileDownloadUrl(result.docx_filename);
+              msg += `[📄 수행계획서 DOCX 다운로드](${url})`;
+            }
+            pushText(msg);
+            trackEvent('wbs_generated', { time: result.generation_time_sec });
+          } catch (error) {
+            removeLastStatus();
+            const msg = error instanceof Error ? error.message : '알 수 없는 오류';
+            pushStatus('error', `수행계획서/WBS 생성 실패: ${msg}`);
+          } finally {
+            setProcessing(false);
+          }
+          break;
+        }
+
+        case 'generate_ppt': {
+          if (!conversation.sessionId) {
+            pushStatus('error', '세션이 없습니다. 먼저 문서를 분석해주세요.');
+            break;
+          }
+
+          setProcessing(true);
+          pushStatus('loading', 'PPT 발표자료를 생성하고 있어요... (약 3~5분 소요)');
+
+          try {
+            const result = await api.generatePpt(conversation.sessionId);
+            removeLastStatus();
+
+            let msg = `PPT 발표자료가 생성되었습니다! (${result.generation_time_sec}초)\n\n`;
+            msg += `**${result.slide_count}장, 발표시간 ${result.total_duration_min}분**\n\n`;
+            if (result.pptx_filename) {
+              const url = api.getFileDownloadUrl(result.pptx_filename);
+              msg += `[🎯 PPT 다운로드](${url})\n\n`;
+            }
+            if (result.qna_pairs.length > 0) {
+              msg += `**예상질문 ${result.qna_pairs.length}개:**\n`;
+              result.qna_pairs.forEach((q, i) => {
+                msg += `\n**Q${i + 1}.** ${q.question}\n**A${i + 1}.** ${q.answer}\n`;
+              });
+            }
+            pushText(msg);
+            trackEvent('ppt_generated', { time: result.generation_time_sec });
+          } catch (error) {
+            removeLastStatus();
+            const msg = error instanceof Error ? error.message : '알 수 없는 오류';
+            pushStatus('error', `PPT 발표자료 생성 실패: ${msg}`);
+          } finally {
+            setProcessing(false);
+          }
+          break;
+        }
+
+        case 'generate_track_record': {
+          if (!conversation.sessionId) {
+            pushStatus('error', '세션이 없습니다. 먼저 문서를 분석해주세요.');
+            break;
+          }
+
+          setProcessing(true);
+          pushStatus('loading', '실적/경력 기술서를 생성하고 있어요... (약 2~3분 소요)');
+
+          try {
+            const result = await api.generateTrackRecord(conversation.sessionId);
+            removeLastStatus();
+
+            let msg = `실적/경력 기술서가 생성되었습니다! (${result.generation_time_sec}초)\n\n`;
+            msg += `**실적 ${result.track_record_count}건, 인력 ${result.personnel_count}명**\n\n`;
+            if (result.docx_filename) {
+              const url = api.getFileDownloadUrl(result.docx_filename);
+              msg += `[📄 실적/경력 기술서 DOCX 다운로드](${url})`;
+            }
+            if (!result.docx_filename && result.track_record_count === 0) {
+              msg += '\n\n회사 DB에 실적/인력 정보가 없습니다. 먼저 회사 정보를 등록해주세요.';
+            }
+            pushText(msg);
+            trackEvent('track_record_generated', { time: result.generation_time_sec });
+          } catch (error) {
+            removeLastStatus();
+            const msg = error instanceof Error ? error.message : '알 수 없는 오류';
+            pushStatus('error', `실적/경력 기술서 생성 실패: ${msg}`);
+          } finally {
+            setProcessing(false);
+          }
+          break;
+        }
+
         case 'delete_company_doc': {
           const { sourceFile } = action;
           const sid = conversation.sessionId;

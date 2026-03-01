@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { CheckCircle2, XCircle, AlertCircle, Sparkles, FileText, BarChart3, ClipboardList } from 'lucide-react';
+import { CheckCircle2, XCircle, AlertCircle, Sparkles, FileText, BarChart3, ClipboardList, CalendarDays, Presentation, FolderOpen } from 'lucide-react';
 import type { AnalysisResultMessage, MessageAction, OpinionMode } from '../../../types';
 
 interface Props {
@@ -250,6 +250,31 @@ const AnalysisResultView: React.FC<Props> = ({ message, onAction }) => {
         <ClipboardList size={14} />
         제출 체크리스트
       </button>
+
+      {/* Phase 2 문서 생성 버튼 */}
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button type="button"
+          onClick={() => onAction?.({ type: 'generate_wbs' })}
+          className="flex items-center gap-1.5 rounded-lg border border-kira-200 bg-white px-3 py-1.5 text-xs font-medium text-kira-700 shadow-sm hover:bg-kira-50 transition-all"
+        >
+          <CalendarDays size={14} />
+          수행계획서/WBS
+        </button>
+        <button type="button"
+          onClick={() => onAction?.({ type: 'generate_ppt' })}
+          className="flex items-center gap-1.5 rounded-lg border border-kira-200 bg-white px-3 py-1.5 text-xs font-medium text-kira-700 shadow-sm hover:bg-kira-50 transition-all"
+        >
+          <Presentation size={14} />
+          PPT 발표자료
+        </button>
+        <button type="button"
+          onClick={() => onAction?.({ type: 'generate_track_record' })}
+          className="flex items-center gap-1.5 rounded-lg border border-kira-200 bg-white px-3 py-1.5 text-xs font-medium text-kira-700 shadow-sm hover:bg-kira-50 transition-all"
+        >
+          <FolderOpen size={14} />
+          실적/경력 기술서
+        </button>
+      </div>
     </div>
   );
 };

@@ -2415,16 +2415,9 @@ class ProposalGenerateV2Payload(BaseModel):
     total_pages: int = Field(default=50, ge=10, le=200)
 
 
-@app.post("/api/proposal/generate-v2")
-async def generate_proposal_v2(payload: ProposalGenerateV2Payload) -> dict[str, Any]:
-    """A-lite: Layer 1 knowledge 기반 DOCX 제안서 생성. rag_engine v2 프록시."""
-    session = _get_or_create_session(payload.session_id)
-
-    if session.latest_rfx_analysis is None:
-        raise HTTPException(status_code=400, detail="분석된 RFP가 없습니다. 먼저 공고를 분석해주세요.")
-
-    analysis = session.latest_rfx_analysis
-    rfx_dict: dict[str, Any] = {
+def _build_rfx_dict(analysis: Any) -> dict[str, Any]:
+    """세션의 rfx_analysis에서 rag_engine용 rfx_dict 생성 (공통 헬퍼)."""
+    return {
         "title": analysis.title,
         "issuing_org": analysis.issuing_org,
         "budget": analysis.budget,
@@ -2439,6 +2432,17 @@ async def generate_proposal_v2(payload: ProposalGenerateV2Payload) -> dict[str, 
         ],
         "rfp_text_summary": "",
     }
+
+
+@app.post("/api/proposal/generate-v2")
+async def generate_proposal_v2(payload: ProposalGenerateV2Payload) -> dict[str, Any]:
+    """A-lite: Layer 1 knowledge 기반 DOCX 제안서 생성. rag_engine v2 프록시."""
+    session = _get_or_create_session(payload.session_id)
+
+    if session.latest_rfx_analysis is None:
+        raise HTTPException(status_code=400, detail="분석된 RFP가 없습니다. 먼저 공고를 분석해주세요.")
+
+    rfx_dict = _build_rfx_dict(session.latest_rfx_analysis)
 
     fastapi_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
     try:
@@ -2459,12 +2463,23 @@ async def generate_proposal_v2(payload: ProposalGenerateV2Payload) -> dict[str, 
 # ── 제안서 DOCX 다운로드 프록시 ──
 
 
+_DOWNLOAD_MIME_TYPES: dict[str, str] = {
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".png": "image/png",
+}
+
+
 @app.get("/api/proposal/download/{filename}")
 async def download_proposal_proxy(filename: str):
-    """Proxy DOCX download from rag_engine."""
+    """Proxy file download from rag_engine (DOCX/XLSX/PPTX/PNG)."""
     import re as _re
-    if not _re.match(r'^[a-zA-Z0-9가-힣._\-]+\.docx$', filename) or len(filename) > 150:
+    if not _re.match(r'^[a-zA-Z0-9가-힣._\-]+\.(docx|xlsx|pptx|png)$', filename) or len(filename) > 150:
         raise HTTPException(status_code=400, detail="잘못된 파일명입니다.")
+
+    ext = os.path.splitext(filename)[1].lower()
+    media_type = _DOWNLOAD_MIME_TYPES.get(ext, "application/octet-stream")
 
     fastapi_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
     try:
@@ -2474,7 +2489,7 @@ async def download_proposal_proxy(filename: str):
             from fastapi.responses import Response
             return Response(
                 content=resp.content,
-                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                media_type=media_type,
                 headers={
                     "Content-Disposition": (
                         f'attachment; filename="{filename}"; '
@@ -2504,28 +2519,110 @@ async def checklist_proxy(payload: ChecklistProxyPayload) -> dict[str, Any]:
     if session.latest_rfx_analysis is None:
         raise HTTPException(status_code=400, detail="분석된 RFP가 없습니다. 먼저 공고를 분석해주세요.")
 
-    analysis = session.latest_rfx_analysis
-    rfx_dict: dict[str, Any] = {
-        "title": analysis.title,
-        "issuing_org": analysis.issuing_org,
-        "budget": analysis.budget,
-        "project_period": analysis.project_period,
-        "evaluation_criteria": [
-            {"category": ec.category, "max_score": ec.score, "description": ec.item}
-            for ec in (analysis.evaluation_criteria or [])
-        ],
-        "requirements": [
-            {"category": r.category, "description": r.description}
-            for r in (analysis.requirements or [])
-        ],
-        "rfp_text_summary": "",
-    }
+    rfx_dict = _build_rfx_dict(session.latest_rfx_analysis)
 
     fastapi_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
                 f"{fastapi_url}/api/checklist",
+                json={"rfx_result": rfx_dict},
+            )
+        if resp.status_code == 200:
+            return resp.json()
+        else:
+            detail = resp.text[:200]
+            raise HTTPException(status_code=502, detail=f"rag_engine 응답 오류: {detail}")
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"rag_engine 연결 실패: {exc}") from exc
+
+
+# ── Phase 2: WBS / PPT / 실적기술서 프록시 ──
+
+
+class GenerateWbsProxyPayload(BaseModel):
+    session_id: str
+    methodology: str = ""
+
+
+@app.post("/api/proposal/generate-wbs")
+async def generate_wbs_proxy(payload: GenerateWbsProxyPayload) -> dict[str, Any]:
+    """Proxy WBS generation from rag_engine."""
+    session = _get_or_create_session(payload.session_id)
+    if session.latest_rfx_analysis is None:
+        raise HTTPException(status_code=400, detail="분석된 RFP가 없습니다. 먼저 공고를 분석해주세요.")
+
+    rfx_dict = _build_rfx_dict(session.latest_rfx_analysis)
+
+    fastapi_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
+    try:
+        async with httpx.AsyncClient(timeout=300) as client:
+            resp = await client.post(
+                f"{fastapi_url}/api/generate-wbs",
+                json={"rfx_result": rfx_dict, "methodology": payload.methodology},
+            )
+        if resp.status_code == 200:
+            return resp.json()
+        else:
+            detail = resp.text[:200]
+            raise HTTPException(status_code=502, detail=f"rag_engine 응답 오류: {detail}")
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"rag_engine 연결 실패: {exc}") from exc
+
+
+class GeneratePptProxyPayload(BaseModel):
+    session_id: str
+    duration_min: int = 30
+    qna_count: int = 10
+
+
+@app.post("/api/proposal/generate-ppt")
+async def generate_ppt_proxy(payload: GeneratePptProxyPayload) -> dict[str, Any]:
+    """Proxy PPT generation from rag_engine."""
+    session = _get_or_create_session(payload.session_id)
+    if session.latest_rfx_analysis is None:
+        raise HTTPException(status_code=400, detail="분석된 RFP가 없습니다. 먼저 공고를 분석해주세요.")
+
+    rfx_dict = _build_rfx_dict(session.latest_rfx_analysis)
+
+    fastapi_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
+    try:
+        async with httpx.AsyncClient(timeout=300) as client:
+            resp = await client.post(
+                f"{fastapi_url}/api/generate-ppt",
+                json={
+                    "rfx_result": rfx_dict,
+                    "duration_min": payload.duration_min,
+                    "qna_count": payload.qna_count,
+                },
+            )
+        if resp.status_code == 200:
+            return resp.json()
+        else:
+            detail = resp.text[:200]
+            raise HTTPException(status_code=502, detail=f"rag_engine 응답 오류: {detail}")
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"rag_engine 연결 실패: {exc}") from exc
+
+
+class GenerateTrackRecordProxyPayload(BaseModel):
+    session_id: str
+
+
+@app.post("/api/proposal/generate-track-record")
+async def generate_track_record_proxy(payload: GenerateTrackRecordProxyPayload) -> dict[str, Any]:
+    """Proxy track record document generation from rag_engine."""
+    session = _get_or_create_session(payload.session_id)
+    if session.latest_rfx_analysis is None:
+        raise HTTPException(status_code=400, detail="분석된 RFP가 없습니다. 먼저 공고를 분석해주세요.")
+
+    rfx_dict = _build_rfx_dict(session.latest_rfx_analysis)
+
+    fastapi_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
+    try:
+        async with httpx.AsyncClient(timeout=300) as client:
+            resp = await client.post(
+                f"{fastapi_url}/api/generate-track-record",
                 json={"rfx_result": rfx_dict},
             )
         if resp.status_code == 200:
@@ -3412,6 +3509,23 @@ async def _extract_company_info_llm(text: str) -> dict:
     return json.loads(response.choices[0].message.content or "{}")
 
 
+async def _analyze_company_writing_style(all_text: str) -> dict | None:
+    """Call rag_engine /api/company-db/analyze-style to analyze writing style."""
+    fastapi_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
+    # Split into per-document chunks (separated by --- filename --- markers)
+    documents = [d.strip() for d in all_text.split("\n--- ") if len(d.strip()) >= 50]
+    if not documents:
+        documents = [all_text.strip()]
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{fastapi_url}/api/company-db/analyze-style",
+            json={"documents": documents},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("writing_style")
+
+
 def _add_company_docs_to_vectordb(username: str, text: str) -> None:
     """유저별 영구 벡터 컬렉션에 회사 문서 추가."""
     if not text.strip():
@@ -3611,6 +3725,17 @@ async def upload_company_profile_docs(
     except Exception as e:
         logger.warning("Company vectordb update failed: %s", e)
 
+    # Analyze writing style from uploaded documents via rag_engine
+    writing_style = None
+    if all_text.strip():
+        try:
+            writing_style = await _analyze_company_writing_style(all_text)
+            if writing_style:
+                profile["writingStyle"] = writing_style
+                _save_company_profile(username, profile)
+        except Exception as e:
+            logger.warning("Company writing style analysis failed: %s", e)
+
     return {
         "ok": True,
         "profile": profile,
@@ -3618,6 +3743,7 @@ async def upload_company_profile_docs(
             "savedCount": len(saved_docs),
             "extractionStatus": extraction_status,
             "filledFields": filled_fields,
+            "writingStyle": writing_style,
         },
     }
 

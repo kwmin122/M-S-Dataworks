@@ -23,11 +23,78 @@ from document_assembler import assemble_docx
 
 @dataclass
 class ProposalResult:
-    docx_path: str
-    sections: list[tuple[str, str]]  # [(name, text)]
-    outline: ProposalOutline
+    docx_path: str = ""
+    hwpx_path: str = ""
+    sections: list[tuple[str, str]] = field(default_factory=list)
+    outline: Optional[ProposalOutline] = None
     quality_issues: list[QualityIssue] = field(default_factory=list)
     generation_time_sec: float = 0.0
+
+
+def _find_hwpx_template(company_skills_dir: str) -> str:
+    """Find HWPX template in company skills dir or _default fallback.
+
+    Search order:
+    1. {company_skills_dir}/templates/*.hwpx
+    2. {data_dir}/company_skills/_default/templates/*.hwpx
+
+    Returns path to first found template, or empty string.
+    """
+    import glob as _glob
+
+    if company_skills_dir:
+        templates_dir = os.path.join(company_skills_dir, "templates")
+        templates = sorted(_glob.glob(os.path.join(templates_dir, "*.hwpx")))
+        if templates:
+            return templates[0]
+
+    # Fallback to _default
+    data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+    default_templates = os.path.join(data_dir, "company_skills", "_default", "templates")
+    templates = sorted(_glob.glob(os.path.join(default_templates, "*.hwpx")))
+    if templates:
+        return templates[0]
+
+    return ""
+
+
+def _try_hwpx_output(
+    sections: list[tuple[str, str]],
+    output_dir: str,
+    company_skills_dir: str,
+    safe_title: str,
+    ts: int,
+) -> str:
+    """Try to produce HWPX output. Returns path on success, empty string on failure."""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    template_path = _find_hwpx_template(company_skills_dir)
+    if not template_path:
+        logger.info("No HWPX template found, falling back to DOCX")
+        return ""
+
+    try:
+        from hwpx_injector import inject_content
+
+        # Convert sections list to dict for injector
+        sections_dict = {name: text for name, text in sections}
+
+        hwpx_filename = f"{safe_title}_{ts}.hwpx"
+        output_path = os.path.join(output_dir, hwpx_filename)
+
+        inject_content(
+            template_path=template_path,
+            sections=sections_dict,
+            output_path=output_path,
+        )
+
+        logger.info("HWPX output generated: %s", output_path)
+        return output_path
+
+    except Exception as exc:
+        logger.warning("HWPX output failed, falling back to DOCX: %s", exc)
+        return ""
 
 
 def generate_proposal(
@@ -41,6 +108,7 @@ def generate_proposal(
     total_pages: int = 50,
     api_key: Optional[str] = None,
     max_workers: int = 3,
+    output_format: str = "docx",
 ) -> ProposalResult:
     """Generate a complete proposal DOCX from RFP analysis result.
 
@@ -110,25 +178,41 @@ def generate_proposal(
     all_text = "\n\n".join(text for _, text in sections)
     quality_issues = check_quality(all_text, company_name=company_name)
 
-    # 6. Assemble DOCX
+    # 6. Assemble output
     ts = int(time.time())
     raw_title = rfx_result.get("title", "proposal")[:50]
     safe_title = re.sub(r"[^a-zA-Z0-9가-힣._\-]", "_", raw_title).strip("_")[:100]
     if not safe_title:
         safe_title = "proposal"
-    docx_filename = f"{safe_title}_{ts}.docx"
-    docx_path = os.path.join(output_dir, docx_filename)
-    assemble_docx(
-        title=rfx_result.get("title", "기술제안서"),
-        sections=sections,
-        output_path=docx_path,
-        company_name=company_name or "",
-    )
+
+    hwpx_path = ""
+    docx_path = ""
+
+    if output_format == "hwpx":
+        hwpx_path = _try_hwpx_output(
+            sections=sections,
+            output_dir=output_dir,
+            company_skills_dir=company_skills_dir,
+            safe_title=safe_title,
+            ts=ts,
+        )
+
+    if not hwpx_path:
+        # DOCX output (default or fallback)
+        docx_filename = f"{safe_title}_{ts}.docx"
+        docx_path = os.path.join(output_dir, docx_filename)
+        assemble_docx(
+            title=rfx_result.get("title", "기술제안서"),
+            sections=sections,
+            output_path=docx_path,
+            company_name=company_name or "",
+        )
 
     elapsed = round(time.time() - start, 1)
 
     return ProposalResult(
         docx_path=docx_path,
+        hwpx_path=hwpx_path,
         sections=sections,
         outline=outline,
         quality_issues=quality_issues,

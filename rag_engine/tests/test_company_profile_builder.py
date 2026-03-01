@@ -143,3 +143,17 @@ def test_load_profile_md_missing(tmp_path):
     missing_dir = str(tmp_path / "does_not_exist")
     result = load_profile_md(missing_dir)
     assert result == ""
+
+
+def test_build_profile_md_with_body_font_size():
+    """body_font_size appears in profile.md HWPX section."""
+    hwpx_styles = {
+        "body_font": "함초롬바탕",
+        "heading_font": "함초롬돋움",
+        "body_font_size": 11.0,
+    }
+    md = build_profile_md("테스트기업", hwpx_styles=hwpx_styles)
+    assert "함초롬바탕" in md
+    assert "함초롬돋움" in md
+    assert "11.0" in md
+    assert "본문 글꼴 크기" in md
