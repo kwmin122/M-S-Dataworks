@@ -325,6 +325,94 @@ AI Agent의 ReAct (Reasoning + Acting) 패턴:
 
 ---
 
+## 7. 구현 결과 (2026-03-01)
+
+### 7.1 구현 파일 및 테스트
+
+| 개선 | 파일 | 테스트 | 테스트 수 |
+|------|------|--------|----------|
+| Middleware | `rag_engine/llm_middleware.py` | `tests/test_llm_middleware.py` | 11 |
+| Self-Correction | `rag_engine/section_writer.py` (rewrite_section) | `tests/test_self_correction.py` | 6 |
+| Self-Correction | `rag_engine/proposal_orchestrator.py` (_write_and_check_section) | — | — |
+| Planning Agent | `rag_engine/proposal_agent.py` | `tests/test_proposal_agent.py` | 8 |
+| Planning Agent | `rag_engine/knowledge_models.py` (StrategyMemo, ProposalStrategy) | — | — |
+| ReAct | `services/web_app/react_chat.py` | `tests/test_react_chat.py` | 7 |
+| ReAct | `chat_tools.py` (need_more_context) | `tests/test_chat_tools.py` | (기존+1) |
+| 통합 | `services/web_app/main.py` (react_chat_loop 위임) | — | — |
+
+**전체 테스트**: rag_engine 273개 통과, 루트 443개 통과 (기존 3건 실패 유지).
+
+### 7.2 코드 리뷰 결과 및 수정
+
+코드 리뷰에서 발견된 이슈와 수정 사항:
+
+| 심각도 | 이슈 | 수정 |
+|--------|------|------|
+| Critical | `LLMMiddleware.records` 리스트가 ThreadPoolExecutor에서 경합 | `threading.Lock` 추가 (append/read 모두 보호) |
+| Important | `react_chat.py`가 매 호출마다 `sys.path.insert` 실행 | 모듈 레벨 import로 이동 |
+| Suggestion | `knowledge_hints`가 생성만 되고 사용 안 됨 | knowledge DB 검색 쿼리에 hints 결합 |
+
+### 7.3 LLM 비용 영향 (실측 추정)
+
+| 개선 | 추가 호출 | 비용 (GPT-4o-mini) |
+|------|----------|-------------------|
+| Middleware | 0 (관측만) | $0 |
+| Self-Correction | +0~2회/제안서 | ~$0.002 |
+| Planning Agent | +1회/제안서 | ~$0.003 |
+| ReAct | +0~2회/메시지 | ~$0.001 |
+
+### 7.4 아키텍처 변경 후 데이터 흐름
+
+```
+[Proposal RAG — 개선 후]
+
+RFP 분석 결과
+    ↓
+★ LLM Middleware 생성 (세션 단위)
+    ↓
+★ Planning Agent → ProposalStrategy JSON (1회 LLM)
+    ↓
+Outline (배점 비례 분배)
+    ↓
+병렬 Section Writing (ThreadPoolExecutor)
+  각 섹션:
+  ├── knowledge_hints로 강화된 벡터 검색
+  ├── Layer 1 + Layer 2 + StrategyMemo 4-layer 프롬프트
+  ├── ★ LLM 호출 (middleware 감싸기 → 토큰/비용 추적)
+  ├── ★ Self-Correction: quality_checker → critical이면 1회 재생성
+  └── 잔여 이슈 태깅
+    ↓
+DOCX 조립
+    ↓
+★ Middleware session_stats 로깅 (총 호출/토큰/비용/레이턴시)
+    ↓
+ProposalResult (docx_path + residual_issues)
+```
+
+```
+[Chat RAG — 개선 후]
+
+사용자 메시지
+    ↓
+★ ReAct 루프 진입 (max 3턴)
+    ↓
+[Turn 1] BM25+Vector 검색 → Tool Use
+  ├── document_qa/general_response → ★ 즉시 반환 (early exit)
+  └── ★ need_more_context → 재검색 필요 판단
+        ├── reason: 불충분 이유
+        ├── suggested_query: LLM 생성 재검색 쿼리
+        └── scope: company/rfx/both
+    ↓
+[Turn 2] ★ 재검색 (_rebuild_context) → Tool Use
+  └── 대부분 여기서 해결
+    ↓
+[Turn 3] ★ 강제 응답 (need_more_context 제거)
+    ↓
+답변 반환
+```
+
+---
+
 ## 부록 A: 기술 스택
 
 - **언어**: Python 3.11
