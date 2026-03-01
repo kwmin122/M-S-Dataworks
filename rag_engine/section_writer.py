@@ -10,7 +10,7 @@ from typing import Optional
 
 from openai import OpenAI
 
-from knowledge_models import KnowledgeUnit, ProposalSection
+from knowledge_models import KnowledgeUnit, ProposalSection, StrategyMemo
 from llm_utils import call_with_retry, LLM_DEFAULT_TIMEOUT
 
 SYSTEM_PROMPT = """당신은 대한민국 공공조달 기술제안서 작성 전문가입니다.
@@ -25,6 +25,7 @@ def _assemble_prompt(
     rfp_context: str,
     company_context: str = "",
     profile_md: str = "",
+    strategy_memo: Optional[StrategyMemo] = None,
 ) -> str:
     """Assemble multi-layer prompt for section writing."""
     parts: list[str] = []
@@ -56,6 +57,18 @@ def _assemble_prompt(
     # Profile — company skill file (profile.md)
     if profile_md:
         parts.append(f"## 이 회사의 제안서 프로필 (반드시 준수):\n{profile_md}")
+
+    # Strategy memo (from Planning Agent)
+    if strategy_memo:
+        memo_parts = []
+        if strategy_memo.emphasis_points:
+            memo_parts.append("강조 포인트: " + ", ".join(strategy_memo.emphasis_points))
+        if strategy_memo.differentiators:
+            memo_parts.append("차별화 요소: " + ", ".join(strategy_memo.differentiators))
+        if strategy_memo.risk_notes:
+            memo_parts.append("주의사항: " + ", ".join(strategy_memo.risk_notes))
+        if memo_parts:
+            parts.append("## 이 섹션의 전략 (반드시 반영):\n" + "\n".join(memo_parts))
 
     # RFP context
     parts.append(f"## 이번 공고 정보:\n{rfp_context}")
@@ -103,9 +116,10 @@ def write_section(
     company_context: str = "",
     api_key: Optional[str] = None,
     profile_md: str = "",
+    strategy_memo: Optional[StrategyMemo] = None,
 ) -> str:
     """Generate one proposal section with Layer 1 knowledge injection."""
-    prompt = _assemble_prompt(section, knowledge, rfp_context, company_context, profile_md)
+    prompt = _assemble_prompt(section, knowledge, rfp_context, company_context, profile_md, strategy_memo)
     return _call_llm_for_section(prompt, api_key)
 
 
@@ -118,13 +132,14 @@ def rewrite_section(
     profile_md: str = "",
     original_text: str = "",
     issues: Optional[list] = None,
+    strategy_memo: Optional[StrategyMemo] = None,
 ) -> str:
     """Rewrite a section incorporating quality checker feedback.
 
     Builds the same prompt as write_section but appends the original text
     and specific issues to fix. Max 1 rewrite per section.
     """
-    base_prompt = _assemble_prompt(section, knowledge, rfp_context, company_context, profile_md)
+    base_prompt = _assemble_prompt(section, knowledge, rfp_context, company_context, profile_md, strategy_memo)
 
     fix_instructions = []
     for issue in (issues or []):

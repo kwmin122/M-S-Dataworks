@@ -107,6 +107,7 @@ def _write_and_check_section(
     api_key,
     profile_md: str,
     company_name: str | None,
+    strategy_memo=None,
 ) -> tuple[str, str, list[QualityIssue]]:
     """Write section, quality check, rewrite if critical issues found.
 
@@ -120,6 +121,7 @@ def _write_and_check_section(
         company_context=company_context,
         api_key=api_key,
         profile_md=profile_md,
+        strategy_memo=strategy_memo,
     )
 
     issues = check_quality(text, company_name=company_name)
@@ -138,6 +140,7 @@ def _write_and_check_section(
         profile_md=profile_md,
         original_text=text,
         issues=critical,
+        strategy_memo=strategy_memo,
     )
 
     # Check again — residuals are logged but don't block
@@ -180,6 +183,24 @@ def generate_proposal(
     # 1. Build outline
     outline = build_proposal_outline(rfx_result, total_pages)
 
+    # 1.5. Planning Agent — generate strategy
+    from knowledge_models import ProposalStrategy
+    strategy = ProposalStrategy()
+    try:
+        from proposal_agent import ProposalPlanningAgent
+        agent = ProposalPlanningAgent(api_key=api_key)
+        strategy = agent.generate_strategy(
+            rfx_result=rfx_result,
+            outline=outline,
+            company_context=company_context,
+        )
+        if strategy.overall_approach:
+            import logging as _log
+            _log.getLogger(__name__).info("Strategy: %s", strategy.overall_approach)
+    except Exception as exc:
+        import logging as _log
+        _log.getLogger(__name__).warning("Planning agent skipped: %s", exc)
+
     # 2. Initialize knowledge DB (Layer 1)
     kb = KnowledgeDB(persist_directory=knowledge_db_path)
 
@@ -202,6 +223,7 @@ def generate_proposal(
             f"{section.name} {section.evaluation_item}",
             top_k=10,
         )
+        memo = strategy.get_memo_for(section.name)
         name, text, residuals = _write_and_check_section(
             section=section,
             rfp_context=rfp_context,
@@ -210,6 +232,7 @@ def generate_proposal(
             api_key=api_key,
             profile_md=profile_md,
             company_name=company_name,
+            strategy_memo=memo,
         )
         return name, text, residuals
 
