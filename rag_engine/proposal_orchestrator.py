@@ -224,11 +224,11 @@ def generate_proposal(
 
     # 4. Write sections with self-correction (parallel with ThreadPoolExecutor)
     def _write_one(section):
-        knowledge = kb.search(
-            f"{section.name} {section.evaluation_item}",
-            top_k=10,
-        )
         memo = strategy.get_memo_for(section.name)
+        search_query = f"{section.name} {section.evaluation_item}"
+        if memo and memo.knowledge_hints:
+            search_query += " " + " ".join(memo.knowledge_hints)
+        knowledge = kb.search(search_query, top_k=10)
         name, text, residuals = _write_and_check_section(
             section=section,
             rfp_context=rfp_context,

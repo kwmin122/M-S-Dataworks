@@ -8,7 +8,16 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from typing import Any
+
+# Ensure project root is on sys.path for chat_tools import
+_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
+from chat_tools import CHAT_TOOLS, TOOL_USE_SYSTEM_PROMPT, parse_tool_call_result
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -82,12 +91,6 @@ def _single_turn(
     include_need_more: bool = True,
 ) -> tuple[str, str, list[dict[str, Any]]]:
     """Execute one Tool Use call."""
-    # Import here to avoid circular imports
-    import sys
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-    from chat_tools import CHAT_TOOLS, TOOL_USE_SYSTEM_PROMPT, parse_tool_call_result
-    from openai import OpenAI
-
     tools = CHAT_TOOLS if include_need_more else [
         t for t in CHAT_TOOLS if t["function"]["name"] != "need_more_context"
     ]

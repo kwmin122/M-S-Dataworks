@@ -6,6 +6,7 @@ Existing call_with_retry is preserved (retry != middleware responsibility).
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, TypeVar
@@ -71,6 +72,7 @@ class LLMMiddleware:
         self.enable_token_tracking = enable_token_tracking
         self.enable_cache = enable_cache
         self.records: list[LLMCallRecord] = []
+        self._lock = threading.Lock()
 
     def wrap(self, fn: Callable[..., T], caller_name: str = "unknown") -> Callable[..., T]:
         """Wrap an LLM call function with logging and tracking."""
@@ -101,7 +103,8 @@ class LLMMiddleware:
                     latency_ms=round(latency, 1),
                     success=True,
                 )
-                self.records.append(record)
+                with self._lock:
+                    self.records.append(record)
 
                 if self.enable_logging:
                     logger.info(
@@ -126,7 +129,8 @@ class LLMMiddleware:
                     success=False,
                     error_message=str(exc),
                 )
-                self.records.append(record)
+                with self._lock:
+                    self.records.append(record)
 
                 if self.enable_logging:
                     logger.error("LLM [%s] FAILED: %s (%.0fms)", caller_name, exc, latency)
@@ -141,24 +145,29 @@ class LLMMiddleware:
 
     def get_session_stats(self) -> dict[str, Any]:
         """Return aggregated stats for billing/monitoring."""
-        success = [r for r in self.records if r.success]
+        with self._lock:
+            records = list(self.records)
+        success = [r for r in records if r.success]
         return {
-            "total_calls": len(self.records),
+            "total_calls": len(records),
             "successful_calls": len(success),
-            "failed_calls": len(self.records) - len(success),
-            "total_prompt_tokens": sum(r.prompt_tokens for r in self.records),
-            "total_completion_tokens": sum(r.completion_tokens for r in self.records),
-            "total_tokens": sum(r.total_tokens for r in self.records),
-            "total_cost_usd": round(sum(r.estimated_cost_usd for r in self.records), 6),
+            "failed_calls": len(records) - len(success),
+            "total_prompt_tokens": sum(r.prompt_tokens for r in records),
+            "total_completion_tokens": sum(r.completion_tokens for r in records),
+            "total_tokens": sum(r.total_tokens for r in records),
+            "total_cost_usd": round(sum(r.estimated_cost_usd for r in records), 6),
             "avg_latency_ms": round(
                 sum(r.latency_ms for r in success) / len(success), 1
             ) if success else 0,
-            "by_caller": self._stats_by_caller(),
+            "by_caller": self._stats_by_caller(records),
         }
 
-    def _stats_by_caller(self) -> dict[str, dict[str, Any]]:
+    def _stats_by_caller(self, records: list[LLMCallRecord] | None = None) -> dict[str, dict[str, Any]]:
+        if records is None:
+            with self._lock:
+                records = list(self.records)
         callers: dict[str, list[LLMCallRecord]] = {}
-        for r in self.records:
+        for r in records:
             callers.setdefault(r.caller, []).append(r)
         return {
             caller: {
