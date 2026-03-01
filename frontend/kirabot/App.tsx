@@ -21,6 +21,7 @@ import SettingsPage from './components/settings/SettingsPage';
 import SettingsGeneral from './components/settings/SettingsGeneral';
 import SettingsAccount from './components/settings/SettingsAccount';
 import SettingsCompany from './components/settings/SettingsCompany';
+import DocumentWorkspace from './components/settings/documents/DocumentWorkspace';
 import ForecastPage from './components/forecast/ForecastPage';
 import AdminPage from './components/admin/AdminPage';
 import AlertsPage from './components/alerts/AlertsPage';
@@ -234,6 +235,7 @@ function AppRoutes() {
             <Route path="usage" element={<DashboardPage />} />
             <Route path="subscription" element={<SubscriptionPage />} />
             <Route path="account" element={<SettingsAccount user={user} onLogout={() => void handleLogout()} />} />
+            <Route path="documents" element={<DocumentWorkspace />} />
           </Route>
 
           {/* Legacy redirect */}

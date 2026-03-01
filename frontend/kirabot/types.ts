@@ -416,6 +416,30 @@ export interface CompanyProfile {
   updatedAt?: string;
 }
 
+// ── Document Workspace ──
+
+export interface ProfileSection {
+  name: string;
+  content: string;
+  editable: boolean;
+}
+
+export interface ProfileMdResponse {
+  sections: ProfileSection[];
+  metadata: { version: number; company_id: string };
+}
+
+export interface ProfileVersion {
+  version: number;
+  date: string;
+  reason: string;
+}
+
+export interface ProfileHistoryResponse {
+  versions: ProfileVersion[];
+  current_version: number;
+}
+
 // ── Payment / Subscription ──
 export interface Subscription {
   username?: string;

@@ -9,6 +9,8 @@ import {
   EvalBatchResponse,
   EvalJob,
   NaraAttachment,
+  ProfileHistoryResponse,
+  ProfileMdResponse,
   ProposalSections,
   SessionStats,
   Subscription,
@@ -827,4 +829,38 @@ export async function sendAdminAlertNow(configId: string): Promise<{ sent: boole
     body: JSON.stringify({}),
   });
   return parseJson<{ sent: boolean; count: number; totalFound?: number; reason?: string }>(res);
+}
+
+// ── Profile.md 편집 ──
+
+export async function getProfileMd(companyId = 'default'): Promise<ProfileMdResponse> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/profile-md?company_id=${encodeURIComponent(companyId)}`);
+  return parseJson<ProfileMdResponse>(res);
+}
+
+export async function updateProfileSection(
+  companyId: string, sectionName: string, content: string,
+): Promise<{ success: boolean; version: number }> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/profile-md/section`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ company_id: companyId, section_name: sectionName, content }),
+  });
+  return parseJson<{ success: boolean; version: number }>(res);
+}
+
+export async function getProfileHistory(companyId = 'default'): Promise<ProfileHistoryResponse> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/profile-md/history?company_id=${encodeURIComponent(companyId)}`);
+  return parseJson<ProfileHistoryResponse>(res);
+}
+
+export async function rollbackProfile(
+  companyId: string, targetVersion: number,
+): Promise<{ success: boolean; restored_version?: number; error?: string }> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/profile-md/rollback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ company_id: companyId, target_version: targetVersion }),
+  });
+  return parseJson<{ success: boolean; restored_version?: number; error?: string }>(res);
 }

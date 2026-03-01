@@ -1,7 +1,7 @@
 import React from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, User as UserIcon, Building2, BarChart3, Shield, CreditCard } from 'lucide-react';
+import { ArrowLeft, User as UserIcon, Building2, BarChart3, Shield, CreditCard, FileText } from 'lucide-react';
 import { pageTransition } from '../../utils/animations';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 
@@ -9,6 +9,7 @@ const tabs = [
   { path: 'general', label: '일반', icon: UserIcon },
   { path: 'company', label: '회사 정보', icon: Building2 },
   { path: 'usage', label: '사용량', icon: BarChart3 },
+  { path: 'documents', label: '문서 관리', icon: FileText },
   { path: 'subscription', label: '구독', icon: CreditCard },
   { path: 'account', label: '계정', icon: Shield },
 ];
