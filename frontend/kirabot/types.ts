@@ -99,7 +99,7 @@ export interface AnalyzeResponse {
   session_id: string;
   company_chunks: number;
   analysis: AnalysisPayload;
-  matching: MatchingPayload;
+  matching: MatchingPayload | null;
   fileUrl?: string;
 }
 

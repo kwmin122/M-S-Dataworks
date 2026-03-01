@@ -101,10 +101,13 @@ class TestReActLoop:
         """_rebuild_context with scope=company only searches company engine."""
         from services.web_app.react_chat import _rebuild_context
 
+        mock_result = MagicMock()
+        mock_result.text = "company doc text"
+        mock_result.source_file = "company.pdf"
+        mock_result.metadata = {"page_number": 3}
+
         session = MagicMock()
-        session.rag_engine.search.return_value = [
-            ("company doc text", {"source_file": "company.pdf", "page_number": 3}),
-        ]
+        session.rag_engine.search.return_value = [mock_result]
         session.rfx_rag_engine.search.return_value = []
 
         company, rfx = _rebuild_context(session=session, query="test query", scope="company")

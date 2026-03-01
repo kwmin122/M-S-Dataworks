@@ -160,20 +160,20 @@ def _rebuild_context(
             results = session.rag_engine.search(query, top_k=12)
             if results:
                 chunks = []
-                for doc, meta in results:
-                    src = meta.get("source_file", "unknown")
-                    page = meta.get("page_number", "?")
-                    chunks.append(f"[{src}, 페이지 {page}]\n{doc}")
+                for r in results:
+                    src = r.source_file if hasattr(r, "source_file") else "unknown"
+                    page = r.metadata.get("page_number", "?") if hasattr(r, "metadata") else "?"
+                    chunks.append(f"[{src}, 페이지 {page}]\n{r.text}")
                 company_text = "\n---\n".join(chunks)
 
         if scope in ("rfx", "both") and hasattr(session, "rfx_rag_engine"):
             results = session.rfx_rag_engine.search(query, top_k=12)
             if results:
                 chunks = []
-                for doc, meta in results:
-                    src = meta.get("source_file", "unknown")
-                    page = meta.get("page_number", "?")
-                    chunks.append(f"[{src}, 페이지 {page}]\n{doc}")
+                for r in results:
+                    src = r.source_file if hasattr(r, "source_file") else "unknown"
+                    page = r.metadata.get("page_number", "?") if hasattr(r, "metadata") else "?"
+                    chunks.append(f"[{src}, 페이지 {page}]\n{r.text}")
                 rfx_text = "\n---\n".join(chunks)
     except Exception as exc:
         logger.warning("ReAct rebuild_context error: %s", exc)

@@ -23,7 +23,7 @@ export const AlertsPage: React.FC = () => {
     const loadConfig = async () => {
       // Get email from query param or localStorage
       const urlParams = new URLSearchParams(window.location.search);
-      const emailParam = urlParams.get('email') || localStorage.getItem('alertEmail') || '';
+      const emailParam = urlParams.get('email') || sessionStorage.getItem('alertEmail') || '';
 
       if (!emailParam) {
         setLoading(false);
@@ -108,7 +108,7 @@ export const AlertsPage: React.FC = () => {
 
       const result = await saveUserAlertConfig(config);
       if (result.success) {
-        localStorage.setItem('alertEmail', email);
+        sessionStorage.setItem('alertEmail', email);
         alert('알림 설정이 저장되었습니다.');
       }
     } catch (error) {
@@ -194,7 +194,7 @@ export const AlertsPage: React.FC = () => {
             onClick={() => {
               if (confirm('변경사항을 취소하시겠습니까?')) {
                 const urlParams = new URLSearchParams(window.location.search);
-                const emailParam = urlParams.get('email') || localStorage.getItem('alertEmail') || '';
+                const emailParam = urlParams.get('email') || sessionStorage.getItem('alertEmail') || '';
                 if (emailParam) {
                   // Reload original config
                   void getUserAlertConfig(emailParam).then(config => {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ExternalLink, FileDown, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { BidCardListMessage, MessageAction } from '../../../types';
 
@@ -12,6 +12,12 @@ const BidCardListView: React.FC<Props> = ({ message, onAction }) => {
     new Set(message.selectedIds ?? []),
   );
   const isSubmitted = Boolean(message.selectedIds);
+
+  // Reset selection when page/cards change
+  const page = message.page ?? 1;
+  useEffect(() => {
+    if (!isSubmitted) setLocalSelected(new Set());
+  }, [page, isSubmitted]);
 
   const toggleBid = (id: string) => {
     if (isSubmitted) return;

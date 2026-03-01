@@ -235,7 +235,11 @@ app.add_middleware(
 
 SESSIONS: dict[str, WebRuntimeSession] = {}
 # HMAC key for signing OAuth state tokens (survives restarts via env var)
-_OAUTH_STATE_KEY = os.getenv("OAUTH_STATE_SECRET", os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "kira-oauth-fallback-key")).encode()
+_OAUTH_STATE_KEY = (os.getenv("OAUTH_STATE_SECRET") or os.getenv("GOOGLE_OAUTH_CLIENT_SECRET") or "").encode()
+if not _OAUTH_STATE_KEY:
+    import secrets as _secrets
+    _OAUTH_STATE_KEY = _secrets.token_bytes(32)
+    logger.warning("OAUTH_STATE_SECRET not set — using ephemeral random key (will break on restart)")
 
 init_user_store()
 
@@ -411,15 +415,20 @@ def _google_scopes() -> str:
     return os.getenv("GOOGLE_OAUTH_SCOPES", "openid email profile").strip() or "openid email profile"
 
 
+_ALLOWED_HOSTS: set[str] = set(
+    h.strip() for h in os.getenv("ALLOWED_HOSTS", "kirabot.co.kr,www.kirabot.co.kr").split(",") if h.strip()
+)
+
+
 def _post_login_url(request: Request | None = None) -> str:
     """OAuth 완료 후 리다이렉트 URL. 요청의 origin을 자동 감지."""
     explicit = os.getenv("GOOGLE_OAUTH_POST_LOGIN_URL", "").strip()
     if explicit:
         return explicit
     if request:
-        host = request.headers.get("host", "")
+        host = request.headers.get("host", "").split(":")[0]
         scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
-        if host and "localhost" not in host:
+        if host and host in _ALLOWED_HOSTS:
             return f"{scheme}://{host}/"
     return "http://localhost:8000/"
 
@@ -589,7 +598,7 @@ def _session_upload_dir(session_id: str, bucket: str) -> Path:
 def _cleanup_expired_sessions() -> None:
     expired: list[str] = []
     deadline = _utc_now() - _session_ttl()
-    for session_id, session in SESSIONS.items():
+    for session_id, session in list(SESSIONS.items()):
         if session.last_used_at < deadline:
             expired.append(session_id)
 
@@ -658,14 +667,19 @@ def _validate_extension(filename: str) -> None:
         )
 
 
+_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB per file
+
+
 async def _save_upload_file(upload_file: UploadFile, target_dir: Path) -> Path:
     filename = upload_file.filename or f"upload_{uuid.uuid4().hex[:8]}"
     _validate_extension(filename)
 
-    safe_name = re.sub(r"[^0-9A-Za-z._\-가-힣]", "_", filename)
+    safe_name = re.sub(r"[^0-9A-Za-z._\-가-힣]", "_", filename)[:150]
     dest = target_dir / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:10]}_{safe_name}"
 
     data = await upload_file.read()
+    if len(data) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"파일 크기가 제한(50MB)을 초과합니다: {filename}")
     dest.write_bytes(data)
     return dest
 
@@ -1090,8 +1104,9 @@ def health_check() -> dict[str, str]:
 
 
 @app.get("/api/debug/smtp")
-def debug_smtp() -> dict[str, Any]:
-    """이메일 환경변수 진단 (값은 마스킹)."""
+def debug_smtp(request: Request) -> dict[str, Any]:
+    """이메일 환경변수 진단 (값은 마스킹). 관리자 전용."""
+    _require_admin(request)
     smtp_email = os.getenv("SMTP_EMAIL", "").strip()
     smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
     brevo_key = os.getenv("BREVO_API_KEY", "").strip()
@@ -1108,8 +1123,9 @@ def debug_smtp() -> dict[str, Any]:
 
 
 @app.post("/api/debug/smtp-test")
-def debug_smtp_test(payload: dict) -> dict[str, Any]:
-    """이메일 테스트 발송 — Brevo 직접 호출로 에러 상세 확인."""
+def debug_smtp_test(request: Request, payload: dict) -> dict[str, Any]:
+    """이메일 테스트 발송 — Brevo 직접 호출로 에러 상세 확인. 관리자 전용."""
+    _require_admin(request)
     to = payload.get("to", "").strip()
     if not to:
         return {"ok": False, "error": "to 필요"}
@@ -2144,9 +2160,9 @@ async def api_bids_evaluate_batch(payload: BidEvaluateBatchPayload, request: Req
     company_chunk_count = _inject_company_profile_if_needed(session, request)
 
     api_key = _openai_api_key()
-    jobs: list[dict[str, Any]] = []
+    sem = asyncio.Semaphore(3)
 
-    for bid_ntce_no in payload.bid_ntce_nos:
+    async def _evaluate_one(bid_ntce_no: str) -> dict[str, Any]:
         job: dict[str, Any] = {
             "id": bid_ntce_no,
             "bidNoticeId": bid_ntce_no,
@@ -2156,48 +2172,51 @@ async def api_bids_evaluate_batch(payload: BidEvaluateBatchPayload, request: Req
             "bidNotice": {"id": bid_ntce_no, "title": bid_ntce_no, "region": None, "deadlineAt": None, "url": None},
         }
 
-        try:
-            # 1. 첨부파일 3단계 폴백: 상세 API → e발주 API
-            attachments = await nara_get_bid_detail_attachments(bid_ntce_no, "00")
-            if not attachments:
-                attachments = await nara_get_bid_attachments(bid_ntce_no, "00")
-            best = pick_best_attachment(attachments) if attachments else None
-            if not best:
-                job["evaluationReason"] = "첨부파일이 없어 분석 불가"
-                jobs.append(job)
-                continue
+        async with sem:
+            try:
+                # 1. 첨부파일 3단계 폴백: 상세 API → e발주 API
+                attachments = await nara_get_bid_detail_attachments(bid_ntce_no, "00")
+                if not attachments:
+                    attachments = await nara_get_bid_attachments(bid_ntce_no, "00")
+                best = pick_best_attachment(attachments) if attachments else None
+                if not best:
+                    job["evaluationReason"] = "첨부파일이 없어 분석 불가"
+                    return job
 
-            target_dir = _session_upload_dir(session.session_id, "target")
-            local_path = await nara_download_attachment(best["fileUrl"], str(target_dir), fallback_name=best["fileNm"])
+                target_dir = _session_upload_dir(session.session_id, "target")
+                local_path = await nara_download_attachment(best["fileUrl"], str(target_dir), fallback_name=best["fileNm"])
 
-            # 2. 분석
-            analyzer = RFxAnalyzer(api_key=api_key, model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
+                # 2. 분석
+                analyzer = RFxAnalyzer(api_key=api_key, model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
+                analysis = await asyncio.to_thread(analyzer.analyze, local_path)
 
-            analysis = analyzer.analyze(local_path)
+                matching = None
+                if company_chunk_count > 0:
+                    matcher = QualificationMatcher(
+                        rag_engine=session.rag_engine,
+                        api_key=api_key,
+                        model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                    )
+                    matching = await asyncio.to_thread(matcher.match, analysis)
 
-            matching = None
-            if company_chunk_count > 0:
-                matcher = QualificationMatcher(
-                    rag_engine=session.rag_engine,
-                    api_key=api_key,
-                    model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-                )
-                matching = matcher.match(analysis)
+                job["bidNotice"]["title"] = analysis.title or bid_ntce_no
+                job["isEligible"] = matching.recommendation == "GO" if matching else None
+                job["evaluationReason"] = matching.summary if matching else "자격요건 추출 완료 (회사 문서 미등록으로 매칭 미수행)"
+                if matching and matching.gaps:
+                    job["actionPlan"] = "; ".join(
+                        g.preparation_guide for g in matching.gaps[:5] if g.preparation_guide
+                    )
 
-            job["bidNotice"]["title"] = analysis.title or bid_ntce_no
-            job["isEligible"] = matching.overall_status != MatchStatus.FAIL if matching else None
-            job["evaluationReason"] = matching.summary if matching else "자격요건 추출 완료 (회사 문서 미등록으로 매칭 미수행)"
-            if matching and matching.preparation_guide:
-                job["actionPlan"] = matching.preparation_guide
+            except Exception as exc:
+                job["evaluationReason"] = f"분석 실패: {exc}"
 
-        except Exception as exc:
-            job["evaluationReason"] = f"분석 실패: {exc}"
+        return job
 
-        jobs.append(job)
+    jobs = await asyncio.gather(*[_evaluate_one(bid_no) for bid_no in payload.bid_ntce_nos])
 
     return {
         "jobsCreated": len(jobs),
-        "jobs": jobs,
+        "jobs": list(jobs),
     }
 
 
@@ -2226,7 +2245,7 @@ async def general_chat(payload: GeneralChatPayload) -> dict[str, Any]:
         return {"answer": "죄송합니다, AI 응답 기능이 현재 비활성화되어 있어요. 좌측 메뉴에서 기능을 선택해주세요."}
 
     from openai import OpenAI
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(api_key=api_key, timeout=60)
 
     system_msg = (
         "당신은 KiraBot, 공공조달·입찰 전문 AI 비서입니다. "
@@ -2237,20 +2256,44 @@ async def general_chat(payload: GeneralChatPayload) -> dict[str, Any]:
     )
 
     messages = [{"role": "system", "content": system_msg}]
+    _ALLOWED_ROLES = {"user", "assistant"}
     for h in payload.history[-6:]:
-        messages.append({"role": h.get("role", "user"), "content": h.get("content", "")})
+        role = h.get("role", "user")
+        if role not in _ALLOWED_ROLES:
+            role = "user"
+        messages.append({"role": role, "content": h.get("content", "")})
     messages.append({"role": "user", "content": message})
 
     try:
-        resp = client.chat.completions.create(
-            model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
-            messages=messages,
-            max_tokens=300,
-            temperature=0.7,
-        )
+        from openai import APITimeoutError, APIConnectionError, APIStatusError
+        import time as _time
+
+        def _do_general_chat_with_retry():
+            last_err = None
+            for attempt in range(3):
+                try:
+                    return client.chat.completions.create(
+                        model=os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+                        messages=messages,
+                        max_tokens=300,
+                        temperature=0.7,
+                    )
+                except (APITimeoutError, APIConnectionError) as e:
+                    last_err = e
+                    if attempt < 2:
+                        _time.sleep(1 * (2 ** attempt))
+                except APIStatusError as e:
+                    if e.status_code in {429, 500, 502, 503} and attempt < 2:
+                        last_err = e
+                        _time.sleep(1 * (2 ** attempt))
+                    else:
+                        raise
+            raise last_err  # type: ignore[misc]
+
+        resp = await asyncio.to_thread(_do_general_chat_with_retry)
         answer = resp.choices[0].message.content or "응답을 생성하지 못했어요."
-    except Exception as e:
-        answer = f"AI 응답 생성 중 오류가 발생했어요: {str(e)}"
+    except Exception:
+        answer = "AI 응답 생성 중 일시적인 오류가 발생했어요. 잠시 후 다시 시도해주세요."
 
     return {"answer": answer}
 
@@ -3939,6 +3982,14 @@ def _build_alert_excel(bids: list[dict], summaries: dict[str, str] | None = None
     return buf.getvalue()
 
 
+import html as _html_mod
+
+
+def _html_escape(s: str) -> str:
+    """Escape HTML special characters to prevent XSS in emails."""
+    return _html_mod.escape(s, quote=True)
+
+
 def _send_alert_email(to_email: str, subject: str, bids: list[dict],
                       summaries: dict[str, str] | None = None) -> bool:
     """Gmail SMTP로 엑셀 첨부 HTML 이메일 발송."""
@@ -3953,14 +4004,14 @@ def _send_alert_email(to_email: str, subject: str, bids: list[dict],
     bid_rows = ""
     for i, bid in enumerate(bids, 1):
         bid_id = bid.get("id", "")
-        title = bid.get("title", "제목 없음")
-        org = bid.get("organization", "")
-        deadline = bid.get("deadlineAt", "")[:10] if bid.get("deadlineAt") else ""
+        title = _html_escape(bid.get("title", "제목 없음"))
+        org = _html_escape(bid.get("organization", ""))
+        deadline = _html_escape(bid.get("deadlineAt", "")[:10]) if bid.get("deadlineAt") else ""
         amt = bid.get("estimatedAmount")
-        amt_str = f'{int(amt):,}원' if amt else ""
+        amt_str = _html_escape(f'{int(amt):,}원') if amt else ""
         link = bid.get("link", "")
 
-        title_html = f'<a href="{link}" style="color:#1e40af;text-decoration:none;">{title}</a>' if link else title
+        title_html = f'<a href="{_html_escape(link)}" style="color:#1e40af;text-decoration:none;">{title}</a>' if link else title
 
         bid_rows += f'''<div style="border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin:8px 0;">
   <div style="font-size:13px;color:#64748b;">#{i} · {org} {f'· 마감 {deadline}' if deadline else ''} {f'· {amt_str}' if amt_str else ''}</div>
@@ -3976,13 +4027,13 @@ def _send_alert_email(to_email: str, subject: str, bids: list[dict],
                 if not line:
                     continue
                 if line.startswith("###"):
-                    summary_html += f'<div style="font-weight:600;font-size:13px;color:#1e40af;margin:6px 0 2px 0;">{line.lstrip("#").strip()}</div>'
+                    summary_html += f'<div style="font-weight:600;font-size:13px;color:#1e40af;margin:6px 0 2px 0;">{_html_escape(line.lstrip("#").strip())}</div>'
                 elif line.startswith("- ") or line.startswith("* "):
-                    summary_html += f'<div style="font-size:12px;color:#475569;padding-left:12px;">• {line[2:]}</div>'
+                    summary_html += f'<div style="font-size:12px;color:#475569;padding-left:12px;">&bull; {_html_escape(line[2:])}</div>'
                 elif line.startswith("|"):
                     continue  # 테이블 행은 이메일에서 생략
                 else:
-                    summary_html += f'<div style="font-size:12px;color:#475569;">{line}</div>'
+                    summary_html += f'<div style="font-size:12px;color:#475569;">{_html_escape(line)}</div>'
             bid_rows += f'<div style="background:#f8fafc;border-radius:4px;padding:8px;margin-top:6px;">{summary_html}</div>'
 
         bid_rows += '</div>'
@@ -4119,8 +4170,9 @@ async def _execute_alert_send(config: dict, label: str = "alert",
 
 
 @app.post("/api/debug/send-now-test")
-async def debug_send_now_test(payload: dict) -> dict[str, Any]:
-    """디버그: 인증 없이 알림 즉시 발송 테스트. config를 직접 전달."""
+async def debug_send_now_test(request: Request, payload: dict) -> dict[str, Any]:
+    """디버그: 알림 즉시 발송 테스트. 관리자 전용."""
+    _require_admin(request)
     config = {
         "email": payload.get("email", "").strip(),
         "rules": payload.get("rules", []),
@@ -4229,13 +4281,13 @@ async def _check_and_send_scheduled_alerts():
         logger.info("스케줄 알림: session=%s, hour=%d", session_id, current_hour)
         try:
             result = await _execute_alert_send(config, label=f"sched:{session_id}", session_id=session_id)
-            if result.get("sent"):
-                state["last_sent"] = today_hour_key
-                _set_alert_state(session_id, state)
-            else:
+            if not result.get("sent"):
                 logger.warning("스케줄 알림 미발송 (session=%s): %s", session_id, result.get("reason", "unknown"))
         except Exception as exc:
             logger.error("스케줄 알림 실패 (session=%s): %s", session_id, exc)
+        finally:
+            state["last_sent"] = today_hour_key
+            _set_alert_state(session_id, state)
 
 
 # ────────────────────────────────────────────────────────────────

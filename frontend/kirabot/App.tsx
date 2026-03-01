@@ -42,6 +42,7 @@ function AppRoutes() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState('');
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -70,12 +71,15 @@ function AppRoutes() {
         if (!currentUser) return;
         setUser(currentUser);
         if (consumePostLoginTarget()) {
-          const redirect = searchParams.get('redirect') || '/chat';
+          const raw = searchParams.get('redirect') || '/chat';
+          const redirect = raw.startsWith('/') && !raw.startsWith('//') ? raw : '/chat';
           navigate(redirect, { replace: true });
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : '로그인 상태 확인 중 오류가 발생했습니다.';
         setAuthError(message);
+      } finally {
+        setAuthLoading(false);
       }
     };
     void bootstrapAuth();
@@ -213,7 +217,7 @@ function AppRoutes() {
 
         {/* Protected app routes */}
         <Route element={
-          <ProtectedRoute user={user}>
+          <ProtectedRoute user={user} authLoading={authLoading}>
             <UserProvider value={user}>
               <ChatProvider>
                 <AppShell user={user} onLogout={() => void handleLogout()} />

@@ -284,6 +284,10 @@ export function useConversationFlow() {
       }
 
       // doc_upload_company phase: 텍스트로 회사 정보 입력
+      if (conversation.phase === 'doc_upload_company' && text.length > 0 && text.length < 10) {
+        pushText('회사 정보를 10자 이상 입력해주세요. 예: "IT 서비스 전문기업, 직원 50명, 연매출 30억, 소프트웨어 개발 실적 보유"');
+        return;
+      }
       if (conversation.phase === 'doc_upload_company' && text.length >= 10) {
         setProcessing(true);
         pushStatus('loading', '회사 정보를 등록하고 있어요...');
@@ -295,9 +299,11 @@ export function useConversationFlow() {
           }
           const result = await api.uploadCompanyText(sid, text);
           removeLastStatus();
+          const existingUrls = (conversationRef.current?.companyDocUrls || []).filter(d => d.name !== 'company_info.txt');
           updateConv({
             companyChunks: result.company_chunks,
             companyDocuments: result.documents || [],
+            companyDocUrls: [...existingUrls, { name: 'company_info.txt', url: `/api/files/${sid}/company/company_info.txt` }],
           });
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -495,7 +501,7 @@ export function useConversationFlow() {
         updateConv({ _onboardingStep: 'basic_info' });
       }
     },
-    [conversationId, conversation, push, pushText, setPhase, navigate, updateConv, state.isProcessing],
+    [conversationId, conversation, push, pushText, setPhase, navigate, updateConv],
   );
 
   // ── Handle message actions (FSM transitions) ──
@@ -641,10 +647,10 @@ export function useConversationFlow() {
                 pushText(`회사 문서가 추가되었습니다. (총 ${result.company_chunks}개 지식 조각)`);
 
                 // 이전에 분석한 문서가 있으면 자동 재매칭 수행
-                if ((prevPhase === 'doc_chat' || prevPhase === 'bid_search_results' || prevPhase === 'bid_eval_results') && conversation.sessionId) {
+                if ((prevPhase === 'doc_chat' || prevPhase === 'bid_search_results' || prevPhase === 'bid_eval_results') && sid) {
                   pushStatus('loading', '회사 역량과 공고 요건을 비교 분석하고 있어요...');
                   try {
-                    const rematchResult = await api.rematchWithCompanyDocs(conversation.sessionId);
+                    const rematchResult = await api.rematchWithCompanyDocs(sid);
                     removeLastStatus();
                     push({
                       id: msgId(),
@@ -1137,6 +1143,7 @@ export function useConversationFlow() {
           // 회사 문서 미등록 시 안내
           if (!conversation.sessionId || !conversation.companyChunks || conversation.companyChunks <= 0) {
             pushText('일괄 평가를 하려면 먼저 회사 문서를 등록해야 합니다.');
+            updateConv({ _prevPhase: conversation.phase });
             setPhase('doc_upload_company');
             push({
               id: msgId(),
@@ -1298,6 +1305,7 @@ export function useConversationFlow() {
             doc_analysis: '일반 문서 분석',
             bid_search: '공고 검색/분석',
             setup_alert: '공고 알림 설정',
+            company_onboarding: '회사 역량 DB 구축',
           };
           push({
             id: msgId(),
@@ -1497,6 +1505,7 @@ export function useConversationFlow() {
           const sid = conversation.sessionId;
           if (!sid) break;
 
+          setProcessing(true);
           try {
             const result = await api.deleteSessionCompanyDocument(sid, sourceFile);
             // 문서 목록 갱신
@@ -1531,6 +1540,8 @@ export function useConversationFlow() {
           } catch (err) {
             const msg = err instanceof Error ? err.message : '삭제 실패';
             pushStatus('error', msg);
+          } finally {
+            setProcessing(false);
           }
           break;
         }
@@ -1540,6 +1551,7 @@ export function useConversationFlow() {
           const sid = conversation.sessionId;
           if (!sid) break;
 
+          setProcessing(true);
           for (const sf of sourceFiles) {
             try {
               await api.deleteSessionCompanyDocument(sid, sf);
@@ -1556,6 +1568,8 @@ export function useConversationFlow() {
             pushText('업로드가 취소되었습니다.');
           } catch {
             pushText('업로드 취소 중 일부 오류가 발생했습니다.');
+          } finally {
+            setProcessing(false);
           }
           break;
         }

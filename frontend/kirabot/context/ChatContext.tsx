@@ -176,7 +176,7 @@ export function createNewConversation(opinionMode: OpinionMode = 'balanced'): Co
   const now = Date.now();
   return {
     id: `conv_${now}_${conversationCounter}`,
-    title: 'Kira',
+    title: 'KiraBot',
     messages: [],
     createdAt: now,
     phase: 'greeting',

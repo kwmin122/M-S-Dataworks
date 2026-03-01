@@ -51,7 +51,8 @@ export function usePersistedConversations(): void {
       }
 
       if (raw) {
-        const conversations: Conversation[] = JSON.parse(raw);
+        const parsed = JSON.parse(raw);
+        const conversations: Conversation[] = Array.isArray(parsed) ? parsed : [];
         dispatch({
           type: 'LOAD_CONVERSATIONS',
           conversations,

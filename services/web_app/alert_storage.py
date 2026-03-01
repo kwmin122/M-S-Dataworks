@@ -4,7 +4,8 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any
 
-ALERTS_DIR = Path("data/user_alerts")
+_ROOT_DIR = Path(__file__).resolve().parents[2]
+ALERTS_DIR = _ROOT_DIR / "data" / "user_alerts"
 
 def get_alert_config_path(email: str) -> Path:
     """Get file path for alert config (email normalized to lowercase)"""

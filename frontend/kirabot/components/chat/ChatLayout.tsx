@@ -53,7 +53,7 @@ function ChatLayoutInner({ user, onLogout, onNavigateHome }: ChatLayoutProps) {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, []);
+  }, [state.sidebarCollapsed]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
