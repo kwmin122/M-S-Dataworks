@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -113,7 +112,6 @@ class TestGetProfileMd:
         resp = client.get("/api/company-profile/md", params={"company_id": "default"})
         assert resp.status_code == 200
         data = resp.json()
-        assert data["ok"] is True
         sections = data["sections"]
         assert isinstance(sections, list)
         assert len(sections) == 6
@@ -151,8 +149,15 @@ class TestGetProfileMd:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["ok"] is True
         assert data["sections"] == []
+
+    def test_returns_metadata(self, client):
+        """Response includes metadata with version and company_id."""
+        resp = client.get("/api/company-profile/md", params={"company_id": "default"})
+        data = resp.json()
+        assert "metadata" in data
+        assert data["metadata"]["company_id"] == "default"
+        assert data["metadata"]["version"] >= 0
 
     def test_uses_default_company_id(self, client):
         """company_id parameter defaults to 'default'."""
@@ -181,8 +186,8 @@ class TestUpdateProfileSection:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["ok"] is True
-        assert data["section_name"] == "문서 스타일"
+        assert data["success"] is True
+        assert "version" in data
 
         # Verify the file was actually updated
         profile_path = seeded_dir / "default" / "profile.md"
@@ -255,6 +260,18 @@ class TestUpdateProfileSection:
         )
         assert resp.status_code == 422
 
+    def test_update_read_only_section_blocked(self, client):
+        """학습 이력 section should not be editable."""
+        resp = client.put(
+            "/api/company-profile/md/section",
+            json={
+                "section_name": "학습 이력",
+                "content": "조작된 내용",
+            },
+        )
+        assert resp.status_code == 403
+        assert "read-only" in resp.json()["detail"]
+
 
 # ===================================================================
 # GET /api/company-profile/md/history
@@ -271,8 +288,8 @@ class TestProfileHistory:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["ok"] is True
         assert data["versions"] == []
+        assert data["current_version"] == 0
 
     def test_history_after_update(self, client):
         """After updating a section, history should contain one entry."""
@@ -348,7 +365,7 @@ class TestRollbackProfile:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["ok"] is True
+        assert data["success"] is True
         assert data["restored_version"] == 1
 
         # Verify the content is restored to the original

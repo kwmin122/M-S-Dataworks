@@ -817,10 +817,18 @@ async def analyze_company_style_endpoint(req: AnalyzeStyleRequest):
 # Company profile.md CRUD
 # ---------------------------------------------------------------------------
 
+_SAFE_COMPANY_ID_RE = _re.compile(r"^[a-zA-Z0-9가-힣._\-]+$")
+
+
 def _get_company_skills_dir(company_id: str = "default") -> str:
-    """Get company skills directory path."""
+    """Get company skills directory path (with path-traversal protection)."""
+    if not _SAFE_COMPANY_ID_RE.match(company_id):
+        raise HTTPException(status_code=400, detail="Invalid company_id")
     base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "company_skills")
-    return os.path.join(base, company_id)
+    resolved = os.path.realpath(os.path.join(base, company_id))
+    if not resolved.startswith(os.path.realpath(base) + os.sep) and resolved != os.path.realpath(base):
+        raise HTTPException(status_code=400, detail="Invalid company_id")
+    return resolved
 
 
 class GenerateProfileRequest(BaseModel):
@@ -961,10 +969,8 @@ def _parse_profile_sections(content: str) -> list[dict]:
     if not content or not content.strip():
         return []
 
-    import re
-
     # Split on ## headings, keeping the heading text
-    parts = re.split(r"(?:^|\n)(## .+)\n", content)
+    parts = _re.split(r"(?:^|\n)(## .+)\n", content)
     # parts[0] is the preamble (title, date), then alternating heading / body
     sections: list[dict] = []
     i = 1  # skip preamble
@@ -995,7 +1001,10 @@ async def get_profile_md_sections(company_id: str = "default"):
         company_profile_builder.load_profile_md, skills_dir
     )
     sections = _parse_profile_sections(content)
-    return {"ok": True, "sections": sections}
+    from company_profile_updater import load_changelog
+    changelog = await asyncio.to_thread(load_changelog, skills_dir)
+    version = len(changelog.get("versions", []))
+    return {"sections": sections, "metadata": {"version": version, "company_id": company_id}}
 
 
 @app.put("/api/company-profile/md/section")
@@ -1006,14 +1015,20 @@ async def update_profile_md_section(req: UpdateProfileSectionRequest):
 
     skills_dir = _get_company_skills_dir(req.company_id)
 
-    # Check profile exists
-    content = await asyncio.to_thread(
-        company_profile_builder.load_profile_md, skills_dir
-    )
-    if not content:
-        raise HTTPException(status_code=404, detail="profile.md가 존재하지 않습니다.")
+    # Block edits to read-only sections
+    if req.section_name in _NON_EDITABLE_SECTIONS:
+        raise HTTPException(
+            status_code=403,
+            detail=f"섹션 '{req.section_name}'은(는) 편집할 수 없습니다 (read-only).",
+        )
 
     async with _company_db_profile_lock:
+        # Check profile exists (inside lock to avoid TOCTOU)
+        content = await asyncio.to_thread(
+            company_profile_builder.load_profile_md, skills_dir
+        )
+        if not content:
+            raise HTTPException(status_code=404, detail="profile.md가 존재하지 않습니다.")
         ok = await asyncio.to_thread(
             update_profile_section,
             skills_dir,
@@ -1028,7 +1043,10 @@ async def update_profile_md_section(req: UpdateProfileSectionRequest):
             detail=f"섹션 '{req.section_name}'을(를) 찾을 수 없습니다 (section not found).",
         )
 
-    return {"ok": True, "section_name": req.section_name}
+    from company_profile_updater import load_changelog
+    changelog = await asyncio.to_thread(load_changelog, skills_dir)
+    version = len(changelog.get("versions", []))
+    return {"success": True, "version": version}
 
 
 @app.get("/api/company-profile/md/history")
@@ -1038,7 +1056,8 @@ async def get_profile_md_history(company_id: str = "default"):
 
     skills_dir = _get_company_skills_dir(company_id)
     changelog = await asyncio.to_thread(load_changelog, skills_dir)
-    return {"ok": True, "versions": changelog.get("versions", [])}
+    versions = changelog.get("versions", [])
+    return {"versions": versions, "current_version": len(versions)}
 
 
 @app.post("/api/company-profile/md/rollback")
@@ -1077,7 +1096,7 @@ async def rollback_profile_md(req: RollbackProfileRequest):
 
         await asyncio.to_thread(_restore)
 
-    return {"ok": True, "restored_version": req.target_version}
+    return {"success": True, "restored_version": req.target_version}
 
 
 # ---------------------------------------------------------------------------
