@@ -164,7 +164,8 @@ async def analyze_bid(request: AnalyzeBidRequest) -> AnalyzeBidResponse:
         # Step 2: Build an in-memory RAG engine and populate with company facts
         # ------------------------------------------------------------------
         # Use a temp collection per request so evaluations are isolated.
-        collection_name = f"bid_{request.bid_notice_id}_{request.organization_id}"
+        _safe_id = _re.sub(r"[^a-zA-Z0-9_\-]", "_", f"{request.bid_notice_id}_{request.organization_id}")[:60]
+        collection_name = f"bid_{_safe_id}"
         rag: Any = _rag_engine_cls(
             persist_directory="",          # empty → in-memory only
             collection_name=collection_name,
@@ -221,7 +222,7 @@ async def analyze_bid(request: AnalyzeBidRequest) -> AnalyzeBidResponse:
         raise
     except Exception as exc:
         logger.error("analyze_bid failed: %s\n%s", exc, traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {exc}") from exc
+        raise HTTPException(status_code=500, detail="분석 실패") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -316,10 +317,39 @@ async def generate_proposal_v2(req: GenerateProposalV2Request):
         )
     except Exception as exc:
         logger.error("generate_proposal_v2 failed: %s\n%s", exc, traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"제안서 생성 실패: {exc}") from exc
+        raise HTTPException(status_code=500, detail="제안서 생성 실패") from exc
 
     # Return only filename, not full server path (security: C1)
     docx_filename = os.path.basename(result.docx_path) if result.docx_path else ""
+
+    # Persist full section markdown alongside DOCX for later editing
+    if docx_filename and result.sections:
+        try:
+            base_name = docx_filename.rsplit(".", 1)[0]
+            sections_path = os.path.join(_PROPOSALS_DIR, f"{base_name}_sections.json")
+            import json as _json
+            import tempfile as _tmpfile
+            payload = {
+                "title": req.rfx_result.title,
+                "sections": [{"name": n, "text": t} for n, t in result.sections],
+            }
+            with _tmpfile.NamedTemporaryFile(
+                "w", dir=_PROPOSALS_DIR, suffix=".json",
+                delete=False, encoding="utf-8",
+            ) as tmp:
+                _json.dump(payload, tmp, ensure_ascii=False)
+                tmp_name = tmp.name
+            try:
+                os.replace(tmp_name, sections_path)
+            except OSError:
+                try:
+                    os.unlink(tmp_name)
+                except OSError:
+                    pass
+                raise
+        except Exception as exc:
+            logger.warning("Failed to save proposal sections JSON: %s", exc)
+
     return {
         "docx_filename": docx_filename,
         "sections": [{"name": n, "preview": t[:500]} for n, t in result.sections],
@@ -379,6 +409,145 @@ async def download_proposal(filename: str):
 
 
 # ---------------------------------------------------------------------------
+# Proposal sections CRUD (for DocumentWorkspace editing)
+# ---------------------------------------------------------------------------
+
+_SAFE_DOCX_NAME_RE = _re.compile(r'^[a-zA-Z0-9가-힣._\-]+$')
+
+# Per-file lock to prevent concurrent read-modify-write race conditions
+import threading as _threading
+_sections_locks: dict[str, _threading.Lock] = {}
+_sections_locks_guard = _threading.Lock()
+
+
+_MAX_SECTION_LOCKS = 500
+
+
+def _get_sections_lock(path: str) -> _threading.Lock:
+    """Get or create a per-file lock for section JSON files (bounded)."""
+    with _sections_locks_guard:
+        if path not in _sections_locks:
+            if len(_sections_locks) >= _MAX_SECTION_LOCKS:
+                # Evict oldest entries (FIFO — Python 3.7+ dict is insertion-ordered)
+                excess = len(_sections_locks) - _MAX_SECTION_LOCKS + 1
+                for _ in range(excess):
+                    _sections_locks.pop(next(iter(_sections_locks)))
+            _sections_locks[path] = _threading.Lock()
+        return _sections_locks[path]
+
+
+def _resolve_sections_path(docx_filename: str) -> str:
+    """Resolve and validate sections JSON path for a given DOCX filename."""
+    # Strip extension if present
+    base = docx_filename.rsplit(".", 1)[0] if "." in docx_filename else docx_filename
+    if not _SAFE_DOCX_NAME_RE.match(base) or len(base) > 150:
+        raise HTTPException(status_code=400, detail="잘못된 파일명입니다.")
+
+    path = os.path.join(_PROPOSALS_DIR, f"{base}_sections.json")
+    real = os.path.realpath(path)
+    proposals_base = os.path.realpath(_PROPOSALS_DIR)
+    if not real.startswith(proposals_base + os.sep):
+        raise HTTPException(status_code=400, detail="잘못된 파일 경로입니다.")
+    return real
+
+
+@app.get("/api/proposal-sections")
+def get_proposal_sections(docx_filename: str):
+    """Load saved proposal sections for editing in DocumentWorkspace."""
+    path = _resolve_sections_path(docx_filename)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="섹션 파일을 찾을 수 없습니다.")
+    import json as _json
+    with open(path, encoding="utf-8") as f:
+        return _json.load(f)
+
+
+class UpdateProposalSectionRequest(BaseModel):
+    docx_filename: str = Field(min_length=1, max_length=200)
+    section_name: str = Field(min_length=1, max_length=512)
+    text: str = Field(max_length=50_000)
+
+
+@app.put("/api/proposal-sections")
+def update_proposal_section(req: UpdateProposalSectionRequest):
+    """Update a single section's markdown text."""
+    path = _resolve_sections_path(req.docx_filename)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="섹션 파일을 찾을 수 없습니다.")
+
+    import json as _json
+    import tempfile
+
+    lock = _get_sections_lock(path)
+    with lock:
+        with open(path, encoding="utf-8") as f:
+            data = _json.load(f)
+
+        found = False
+        for section in data.get("sections", []):
+            if section["name"] == req.section_name:
+                section["text"] = req.text
+                found = True
+                break
+
+        if not found:
+            raise HTTPException(status_code=404, detail=f"섹션 '{req.section_name}'을 찾을 수 없습니다.")
+
+        # Atomic write: temp file → os.replace
+        with tempfile.NamedTemporaryFile(
+            "w", dir=os.path.dirname(path), suffix=".json",
+            delete=False, encoding="utf-8",
+        ) as tmp:
+            _json.dump(data, tmp, ensure_ascii=False)
+            tmp_name = tmp.name
+        try:
+            os.replace(tmp_name, path)
+        except OSError:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
+
+    return {"success": True}
+
+
+class ReassembleProposalRequest(BaseModel):
+    docx_filename: str = Field(min_length=1, max_length=200)
+
+
+@app.post("/api/proposal-sections/reassemble")
+def reassemble_proposal(req: ReassembleProposalRequest):
+    """Reassemble DOCX from current (possibly edited) sections."""
+    sections_path = _resolve_sections_path(req.docx_filename)
+    if not os.path.isfile(sections_path):
+        raise HTTPException(status_code=404, detail="섹션 파일을 찾을 수 없습니다.")
+
+    import json as _json
+    with open(sections_path, encoding="utf-8") as f:
+        data = _json.load(f)
+
+    sections = [(s["name"], s["text"]) for s in data.get("sections", [])]
+    if not sections:
+        raise HTTPException(status_code=400, detail="섹션이 비어있습니다.")
+
+    title = data.get("title", "제안서")
+
+    # Determine output DOCX path
+    base = req.docx_filename.rsplit(".", 1)[0] if "." in req.docx_filename else req.docx_filename
+    docx_path = os.path.join(_PROPOSALS_DIR, f"{base}.docx")
+
+    try:
+        from document_assembler import assemble_docx
+        assemble_docx(title, sections, docx_path)
+    except Exception as exc:
+        logger.error("Reassemble failed: %s", exc)
+        raise HTTPException(status_code=500, detail="DOCX 재생성 실패") from exc
+
+    return {"success": True, "docx_filename": f"{base}.docx"}
+
+
+# ---------------------------------------------------------------------------
 # Submission checklist
 # ---------------------------------------------------------------------------
 
@@ -395,7 +564,7 @@ async def extract_checklist_endpoint(req: ChecklistRequest):
         items = extract_checklist(req.rfx_result.model_dump(), req.rfp_text)
     except Exception as exc:
         logger.error("checklist extraction failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"체크리스트 추출 실패: {exc}") from exc
+        raise HTTPException(status_code=500, detail="체크리스트 추출 실패") from exc
     return {
         "items": [
             {
@@ -445,10 +614,11 @@ async def generate_wbs_endpoint(req: GenerateWbsRequest):
             methodology=methodology,
             knowledge_db_path=_KNOWLEDGE_DB_DIR,
             company_db_path=_COMPANY_DB_DIR,
+            company_skills_dir=_get_company_skills_dir(),
         )
     except Exception as exc:
         logger.error("generate_wbs failed: %s\n%s", exc, traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"WBS 생성 실패: {exc}") from exc
+        raise HTTPException(status_code=500, detail="WBS 생성 실패") from exc
 
     return {
         "xlsx_filename": os.path.basename(result.xlsx_path) if result.xlsx_path else "",
@@ -497,10 +667,11 @@ async def generate_ppt_endpoint(req: GeneratePptRequest):
             company_name=req.company_name,
             knowledge_db_path=_KNOWLEDGE_DB_DIR,
             company_db_path=_COMPANY_DB_DIR,
+            company_skills_dir=_get_company_skills_dir(),
         )
     except Exception as exc:
         logger.error("generate_ppt failed: %s\n%s", exc, traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"PPT 생성 실패: {exc}") from exc
+        raise HTTPException(status_code=500, detail="PPT 생성 실패") from exc
 
     return {
         "pptx_filename": os.path.basename(result.pptx_path) if result.pptx_path else "",
@@ -522,6 +693,7 @@ class GenerateTrackRecordRequest(BaseModel):
     rfx_result: RfxResultInput
     max_records: int = Field(default=10, ge=1, le=20)
     max_personnel: int = Field(default=10, ge=1, le=20)
+    company_name: str = ""
 
 
 @app.post("/api/generate-track-record")
@@ -534,12 +706,16 @@ async def generate_track_record_endpoint(req: GenerateTrackRecordRequest):
             _generate,
             rfx_result=req.rfx_result.model_dump(),
             output_dir=_PROPOSALS_DIR,
+            company_db_path=_COMPANY_DB_DIR,
+            knowledge_db_path=_KNOWLEDGE_DB_DIR,
             max_records=req.max_records,
             max_personnel=req.max_personnel,
+            company_name=req.company_name or None,
+            company_skills_dir=_get_company_skills_dir(),
         )
     except Exception as exc:
         logger.error("generate_track_record failed: %s\n%s", exc, traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"실적기술서 생성 실패: {exc}") from exc
+        raise HTTPException(status_code=500, detail="실적기술서 생성 실패") from exc
 
     return {
         "docx_filename": os.path.basename(result.docx_path) if result.docx_path else "",
@@ -592,7 +768,7 @@ async def edit_feedback_endpoint(req: EditFeedbackRequest):
         )
     except Exception as exc:
         logger.error("edit feedback failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"수정 피드백 처리 실패: {exc}") from exc
+        raise HTTPException(status_code=500, detail="수정 피드백 처리 실패") from exc
     return {
         "edit_rate": result.edit_rate,
         "new_diffs": result.new_diffs,
@@ -614,7 +790,15 @@ async def edit_feedback_endpoint(req: EditFeedbackRequest):
 
 _company_db_instance = None
 _company_db_init_lock = threading.Lock()
-_company_db_profile_lock = asyncio.Lock()
+_company_db_profile_lock: asyncio.Lock | None = None
+
+
+def _get_profile_lock() -> asyncio.Lock:
+    """Lazy-init asyncio.Lock to avoid binding to wrong event loop at import time."""
+    global _company_db_profile_lock
+    if _company_db_profile_lock is None:
+        _company_db_profile_lock = asyncio.Lock()
+    return _company_db_profile_lock
 
 
 def _get_company_db():
@@ -682,7 +866,7 @@ async def add_track_record_endpoint(req: TrackRecordRequest):
     doc_id = db.add_track_record(record)
 
     # Update profile under lock to prevent TOCTOU race
-    async with _company_db_profile_lock:
+    async with _get_profile_lock():
         profile = db.load_profile()
         if profile:
             profile.track_records.append(record)
@@ -708,7 +892,7 @@ async def add_personnel_endpoint(req: PersonnelRequest):
     doc_id = db.add_personnel(person)
 
     # Update profile under lock to prevent TOCTOU race
-    async with _company_db_profile_lock:
+    async with _get_profile_lock():
         profile = db.load_profile()
         if profile:
             profile.personnel.append(person)
@@ -802,7 +986,7 @@ async def analyze_company_style_endpoint(req: AnalyzeStyleRequest):
 
     # Save to CompanyDB profile
     db = _get_company_db()
-    async with _company_db_profile_lock:
+    async with _get_profile_lock():
         from company_db import CompanyCapabilityProfile
         profile = db.load_profile()
         if profile is None:
@@ -852,7 +1036,7 @@ async def generate_company_profile(req: GenerateProfileRequest):
         style = await asyncio.to_thread(analyze_company_style, truncated)
     except Exception as exc:
         logger.error("analyze_company_style failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"스타일 분석 실패: {exc}") from exc
+        raise HTTPException(status_code=500, detail="스타일 분석 실패") from exc
 
     try:
         profile_md = company_profile_builder.build_profile_md(
@@ -863,7 +1047,7 @@ async def generate_company_profile(req: GenerateProfileRequest):
         company_profile_builder.save_profile_md(skills_dir, profile_md)
     except Exception as exc:
         logger.error("build/save profile.md failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"프로필 저장 실패: {exc}") from exc
+        raise HTTPException(status_code=500, detail="프로필 저장 실패") from exc
 
     return {"ok": True, "profile_md": profile_md}
 
@@ -888,7 +1072,7 @@ async def update_company_profile(req: UpdateProfileRequest):
         company_profile_builder.save_profile_md(skills_dir, req.profile_md)
     except Exception as exc:
         logger.error("save profile.md failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"프로필 저장 실패: {exc}") from exc
+        raise HTTPException(status_code=500, detail="프로필 저장 실패") from exc
 
     return {"ok": True}
 
@@ -906,16 +1090,28 @@ async def upload_hwpx_template(file: UploadFile = File(...)):
     templates_dir = os.path.join(skills_dir, "templates")
     os.makedirs(templates_dir, exist_ok=True)
 
+    # Read and validate size in memory first
+    _MAX_TEMPLATE_BYTES = 10 * 1024 * 1024  # 10MB
+    content = await file.read()
+    if len(content) > _MAX_TEMPLATE_BYTES:
+        raise HTTPException(status_code=413, detail="템플릿 파일은 10MB를 초과할 수 없습니다.")
+
+    # Validate HWPX magic bytes in memory (ZIP PK header)
+    if not content[:4].startswith(b"PK"):
+        raise HTTPException(status_code=400, detail="유효하지 않은 HWPX 파일입니다.")
+
     # Save template with sanitized filename
     safe_name = _re.sub(r"[^a-zA-Z0-9가-힣._\-]", "_", file.filename)[:100]
     template_path = os.path.join(templates_dir, safe_name)
-    content = await file.read()
     with open(template_path, "wb") as f:
         f.write(content)
 
-    # Validate HWPX format
+    # Full HWPX structure validation on disk
     if not is_hwpx_file(template_path):
-        os.unlink(template_path)
+        try:
+            os.unlink(template_path)
+        except OSError:
+            pass
         raise HTTPException(status_code=400, detail="유효하지 않은 HWPX 파일입니다.")
 
     # Extract styles from template
@@ -1022,7 +1218,7 @@ async def update_profile_md_section(req: UpdateProfileSectionRequest):
             detail=f"섹션 '{req.section_name}'은(는) 편집할 수 없습니다 (read-only).",
         )
 
-    async with _company_db_profile_lock:
+    async with _get_profile_lock():
         # Check profile exists (inside lock to avoid TOCTOU)
         content = await asyncio.to_thread(
             company_profile_builder.load_profile_md, skills_dir
@@ -1078,7 +1274,7 @@ async def rollback_profile_md(req: RollbackProfileRequest):
             detail=f"버전 {req.target_version}의 백업 파일이 존재하지 않습니다.",
         )
 
-    async with _company_db_profile_lock:
+    async with _get_profile_lock():
         # Backup current state before overwriting
         profile_path = os.path.join(skills_dir, "profile.md")
         if os.path.isfile(profile_path):

@@ -1340,6 +1340,7 @@ export function useConversationFlow() {
             if (result.docx_filename) {
               const downloadUrl = api.getProposalDownloadUrl(result.docx_filename);
               msg += `\n\n[📥 제안서 DOCX 다운로드](${downloadUrl})`;
+              try { localStorage.setItem('kira_last_proposal', result.docx_filename); } catch { /* noop */ }
             }
             if (result.quality_issues.length > 0) {
               msg += `\n\n**품질 이슈 ${result.quality_issues.length}건:**\n` +

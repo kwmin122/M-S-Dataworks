@@ -12,6 +12,7 @@ import {
   ProfileHistoryResponse,
   ProfileMdResponse,
   ProposalSections,
+  ProposalSectionsResponse,
   SessionStats,
   Subscription,
 } from '../types';
@@ -863,4 +864,35 @@ export async function rollbackProfile(
     body: JSON.stringify({ company_id: companyId, target_version: targetVersion }),
   });
   return parseJson<{ success: boolean; restored_version?: number; error?: string }>(res);
+}
+
+// ── 제안서 섹션 편집 ──
+
+export async function getProposalSections(docxFilename: string): Promise<ProposalSectionsResponse> {
+  const res = await fetchWithError(
+    `${API_BASE_URL}/api/proposal-sections?docx_filename=${encodeURIComponent(docxFilename)}`,
+  );
+  return parseJson<ProposalSectionsResponse>(res);
+}
+
+export async function updateProposalSection(
+  docxFilename: string, sectionName: string, text: string,
+): Promise<{ success: boolean }> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/proposal-sections`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ docx_filename: docxFilename, section_name: sectionName, text }),
+  });
+  return parseJson<{ success: boolean }>(res);
+}
+
+export async function reassembleProposal(
+  docxFilename: string,
+): Promise<{ success: boolean; docx_filename: string }> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/proposal-sections/reassemble`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ docx_filename: docxFilename }),
+  });
+  return parseJson<{ success: boolean; docx_filename: string }>(res);
 }

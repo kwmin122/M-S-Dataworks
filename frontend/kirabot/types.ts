@@ -433,6 +433,18 @@ export interface ProfileHistoryResponse {
   current_version: number;
 }
 
+// ── Proposal Sections (DocumentWorkspace) ──
+
+export interface ProposalSectionData {
+  name: string;
+  text: string;
+}
+
+export interface ProposalSectionsResponse {
+  title: string;
+  sections: ProposalSectionData[];
+}
+
 // ── Payment / Subscription ──
 export interface Subscription {
   username?: string;

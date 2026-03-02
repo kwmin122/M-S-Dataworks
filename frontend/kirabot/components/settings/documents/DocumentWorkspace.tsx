@@ -2,6 +2,7 @@ import React from 'react';
 import { useSearchParams } from 'react-router-dom';
 import DocumentTabNav, { type DocumentTab } from './DocumentTabNav';
 import ProfileEditor from './ProfileEditor';
+import ProposalEditor from './ProposalEditor';
 
 const VALID_TABS: Set<string> = new Set(['profile', 'rfp', 'proposal', 'wbs', 'ppt']);
 
@@ -21,7 +22,7 @@ export default function DocumentWorkspace() {
         <div className="max-w-4xl mx-auto">
           {activeTab === 'profile' && <ProfileEditor />}
           {activeTab === 'rfp' && <PlaceholderTab name="RFP 분석결과" />}
-          {activeTab === 'proposal' && <PlaceholderTab name="제안서" />}
+          {activeTab === 'proposal' && <ProposalEditor />}
           {activeTab === 'wbs' && <PlaceholderTab name="WBS" />}
           {activeTab === 'ppt' && <PlaceholderTab name="PPT" />}
         </div>

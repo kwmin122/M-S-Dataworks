@@ -1,5 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { Pencil, Save, X, History } from 'lucide-react';
+import MarkdownViewer from '../../common/MarkdownViewer';
+
+const MarkdownEditor = lazy(() => import('../../common/MarkdownEditor'));
 
 interface Props {
   name: string;
@@ -54,12 +57,9 @@ export default function ProfileSection({ name, content, editable, onSave, onShow
 
       {editing ? (
         <div className="space-y-3">
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            rows={Math.max(4, draft.split('\n').length + 1)}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono focus:border-kira-500 focus:ring-2 focus:ring-kira-200 outline-none resize-y"
-          />
+          <Suspense fallback={<div className="text-xs text-slate-400 py-4 text-center">에디터 로딩 중...</div>}>
+            <MarkdownEditor value={draft} onChange={setDraft} />
+          </Suspense>
           <div className="flex gap-2 justify-end">
             <button onClick={handleCancel} className="flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50">
               <X size={14} /> 취소
@@ -70,7 +70,7 @@ export default function ProfileSection({ name, content, editable, onSave, onShow
           </div>
         </div>
       ) : (
-        <pre className="text-sm text-slate-600 whitespace-pre-wrap font-sans leading-relaxed">{content || '(비어있음)'}</pre>
+        <MarkdownViewer content={content} />
       )}
     </div>
   );

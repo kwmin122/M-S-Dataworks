@@ -66,3 +66,18 @@ body {
 .typing-dot { animation: typing-dot 1.4s infinite; }
 .typing-dot:nth-child(2) { animation-delay: 0.2s; }
 .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* MDXEditor 스타일 조정 */
+.mdx-editor-wrapper .mdxeditor {
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.625;
+}
+.mdx-editor-wrapper [role="toolbar"] {
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+.mdx-editor-wrapper .mdxeditor [data-lexical-editor] {
+  min-height: 120px;
+  padding: 0.75rem;
+}

@@ -165,8 +165,8 @@ class BidSearchPayload(BaseModel):
     maxAmt: float | None = None
     period: str = "1m"
     excludeExpired: bool = True
-    page: int = 1
-    pageSize: int = 20
+    page: int = Field(default=1, ge=1, le=1000)
+    pageSize: int = Field(default=20, ge=1, le=100)
 
 
 class BidAnalyzePayload(BaseModel):
@@ -178,7 +178,7 @@ class BidAnalyzePayload(BaseModel):
 
 class BidEvaluateBatchPayload(BaseModel):
     session_id: str
-    bid_ntce_nos: list[str]
+    bid_ntce_nos: list[str] = Field(max_length=50)
 
 
 class SmartFitScorePayload(BaseModel):
@@ -223,7 +223,7 @@ app.add_middleware(
         origin.strip()
         for origin in os.getenv(
             "WEB_API_ALLOW_ORIGINS",
-            "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080,null",
+            "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080",
         ).split(",")
         if origin.strip()
     ],
@@ -619,6 +619,9 @@ def _cleanup_expired_sessions() -> None:
             shutil.rmtree(upload_root, ignore_errors=True)
 
 
+_MAX_SESSIONS = 500
+
+
 def _get_or_create_session(session_id: str) -> WebRuntimeSession:
     _cleanup_expired_sessions()
     normalized = _sanitize_session_id(session_id)
@@ -627,6 +630,9 @@ def _get_or_create_session(session_id: str) -> WebRuntimeSession:
     if existing:
         existing.last_used_at = _utc_now()
         return existing
+
+    if len(SESSIONS) >= _MAX_SESSIONS:
+        raise HTTPException(status_code=503, detail="서버 동시 세션 수를 초과했습니다. 잠시 후 다시 시도해주세요.")
 
     rag = RAGEngine(
         persist_directory=str(ROOT_DIR / "data" / "vectordb_web"),
@@ -1498,7 +1504,7 @@ async def upload_company_documents(
         saved_path = await _save_upload_file(file, upload_dir)
         uploaded_names.append(file.filename or saved_path.name)
         file_urls.append(f"/api/files/{session.session_id}/company/{saved_path.name}")
-        total_chunks += session.rag_engine.add_document(str(saved_path))
+        total_chunks += await asyncio.to_thread(session.rag_engine.add_document, str(saved_path))
 
     stats = session.rag_engine.get_stats()
     return {
@@ -1675,7 +1681,9 @@ async def analyze_uploaded_document(
 
     rfp_summary, matching = await asyncio.gather(_gen_summary(), _run_matching())
 
-    _index_rfx_document(session=session, file_path=str(saved_path), original_name=file.filename or "target")
+    await asyncio.to_thread(
+        _index_rfx_document, session=session, file_path=str(saved_path), original_name=file.filename or "target",
+    )
     session.latest_rfx_analysis = analysis
     session.latest_matching_result = matching
     session.latest_document_name = file.filename or saved_path.name
@@ -2126,7 +2134,9 @@ async def analyze_bid_from_nara(payload: BidAnalyzePayload, request: Request) ->
 
     rfp_summary, matching = await asyncio.gather(_gen_bid_summary(), _run_bid_matching())
 
-    _index_rfx_document(session=session, file_path=local_path, original_name=best["fileNm"])
+    await asyncio.to_thread(
+        _index_rfx_document, session=session, file_path=local_path, original_name=best["fileNm"],
+    )
     session.latest_rfx_analysis = analysis
     session.latest_matching_result = matching
     session.latest_document_name = best["fileNm"]
@@ -2208,7 +2218,8 @@ async def api_bids_evaluate_batch(payload: BidEvaluateBatchPayload, request: Req
                     )
 
             except Exception as exc:
-                job["evaluationReason"] = f"분석 실패: {exc}"
+                logger.warning("Batch eval failed for %s: %s", bid_ntce_no, exc)
+                job["evaluationReason"] = "분석 중 오류가 발생했습니다."
 
         return job
 
@@ -2435,20 +2446,11 @@ async def generate_proposal_v2(payload: ProposalGenerateV2Payload) -> dict[str, 
 
     rfx_dict = _build_rfx_dict(session.latest_rfx_analysis)
 
-    fastapi_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
-    try:
-        async with httpx.AsyncClient(timeout=300) as client:
-            resp = await client.post(
-                f"{fastapi_url}/api/generate-proposal-v2",
-                json={"rfx_result": rfx_dict, "total_pages": payload.total_pages},
-            )
-        if resp.status_code == 200:
-            return resp.json()
-        else:
-            detail = resp.text[:200]
-            raise HTTPException(status_code=502, detail=f"rag_engine 응답 오류: {detail}")
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"rag_engine 연결 실패: {exc}") from exc
+    return await _proxy_to_rag(
+        "POST", "/api/generate-proposal-v2",
+        {"rfx_result": rfx_dict, "total_pages": payload.total_pages},
+        timeout=300,
+    )
 
 
 # ── 제안서 DOCX 다운로드 프록시 ──
@@ -2491,9 +2493,11 @@ async def download_proposal_proxy(filename: str):
         elif resp.status_code == 404:
             raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
         else:
-            raise HTTPException(status_code=502, detail=f"rag_engine 응답 오류: {resp.text[:200]}")
+            logger.error("Download proxy error: %s %s", resp.status_code, resp.text[:200])
+            raise HTTPException(status_code=502, detail="rag_engine 응답 오류")
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"rag_engine 연결 실패: {exc}") from exc
+        logger.error("rag_engine proxy failed: %s", exc)
+        raise HTTPException(status_code=502, detail="rag_engine 연결 실패") from exc
 
 
 # ── 체크리스트 프록시 ──
@@ -2512,20 +2516,7 @@ async def checklist_proxy(payload: ChecklistProxyPayload) -> dict[str, Any]:
 
     rfx_dict = _build_rfx_dict(session.latest_rfx_analysis)
 
-    fastapi_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                f"{fastapi_url}/api/checklist",
-                json={"rfx_result": rfx_dict},
-            )
-        if resp.status_code == 200:
-            return resp.json()
-        else:
-            detail = resp.text[:200]
-            raise HTTPException(status_code=502, detail=f"rag_engine 응답 오류: {detail}")
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"rag_engine 연결 실패: {exc}") from exc
+    return await _proxy_to_rag("POST", "/api/checklist", {"rfx_result": rfx_dict}, timeout=60)
 
 
 # ── Phase 2: WBS / PPT / 실적기술서 프록시 ──
@@ -2545,20 +2536,11 @@ async def generate_wbs_proxy(payload: GenerateWbsProxyPayload) -> dict[str, Any]
 
     rfx_dict = _build_rfx_dict(session.latest_rfx_analysis)
 
-    fastapi_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
-    try:
-        async with httpx.AsyncClient(timeout=300) as client:
-            resp = await client.post(
-                f"{fastapi_url}/api/generate-wbs",
-                json={"rfx_result": rfx_dict, "methodology": payload.methodology},
-            )
-        if resp.status_code == 200:
-            return resp.json()
-        else:
-            detail = resp.text[:200]
-            raise HTTPException(status_code=502, detail=f"rag_engine 응답 오류: {detail}")
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"rag_engine 연결 실패: {exc}") from exc
+    return await _proxy_to_rag(
+        "POST", "/api/generate-wbs",
+        {"rfx_result": rfx_dict, "methodology": payload.methodology},
+        timeout=300,
+    )
 
 
 class GeneratePptProxyPayload(BaseModel):
@@ -2576,24 +2558,11 @@ async def generate_ppt_proxy(payload: GeneratePptProxyPayload) -> dict[str, Any]
 
     rfx_dict = _build_rfx_dict(session.latest_rfx_analysis)
 
-    fastapi_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
-    try:
-        async with httpx.AsyncClient(timeout=300) as client:
-            resp = await client.post(
-                f"{fastapi_url}/api/generate-ppt",
-                json={
-                    "rfx_result": rfx_dict,
-                    "duration_min": payload.duration_min,
-                    "qna_count": payload.qna_count,
-                },
-            )
-        if resp.status_code == 200:
-            return resp.json()
-        else:
-            detail = resp.text[:200]
-            raise HTTPException(status_code=502, detail=f"rag_engine 응답 오류: {detail}")
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"rag_engine 연결 실패: {exc}") from exc
+    return await _proxy_to_rag(
+        "POST", "/api/generate-ppt",
+        {"rfx_result": rfx_dict, "duration_min": payload.duration_min, "qna_count": payload.qna_count},
+        timeout=300,
+    )
 
 
 class GenerateTrackRecordProxyPayload(BaseModel):
@@ -2609,20 +2578,7 @@ async def generate_track_record_proxy(payload: GenerateTrackRecordProxyPayload) 
 
     rfx_dict = _build_rfx_dict(session.latest_rfx_analysis)
 
-    fastapi_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
-    try:
-        async with httpx.AsyncClient(timeout=300) as client:
-            resp = await client.post(
-                f"{fastapi_url}/api/generate-track-record",
-                json={"rfx_result": rfx_dict},
-            )
-        if resp.status_code == 200:
-            return resp.json()
-        else:
-            detail = resp.text[:200]
-            raise HTTPException(status_code=502, detail=f"rag_engine 응답 오류: {detail}")
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"rag_engine 연결 실패: {exc}") from exc
+    return await _proxy_to_rag("POST", "/api/generate-track-record", {"rfx_result": rfx_dict}, timeout=300)
 
 
 # ── 회사 DB 온보딩 프록시 ──
@@ -2648,7 +2604,8 @@ async def _proxy_to_rag(method: str, path: str, json_body: dict | None = None, t
             detail = resp.text[:200]
         raise HTTPException(status_code=resp.status_code, detail=detail)
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"rag_engine 연결 실패: {exc}") from exc
+        logger.error("rag_engine proxy failed: %s", exc)
+        raise HTTPException(status_code=502, detail="rag_engine 연결 실패") from exc
 
 
 @app.post("/api/company-db/track-records")
@@ -2710,26 +2667,67 @@ async def proxy_rollback_profile(payload: dict) -> dict[str, Any]:
     return await _proxy_to_rag("POST", "/api/company-profile/md/rollback", payload)
 
 
+# ── 제안서 섹션 편집 프록시 ──
+
+
+def _validate_docx_filename(fn: str) -> str:
+    """Defense-in-depth: reject obviously malicious filenames at proxy layer."""
+    if ".." in fn or "/" in fn or "\\" in fn or len(fn) > 200:
+        raise HTTPException(status_code=400, detail="잘못된 파일명입니다.")
+    return fn
+
+
+@app.get("/api/proposal-sections")
+async def proxy_get_proposal_sections(docx_filename: str) -> dict[str, Any]:
+    """Proxy: get proposal sections from rag_engine."""
+    _validate_docx_filename(docx_filename)
+    fn = urllib.parse.quote(docx_filename, safe="")
+    return await _proxy_to_rag("GET", f"/api/proposal-sections?docx_filename={fn}")
+
+
+@app.put("/api/proposal-sections")
+async def proxy_update_proposal_section(payload: dict) -> dict[str, Any]:
+    """Proxy: update a proposal section in rag_engine."""
+    return await _proxy_to_rag("PUT", "/api/proposal-sections", payload)
+
+
+@app.post("/api/proposal-sections/reassemble")
+async def proxy_reassemble_proposal(payload: dict) -> dict[str, Any]:
+    """Proxy: reassemble DOCX from edited sections in rag_engine."""
+    return await _proxy_to_rag("POST", "/api/proposal-sections/reassemble", payload, timeout=120)
+
+
 # ── 알림 설정 CRUD ──
 
 ALERT_SETTINGS_DIR = ROOT_DIR / "data" / "alert_settings"
 
 
+class SaveAlertSettingsPayload(BaseModel):
+    session_id: str = Field(min_length=1, max_length=200)
+    keywords: list[str] = Field(default_factory=list, max_length=50)
+    categories: list[str] = Field(default_factory=list, max_length=20)
+    regions: list[str] = Field(default_factory=list, max_length=20)
+    minAmt: float | None = None
+    maxAmt: float | None = None
+    email: str = Field(min_length=1, max_length=320)
+    schedule: str = Field(default="daily", max_length=20)
+
+
 @app.post("/api/alerts/settings")
-async def save_alert_settings(payload: dict) -> dict[str, Any]:
+async def save_alert_settings(payload: SaveAlertSettingsPayload) -> dict[str, Any]:
     """공고 알림 설정 저장."""
-    session_id = payload.get("session_id", "").strip()
+    session_id = _sanitize_alert_session_id(payload.session_id)
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id가 필요합니다.")
 
     settings = {
-        "keywords": payload.get("keywords", []),
-        "categories": payload.get("categories", []),
-        "regions": payload.get("regions", []),
-        "minAmt": payload.get("minAmt"),
-        "maxAmt": payload.get("maxAmt"),
-        "email": payload.get("email", "").strip(),
-        "schedule": payload.get("schedule", "daily"),
+        "keywords": payload.keywords,
+        "categories": payload.categories,
+        "regions": payload.regions,
+        "minAmt": payload.minAmt,
+        "maxAmt": payload.maxAmt,
+        "email": payload.email.strip(),
+        "schedule": payload.schedule,
     }
 
     if not settings["email"]:
@@ -2745,7 +2743,7 @@ async def save_alert_settings(payload: dict) -> dict[str, Any]:
 @app.get("/api/alerts/settings")
 async def get_alert_settings(session_id: str = "") -> dict[str, Any]:
     """공고 알림 설정 조회."""
-    session_id = session_id.strip()
+    session_id = _sanitize_alert_session_id(session_id)
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id가 필요합니다.")
 
@@ -2763,7 +2761,7 @@ async def get_alert_settings(session_id: str = "") -> dict[str, Any]:
 @app.delete("/api/alerts/settings")
 async def delete_alert_settings(session_id: str = "") -> dict[str, Any]:
     """공고 알림 설정 삭제."""
-    session_id = session_id.strip()
+    session_id = _sanitize_alert_session_id(session_id)
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id가 필요합니다.")
 
@@ -3126,7 +3124,7 @@ async def save_alert_config_endpoint(request: Request, payload: dict) -> dict[st
 
     if not config.get("enabled", True):
         # 알림 해제 시 취소 확인 이메일 발송
-        cancellation_sent = _send_cancellation_email(config["email"])
+        cancellation_sent = await asyncio.to_thread(_send_cancellation_email, config["email"])
     else:
         state = _get_alert_state(session_id)
         last_conf = state.get("last_confirmation_sent", "")
@@ -3141,7 +3139,7 @@ async def save_alert_config_endpoint(request: Request, payload: dict) -> dict[st
                 pass
 
         if should_send:
-            confirmation_sent = _send_confirmation_email(config["email"], config, is_update=not is_new)
+            confirmation_sent = await asyncio.to_thread(_send_confirmation_email, config["email"], config, not is_new)
             if confirmation_sent:
                 state["last_confirmation_sent"] = now_iso
                 _set_alert_state(session_id, state)
@@ -3536,19 +3534,16 @@ async def _extract_company_info_llm(text: str) -> dict:
 
 async def _analyze_company_writing_style(all_text: str) -> dict | None:
     """Call rag_engine /api/company-db/analyze-style to analyze writing style."""
-    fastapi_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
     # Split into per-document chunks (separated by --- filename --- markers)
     documents = [d.strip() for d in all_text.split("\n--- ") if len(d.strip()) >= 50]
     if not documents:
         documents = [all_text.strip()]
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            f"{fastapi_url}/api/company-db/analyze-style",
-            json={"documents": documents},
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    try:
+        data = await _proxy_to_rag("POST", "/api/company-db/analyze-style", {"documents": documents}, timeout=30)
         return data.get("writing_style")
+    except Exception as exc:
+        logger.warning("Writing style analysis failed: %s", exc)
+        return None
 
 
 def _add_company_docs_to_vectordb(username: str, text: str) -> None:
@@ -4145,7 +4140,7 @@ async def _execute_alert_send(config: dict, label: str = "alert",
     # Step 4: 이메일 발송
     today = datetime.now().strftime("%Y-%m-%d")
     subject = f"[키라봇] {today} 맞춤 공고 알림 ({len(new_bids)}건)"
-    sent = _send_alert_email(config["email"], subject, new_bids, summaries or None)
+    sent = await asyncio.to_thread(_send_alert_email, config["email"], subject, new_bids, summaries or None)
 
     # Step 5: 발송한 공고 ID 기록 (중복 발송 방지)
     if sent and session_id:
