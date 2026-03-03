@@ -1,137 +1,70 @@
 import React from 'react';
-import { Search, FileCheck, BarChart3, MessageSquareText } from 'lucide-react';
 
-const workflows = [
+const cards = [
   {
-    icon: Search,
-    label: '공고 검색',
-    title: '나라장터 공고를\n실시간으로 검색합니다',
-    desc: '키워드, 업무구분, 지역, 금액 조건으로 나라장터 입찰 공고를 검색하고 관심 공고를 빠르게 선별하세요. 최근 6개월까지 조회 가능합니다.',
-    image: '/images/sol-1-search.png',
-    alt: '다중 모니터에서 공고를 검색하는 모습',
+    title: '나라장터 실시간 검색',
+    desc: '키워드, 업무구분, 기간, 지역, 금액\n필터로 공고를 실시간 검색합니다.',
+    img: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=600&h=240&fit=crop',
   },
   {
-    icon: FileCheck,
-    label: '자격요건 추출',
-    title: '수백 페이지에서\n핵심 요건만 뽑아냅니다',
-    desc: '참가 자격, 기술 인력, 실적 조건, 결격사유를 AI가 자동으로 추출합니다. 놓치기 쉬운 세부 조건까지 꼼꼼하게 확인해 드립니다.',
-    image: '/images/sol-2-requirements.png',
-    alt: '공고 문서에서 핵심 요건을 하이라이팅하는 모습',
+    title: '제안서 자동 생성',
+    desc: 'RFP 분석 → 평가항목별 섹션 생성.\n모든것은 원클릭으로.',
+    img: 'https://images.unsplash.com/photo-1586281380349-632531db7ed4?w=600&h=240&fit=crop',
   },
   {
-    icon: BarChart3,
-    label: 'GO/NO-GO 판단',
-    title: '입찰 참여 여부를\n근거와 함께 판단합니다',
-    desc: '회사 문서를 등록하면 공고 요건과 자동 매칭하여 GO/NO-GO를 추천합니다. 부족한 요건은 준비 가이드를 함께 제공합니다.',
-    image: '/images/sol-3-gonogo.jpg',
-    alt: '회의실에서 입찰 참여를 판단하는 비즈니스 미팅',
+    title: '맞춤 공고 알림',
+    desc: '관심 분야·지역·금액 조건 설정,\n매칭 공고를 자동으로 알려드립니다.',
+    img: 'https://images.unsplash.com/photo-1596526131083-e8c633c948d2?w=600&h=240&fit=crop',
   },
   {
-    icon: MessageSquareText,
-    label: '문서 Q&A',
-    title: '공고서에 대해\n자유롭게 질문하세요',
-    desc: '분석된 문서의 어떤 내용이든 대화로 물어볼 수 있습니다. 원문 페이지와 근거를 함께 표시하여 신뢰할 수 있는 답변을 드립니다.',
-    image: '/images/sol-4-qa.png',
-    alt: '카페에서 태블릿으로 문서 Q&A를 하는 모습',
-  },
-];
-
-const galleryItems = [
-  {
-    image: '/images/gallery-1-search.png',
-    alt: '대형 디스플레이 앞에서 공고를 검색하는 전문가',
-    title: '공고 검색 & 필터링',
-  },
-  {
-    image: '/images/gallery-2-analysis.png',
-    alt: '다양한 문서와 체크리스트가 펼쳐진 분석 작업 공간',
-    title: '자격요건 자동 분석',
-  },
-  {
-    image: '/images/gallery-3-evaluation.png',
-    alt: '두 명의 전문가가 문서를 함께 검토하는 모습',
-    title: '회사 역량 비교 평가',
-  },
-  {
-    image: '/images/gallery-4-report.png',
-    alt: '노트북과 인쇄된 리포트가 나란히 놓인 업무 환경',
-    title: '일괄 평가 & 리포트',
+    title: '공고서 자유 질문',
+    desc: '업로드한 공고서에 대해 자유롭게\n질문하고 AI가 근거와 함께 답합니다.',
+    img: 'https://images.unsplash.com/photo-1488590528505-98d2b5aba04b?w=600&h=240&fit=crop',
   },
 ];
 
 const Solutions: React.FC = () => {
   return (
-    <div id="solutions">
-      {workflows.map((item, index) => (
-        <section key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50'} style={{ paddingTop: '7rem', paddingBottom: '7rem' }}>
-          <div className="mx-auto max-w-7xl px-6 lg:px-8">
-            <div className={`flex flex-col lg:flex-row items-center gap-12 lg:gap-20 ${index % 2 === 1 ? 'lg:flex-row-reverse' : ''}`}>
-
-              {/* Text Side */}
-              <div className="flex-1 max-w-xl">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-white">
-                    <item.icon size={20} />
-                  </div>
-                  <span className="text-sm font-semibold text-slate-500 tracking-wide">{item.label}</span>
+    <section id="solutions" className="bg-[#0000FF] relative overflow-hidden">
+      <div className="mx-auto max-w-7xl px-6 lg:px-8 py-8 lg:py-0">
+        <div className="flex flex-col lg:flex-row items-start gap-8 lg:gap-12">
+          {/* Cards Grid — 2x2 */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:py-8 flex-1 max-w-[660px]">
+            {cards.map((card) => (
+              <div
+                key={card.title}
+                className="bg-white rounded overflow-hidden"
+              >
+                <div className="p-4 pb-2">
+                  <h3 className="text-sm font-bold text-black mb-1">{card.title}</h3>
+                  <p className="text-[10px] text-gray-400 leading-relaxed whitespace-pre-line">
+                    {card.desc}
+                  </p>
                 </div>
-
-                <h3 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-slate-900 leading-tight tracking-tight whitespace-pre-line font-sans">
-                  {item.title}
-                </h3>
-
-                <p className="mt-8 text-lg text-slate-500 leading-relaxed">
-                  {item.desc}
-                </p>
-              </div>
-
-              {/* Image Side */}
-              <div className="flex-1 w-full">
-                <div className="overflow-hidden rounded-2xl shadow-2xl">
+                <div className="px-4 pb-4">
                   <img
-                    src={item.image}
-                    alt={item.alt}
+                    src={card.img}
+                    alt={card.title}
+                    className="w-full h-[100px] object-cover rounded-sm"
                     loading="lazy"
-                    className="w-full h-auto object-cover"
                   />
                 </div>
-              </div>
-
-            </div>
-          </div>
-        </section>
-      ))}
-
-      {/* 이미지 갤러리 */}
-      <section className="bg-slate-900 py-28 sm:py-36">
-        <div className="mx-auto max-w-7xl px-6 lg:px-8">
-          <div className="mb-16">
-            <p className="text-sm font-semibold text-slate-400 tracking-wide mb-4">활용 사례</p>
-            <h2 className="text-4xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight font-sans">
-              입찰의 시작부터 끝까지,<br />
-              <span className="font-serif italic">Kira.</span>
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {galleryItems.map((item, idx) => (
-              <div key={idx} className="group">
-                <div className="relative overflow-hidden rounded-2xl aspect-[4/5] mb-4">
-                  <img
-                    src={item.image}
-                    alt={item.alt}
-                    loading="lazy"
-                    className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-700 ease-in-out"
-                  />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-300" />
-                </div>
-                <h3 className="text-lg font-bold text-white">{item.title}</h3>
               </div>
             ))}
           </div>
+
+          {/* Right — Title + KIRA */}
+          <div className="hidden lg:flex flex-col justify-start py-10 flex-shrink-0">
+            <h2 className="text-5xl font-black text-black leading-tight tracking-tight mb-6">
+              입찰의 시작부터 끝까지,
+            </h2>
+            <span className="text-[110px] font-black text-white leading-[0.9] tracking-[-3px] font-[Inter]">
+              KIRA
+            </span>
+          </div>
         </div>
-      </section>
-    </div>
+      </div>
+    </section>
   );
 };
 

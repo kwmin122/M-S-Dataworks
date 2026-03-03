@@ -1,48 +1,49 @@
 import React from 'react';
-import Button from './Button';
 
 const tiers = [
   {
-    name: "Free",
-    price: "0",
-    unit: "원/월",
+    label: 'FREE',
+    price: '₩0',
+    sub: '무료로 시작하세요',
     features: [
-      "사용자 1명",
-      "월 3회 분석",
-      "문서 5개 저장",
-      "기본 Q&A"
+      '월 5건 공고 분석',
+      '나라장터 공고 검색',
+      '기본 자격요건 추출',
+      'RFP 요약 리포트',
     ],
-    cta: "시작하기",
-    featured: false
+    cta: '무료로 시작하기',
+    featured: false,
+    action: 'start' as const,
   },
   {
-    name: "Pro",
-    price: "99,000",
-    unit: "원/월",
+    label: 'PRO',
+    price: '₩99,000',
+    sub: '/ 월',
     features: [
-      "사용자 5명",
-      "월 50회 분석",
-      "문서 100개 저장",
-      "의견 모드 포함",
-      "PDF 하이라이트"
+      '무제한 공고 분석',
+      'GO/NO-GO 자동 판단',
+      'AI 제안서 자동 생성',
+      'PPT · WBS · 실적기술서',
+      '맞춤 공고 알림',
     ],
-    cta: "시작하기",
-    featured: true
+    cta: '시작하기',
+    featured: true,
+    action: 'pro' as const,
   },
   {
-    name: "Enterprise",
-    price: "별도 협의",
-    unit: "",
+    label: 'ENTERPRISE',
+    price: '별도 협의',
+    sub: '기업 맞춤 플랜',
     features: [
-      "사용자 무제한",
-      "무제한 분석",
-      "전용 스토리지",
-      "관리자 대시보드",
-      "전담 지원"
+      'Pay 플랜 전체 기능',
+      '전담 학습 모델 구축',
+      '온프레미스 배포 옵션',
+      'SLA 보장 + 전담 지원',
     ],
-    cta: "문의하기",
-    featured: false
-  }
+    cta: '문의하기',
+    featured: false,
+    action: 'enterprise' as const,
+  },
 ];
 
 interface PricingProps {
@@ -52,73 +53,104 @@ interface PricingProps {
 }
 
 const Pricing: React.FC<PricingProps> = ({ onSelectPro, onStart, onEnterprise }) => {
+  const handleClick = (action: string) => {
+    if (action === 'pro' && onSelectPro) onSelectPro();
+    else if (action === 'start' && onStart) onStart();
+    else if (action === 'enterprise') {
+      if (onEnterprise) onEnterprise();
+      else window.location.href = 'mailto:contact@mssolutions.kr?subject=Enterprise 플랜 문의';
+    }
+  };
+
   return (
-    <div id="pricing" className="py-24 bg-white border-t border-slate-200">
+    <section id="pricing" className="bg-white py-20 lg:py-28">
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
-        <div className="mx-auto max-w-2xl text-center mb-16">
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-            합리적인 요금, 필요한 만큼
-          </h2>
-          <p className="mt-4 text-lg leading-8 text-slate-600">
-            초기 비용 없이 시작하고, 비즈니스 성장에 맞춰 확장하세요.
+        {/* Header */}
+        <div className="text-center mb-16">
+          <p className="text-xs font-bold tracking-[0.2em] text-[#0000FF] mb-4">
+            PRICING
           </p>
+          <h2 className="text-3xl sm:text-4xl lg:text-[42px] font-black text-black tracking-tight leading-tight">
+            합리적인 요금,
+            <br />
+            필요한 만큼.
+          </h2>
         </div>
-        
-        <div className="mx-auto grid max-w-md grid-cols-1 gap-8 lg:mx-0 lg:max-w-none lg:grid-cols-3">
+
+        {/* 3 Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-5xl mx-auto">
           {tiers.map((tier) => (
-            <div 
-              key={tier.name} 
-              className={`flex flex-col justify-between rounded-3xl p-8 ring-1 xl:p-10 ${
-                tier.featured 
-                  ? 'bg-slate-900 ring-slate-900 shadow-2xl scale-105 z-10' 
-                  : 'bg-white ring-slate-200 shadow-lg'
+            <div
+              key={tier.label}
+              className={`rounded p-8 flex flex-col justify-between ${
+                tier.featured
+                  ? 'bg-[#0000FF]'
+                  : tier.label === 'ENTERPRISE'
+                    ? 'bg-[#fff7ed]'
+                    : 'bg-gray-100'
               }`}
             >
               <div>
-                <div className="flex items-center justify-between gap-x-4">
-                  <h3 className={`text-lg font-semibold leading-8 ${tier.featured ? 'text-white' : 'text-slate-900'}`}>
-                    {tier.name}
-                  </h3>
-                </div>
-                <p className={`mt-4 flex items-baseline gap-x-1 ${tier.featured ? 'text-white' : 'text-slate-900'}`}>
-                  <span className="text-4xl font-bold tracking-tight">{tier.price}</span>
-                  <span className={`text-sm font-semibold ${tier.featured ? 'text-slate-300' : 'text-slate-600'}`}>{tier.unit}</span>
+                <p
+                  className={`text-xs font-bold tracking-[0.2em] mb-6 ${
+                    tier.featured ? 'text-white/60' : 'text-gray-400'
+                  }`}
+                >
+                  {tier.label}
                 </p>
-                <ul role="list" className={`mt-8 space-y-3 text-sm leading-6 ${tier.featured ? 'text-slate-300' : 'text-slate-600'}`}>
-                  {tier.features.map((feature) => (
-                    <li key={feature} className="flex gap-x-3">
-                      <svg className={`h-6 w-5 flex-none ${tier.featured ? 'text-primary-400' : 'text-primary-600'}`} viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                      </svg>
-                      {feature}
+                <div className="flex items-baseline gap-2 mb-1">
+                  <span
+                    className={`text-4xl lg:text-5xl font-black ${
+                      tier.featured ? 'text-white' : 'text-black'
+                    }`}
+                  >
+                    {tier.price}
+                  </span>
+                  <span
+                    className={`text-sm ${
+                      tier.featured ? 'text-white/60' : 'text-gray-400'
+                    }`}
+                  >
+                    {tier.sub}
+                  </span>
+                </div>
+                <div
+                  className={`h-px my-6 ${
+                    tier.featured ? 'bg-white/20' : 'bg-gray-200'
+                  }`}
+                />
+                <ul className="space-y-3">
+                  {tier.features.map((f) => (
+                    <li
+                      key={f}
+                      className={`text-sm ${
+                        tier.featured ? 'text-white' : 'text-gray-500'
+                      }`}
+                    >
+                      {f}
                     </li>
                   ))}
                 </ul>
               </div>
-              <Button
-                variant={tier.featured ? 'secondary' : 'primary'}
-                className={`mt-8 w-full ${tier.featured ? 'bg-white text-slate-900 hover:bg-slate-100' : ''}`}
-                size="md"
-                onClick={() => {
-                  if (tier.name === 'Pro' && onSelectPro) onSelectPro();
-                  else if (tier.name === 'Free' && onStart) onStart();
-                  else if (tier.name === 'Enterprise') {
-                    if (onEnterprise) onEnterprise();
-                    else window.location.href = 'mailto:contact@mssolutions.kr?subject=Enterprise 플랜 문의';
-                  }
-                }}
+              <button
+                onClick={() => handleClick(tier.action)}
+                className={`mt-8 w-full py-3 rounded text-sm font-semibold transition-colors ${
+                  tier.featured
+                    ? 'bg-white text-[#0000FF] hover:bg-gray-100'
+                    : 'bg-white text-black border border-gray-200 hover:bg-gray-50'
+                }`}
               >
                 {tier.cta}
-              </Button>
+              </button>
             </div>
           ))}
         </div>
-        
-        <p className="mt-10 text-center text-xs text-slate-500">
+
+        <p className="mt-10 text-center text-xs text-gray-400">
           VAT 별도. 요금제는 사전 공지 후 변경될 수 있습니다.
         </p>
       </div>
-    </div>
+    </section>
   );
 };
 

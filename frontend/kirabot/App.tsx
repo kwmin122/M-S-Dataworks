@@ -5,6 +5,8 @@ import Hero from './components/Hero';
 import HowItWorks from './components/HowItWorks';
 import Features from './components/Features';
 import Solutions from './components/Solutions';
+import PackageSection from './components/PackageSection';
+import Marquee from './components/Marquee';
 import Pricing from './components/Pricing';
 import Footer from './components/Footer';
 import LoginModal from './components/LoginModal';
@@ -176,7 +178,11 @@ function AppRoutes() {
       <main className="flex-grow">
         <Hero onStart={handleStart} onAlertSetup={handleAlertSetup} />
         <HowItWorks />
+        <Marquee text="/ 검색 / 분석 / 판단 / 생성 / 학습 /" />
         <Solutions />
+        <Marquee text="FULL LIFECYCLE / FULL LIFECYCLE / FULL LIFECYCLE / FULL LIFECYCLE /" bg="bg-gray-100" />
+        <PackageSection />
+        <Marquee text="/ 생성 / 학습 / 진화 / 반복 /" bg="bg-[#0000FF]" textColor="text-white" />
         <Features />
         <Pricing
           onSelectPro={() => {

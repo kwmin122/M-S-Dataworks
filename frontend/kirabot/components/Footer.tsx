@@ -1,5 +1,4 @@
 import React from 'react';
-import KiraBotLogo from './KiraBotLogo';
 
 interface FooterProps {
   onNavigate: (path: string) => void;
@@ -8,70 +7,98 @@ interface FooterProps {
 
 const Footer: React.FC<FooterProps> = ({ onNavigate, onNavigateSection }) => {
   return (
-    <footer className="bg-slate-900 text-white py-12 border-t border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-                <div className="col-span-1 md:col-span-2">
-                    <div className="flex items-center gap-2 mb-4">
-                        <KiraBotLogo size={36} className="shrink-0" />
-                        <span className="text-xl font-extrabold tracking-tight">M&S SOLUTIONS</span>
-                    </div>
-                    <p className="text-slate-400 max-w-xs">
-                        Kira — M&S SOLUTIONS의 근거 기반 입찰 분석 AI. 문서 업로드부터 GO/NO-GO 판단까지 하나의 화면에서.
-                    </p>
-                </div>
-                <div>
-                    <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-500 mb-4">제품</h3>
-                    <ul className="space-y-3">
-                        <li>
-                          <button
-                            type="button"
-                            onClick={() => onNavigateSection('product')}
-                            className="bg-transparent text-slate-300 hover:text-white"
-                          >
-                            기능 소개
-                          </button>
-                        </li>
-                    </ul>
-                </div>
-                <div>
-                    <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-500 mb-4">회사</h3>
-                    <ul className="space-y-3">
-                        <li><a href="mailto:contact@mssolutions.kr" className="text-slate-300 hover:text-white">문의</a></li>
-                    </ul>
-                </div>
-            </div>
+    <footer className="bg-[#0A0A0A] text-white py-12">
+      <div className="mx-auto max-w-7xl px-6 lg:px-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10">
+          {/* Logo & Description */}
+          <div className="lg:col-span-2">
+            <h2 className="text-2xl font-black leading-tight mb-4">
+              M&S
+              <br />
+              SOLUTIONS
+            </h2>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              공공조달 입찰 자동화 AI 플랫폼
+              <br />
+              Powered by Kira Bot
+            </p>
+          </div>
 
-            {/* Disclaimer Section */}
-            <div className="mt-12 pt-8 border-t border-slate-800">
-                <p className="text-xs text-slate-500 text-center leading-relaxed">
-                    Kira는 AI 기반 문서 분석 도구이며, 법률·재무·의료 등 전문 분야의 판단을 대체하지 않습니다.
-                    AI 응답은 참고용이며, 최종 결정은 사용자의 책임입니다.
-                </p>
-            </div>
+          {/* Product */}
+          <div>
+            <h3 className="text-[10px] font-bold tracking-[0.2em] text-gray-500 mb-4">
+              PRODUCT
+            </h3>
+            <ul className="space-y-2.5">
+              <li>
+                <button
+                  type="button"
+                  onClick={() => onNavigateSection('solutions')}
+                  className="bg-transparent text-gray-300 hover:text-white text-sm"
+                >
+                  공고 검색
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => onNavigateSection('product')}
+                  className="bg-transparent text-gray-300 hover:text-white text-sm"
+                >
+                  RFP 분석
+                </button>
+              </li>
+              <li><span className="text-gray-300 text-sm">제안서 생성</span></li>
+              <li><span className="text-gray-300 text-sm">PPT · WBS</span></li>
+            </ul>
+          </div>
 
-            <div className="mt-6 pt-6 border-t border-slate-800 flex flex-col md:flex-row justify-between items-center text-sm text-slate-500">
-                <p>&copy; 2026 M&S SOLUTIONS. All rights reserved.</p>
-                <div className="flex gap-6 mt-4 md:mt-0">
-                    <a
-                      href="/privacy"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="hover:text-slate-300"
-                    >
-                      개인정보처리방침
-                    </a>
-                    <a
-                      href="/terms"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="hover:text-slate-300"
-                    >
-                      이용약관
-                    </a>
-                </div>
-            </div>
+          {/* Company */}
+          <div>
+            <h3 className="text-[10px] font-bold tracking-[0.2em] text-gray-500 mb-4">
+              COMPANY
+            </h3>
+            <ul className="space-y-2.5">
+              <li><span className="text-gray-300 text-sm">소개</span></li>
+              <li><span className="text-gray-300 text-sm">블로그</span></li>
+              <li>
+                <a
+                  href="mailto:contact@mssolutions.kr"
+                  className="text-gray-300 hover:text-white text-sm"
+                >
+                  문의하기
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          {/* Legal */}
+          <div>
+            <h3 className="text-[10px] font-bold tracking-[0.2em] text-gray-500 mb-4">
+              LEGAL
+            </h3>
+            <ul className="space-y-2.5">
+              <li>
+                <a href="/terms" className="text-gray-300 hover:text-white text-sm">
+                  이용약관
+                </a>
+              </li>
+              <li>
+                <a href="/privacy" className="text-gray-300 hover:text-white text-sm">
+                  개인정보처리방침
+                </a>
+              </li>
+            </ul>
+          </div>
         </div>
+
+        {/* Divider + Copyright */}
+        <div className="h-px bg-gray-800 mt-12 mb-6" />
+        <div className="flex flex-col md:flex-row justify-between items-center text-[11px] text-gray-600">
+          <p>&copy; 2026 M&S Solutions. All rights reserved.</p>
+          <p className="mt-2 md:mt-0">bill.min122@gmail.com</p>
+        </div>
+      </div>
     </footer>
   );
 };
