@@ -44,7 +44,7 @@ const HowItWorks: React.FC = () => {
               <h3 className="text-lg font-bold text-black mt-6 mb-3">
                 {step.title}
               </h3>
-              <p className="text-sm text-gray-400 leading-relaxed whitespace-pre-line">
+              <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">
                 {step.desc}
               </p>
             </div>

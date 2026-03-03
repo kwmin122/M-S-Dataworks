@@ -1,0 +1,135 @@
+{
+  "total_score": 78.2,
+  "total_time_sec": 140.1,
+  "stages": [
+    {
+      "name": "Stage 1: Profile 생성",
+      "passed": true,
+      "score": 90.9,
+      "duration_sec": 0.02,
+      "metrics": {
+        "style_analysis": "LLM",
+        "has_title": true,
+        "has_doc_style": true,
+        "has_tone": true,
+        "has_strength": true,
+        "has_strategy": true,
+        "has_hwpx_rules": true,
+        "has_history": true,
+        "tone_present": true,
+        "keywords_present": true,
+        "structure_present": false,
+        "file_saved": true,
+        "profile_length": 1243,
+        "section_count": 6
+      },
+      "issues": [
+        "[FAIL] structure_present"
+      ],
+      "artifacts": {
+        "profile_md": "/var/folders/7t/r63wjmq1565dv4q79tczhy4m0000gn/T/hwpx_e2e_pultykmn/company_skills/demo_company/profile.md",
+        "skills_dir": "/var/folders/7t/r63wjmq1565dv4q79tczhy4m0000gn/T/hwpx_e2e_pultykmn/company_skills/demo_company"
+      }
+    },
+    {
+      "name": "Stage 2: HWPX 템플릿 분석",
+      "passed": true,
+      "score": 100.0,
+      "duration_sec": 0.01,
+      "metrics": {
+        "is_valid_hwpx": true,
+        "text_length": 5141,
+        "text_preview": "구리농수산물공사 공고 제 2026-3호\nCCTV 감시 시스템 구축 및 유지보수 관리·운영\n(협상에 의한 계약)\n1. 입찰에 부치는 사항\n가. 용 역 명: CCTV 감시 시스템 구축 및 유지보수 관리·운영\n나. 사업기간: 시스템 구축(계약일로부터 3개월 이내), 운영(구축일로부터 60개월)\n다. 용역금액: 금591,135,000원(오억구천일백일십삼만오천원) ",
+        "key_terms_found": 5,
+        "key_terms_total": 5,
+        "styles_extracted": 6,
+        "styles": "{'body_font': '함초롬바탕', 'heading_font': '굴림체', 'fonts': Counter({'함초롬바탕': 251, 'HY헤드라인M': 4, '문체부 돋음체': 3, '굴림체': 2, '맑은 고딕': 2, '휴먼명조': 2, '문체부 제목 돋음체': 1}), 'body_font_size': 13.0, 'heading_font_size': 22.0, 'font_sizes': Counter({13.0: 190, 12.0: 35, 15.0: 17, 14.0: 15, 21.0: 3, 18.0: 2, 22.0: 1, 11.0: 1, 8.0: 1})}",
+        "zip_entries": 10,
+        "has_section_xml": true,
+        "has_content_hpf": true,
+        "enriched_profile_has_styles": true
+      },
+      "issues": [],
+      "artifacts": {}
+    },
+    {
+      "name": "Stage 3: 제안서 생성 (Profile 적용)",
+      "passed": true,
+      "score": 100.0,
+      "duration_sec": 50.43,
+      "metrics": {
+        "docx_exists": true,
+        "docx_size": 44571,
+        "section_count": 6,
+        "total_chars": 10719,
+        "quality_issues": 1,
+        "blind_violations": 0,
+        "vague_expressions": 0,
+        "placeholders_found": [],
+        "rfp_keywords_matched": 7,
+        "rfp_keywords_total": 7,
+        "section_names": [
+          "제안 개요",
+          "사업 이해도",
+          "기술성",
+          "운영 방안",
+          "가격",
+          "수행 능력"
+        ],
+        "generation_time_sec": 49.6
+      },
+      "issues": [],
+      "artifacts": {
+        "docx_path": "/var/folders/7t/r63wjmq1565dv4q79tczhy4m0000gn/T/hwpx_e2e_pultykmn/proposals/CCTV_감시_시스템_구축_및_유지보수_관리_운영_1772359071.docx"
+      }
+    },
+    {
+      "name": "Stage 4: HWPX 출력",
+      "passed": false,
+      "score": 0.0,
+      "duration_sec": 89.63,
+      "metrics": {
+        "md_to_hwpx_element_count": 5,
+        "md_to_hwpx_has_heading": true,
+        "md_to_hwpx_has_bold": true,
+        "md_to_hwpx_has_bullet": true,
+        "outline_sections": [
+          "제안 개요",
+          "사업 이해도",
+          "기술성",
+          "운영 방안",
+          "가격",
+          "수행 능력"
+        ],
+        "template_created": true
+      },
+      "issues": [
+        "[ERROR] Connection error.\nTraceback (most recent call last):\n  File \"/opt/anaconda3/lib/python3.13/site-packages/httpx/_transports/default.py\", line 101, in map_httpcore_exceptions\n    yield\n  File \"/opt/anaconda3/lib/python3.13/site-packages/httpx/_transports/default.py\", line 250, in handle_request\n    resp = self._pool.handle_request(req)\n  File \"/opt/anaconda3/lib/python3.13/site-packages/httpcore/_sync/connection_pool.py\", line 256, in handle_request\n    raise exc from None\n  File \"/opt/anaconda3/lib/python3.13/site-packages/httpcore/_sync/connection_pool.py\", line 236, in handle_request\n    response = connection.handle_request(\n        pool_request.request\n    )\n  File \"/opt/anaconda3/lib/python3.13/site-packages/httpcore/_sync/connection.py\", line 101, in handle_request\n    raise exc\n  File \"/opt/anaconda3/lib/python3.13/site-packages/httpcore/_sync/connection.py\", line 78, in handle_request\n    stream = self._connect(request)\n  File \"/opt/anaconda3/lib/python3.13/site-packages/httpcore/_sync/connection.py\", line 124, in _connect\n    stream = self._network_backend.connect_tcp(**kwargs)\n  File \"/opt/anaconda3/lib/python3.13/site-packages/httpcore/_backends/sync.py\", line 207, in connect_tcp\n    with map_exceptions(exc_map):\n         ~~~~~~~~~~~~~~^^^^^^^^^\n  File \"/opt/anaconda3/lib/python3.13/contextlib.py\", line 162, in __exit__\n    self.gen.throw(value)\n    ~~~~~~~~~~~~~~^^^^^^^\n  File \"/opt/anaconda3/lib/python3.13/site-packages/httpcore/_exceptions.py\", line 14, in map_exceptions\n    raise to_exc(exc) from exc\nhttpcore.ConnectError: [Errno 8] nodename nor servname provided, or not known\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/opt/anaconda3/lib/python3.13/site-packages/openai/_base_client.py\", line 982, in request\n    response = self._client.send(\n        request,\n        stream=stream or self._should_stream_response_body(request=request),\n        **kwargs,\n    )\n  File \"/opt/anaconda3/lib/python3.13/site-packages/httpx/_client.py\", line 914, in send\n    response = self._send_handling_auth(\n        request,\n    ...<2 lines>...\n        history=[],\n    )\n  File \"/opt/anaconda3/lib/python3.13/site-packages/httpx/_client.py\", line 942, in _send_handling_auth\n    response = self._send_handling_redirects(\n        request,\n        follow_redirects=follow_redirects,\n        history=history,\n    )\n  File \"/opt/anaconda3/lib/python3.13/site-packages/httpx/_client.py\", line 979, in _send_handling_redirects\n    response = self._send_single_request(request)\n  File \"/opt/anaconda3/lib/python3.13/site-packages/httpx/_client.py\", line 1014, in _send_single_request\n    response = transport.handle_request(request)\n  File \"/opt/anaconda3/lib/python3.13/site-packages/httpx/_transports/default.py\", line 249, in handle_request\n    with map_httpcore_exceptions():\n         ~~~~~~~~~~~~~~~~~~~~~~~^^\n  File \"/opt/anaconda3/lib/python3.13/contextlib.py\", line 162, in __exit__\n    self.gen.throw(value)\n    ~~~~~~~~~~~~~~^^^^^^^\n  File \"/opt/anaconda3/lib/python3.13/site-packages/httpx/_transports/default.py\", line 118, in map_httpcore_exceptions\n    raise mapped_exc(message) from exc\nhttpx.ConnectError: [Errno 8] nodename nor servname provided, or not known\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/Users/min-kyungwook/Desktop/MS_SOLUTIONS/rag_engine/tests/e2e_hwpx_pipeline.py\", line 475, in stage4_hwpx_output\n    proposal_result = generate_proposal(\n        rfx_result=DEMO_RFX,\n    ...<5 lines>...\n        output_format=\"hwpx\",\n    )\n  File \"/Users/min-kyungwook/Desktop/MS_SOLUTIONS/rag_engine/tests/../proposal_orchestrator.py\", line 169, in generate_proposal\n    name, text = future.result()\n                 ~~~~~~~~~~~~~^^\n  File \"/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py\", line 449, in result\n    return self.__get_result()\n           ~~~~~~~~~~~~~~~~~^^\n  File \"/opt/anaconda3/lib/python3.13/concurrent/futures/_base.py\", line 401, in __get_result\n    raise self._exception\n  File \"/opt/anaconda3/lib/python3.13/concurrent/futures/thread.py\", line 59, in run\n    result = self.fn(*self.args, **self.kwargs)\n  File \"/Users/min-kyungwook/Desktop/MS_SOLUTIONS/rag_engine/tests/../proposal_orchestrator.py\", line 155, in _write_one\n    text = write_section(\n        section=section,\n    ...<4 lines>...\n        profile_md=profile_md,\n    )\n  File \"/Users/min-kyungwook/Desktop/MS_SOLUTIONS/rag_engine/tests/../section_writer.py\", line 109, in write_section\n    return _call_llm_for_section(prompt, api_key)\n  File \"/Users/min-kyungwook/Desktop/MS_SOLUTIONS/rag_engine/tests/../section_writer.py\", line 95, in _call_llm_for_section\n    resp = call_with_retry(_do_call)\n  File \"/Users/min-kyungwook/Desktop/MS_SOLUTIONS/rag_engine/tests/../llm_utils.py\", line 61, in call_with_retry\n    raise last_exc  # type: ignore[misc]\n    ^^^^^^^^^^^^^^\n  File \"/Users/min-kyungwook/Desktop/MS_SOLUTIONS/rag_engine/tests/../llm_utils.py\", line 33, in call_with_retry\n    return fn(*args, **kwargs)\n  File \"/Users/min-kyungwook/Desktop/MS_SOLUTIONS/rag_engine/tests/../section_writer.py\", line 85, in _do_call\n    return client.chat.completions.create(\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^\n        model=\"gpt-4o-mini\",\n        ^^^^^^^^^^^^^^^^^^^^\n    ...<5 lines>...\n        max_tokens=4000,\n        ^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/opt/anaconda3/lib/python3.13/site-packages/openai/_utils/_utils.py\", line 286, in wrapper\n    return func(*args, **kwargs)\n  File \"/opt/anaconda3/lib/python3.13/site-packages/openai/resources/chat/completions/completions.py\", line 1147, in create\n    return self._post(\n           ~~~~~~~~~~^\n        \"/chat/completions\",\n        ^^^^^^^^^^^^^^^^^^^^\n    ...<46 lines>...\n        stream_cls=Stream[ChatCompletionChunk],\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/opt/anaconda3/lib/python3.13/site-packages/openai/_base_client.py\", line 1259, in post\n    return cast(ResponseT, self.request(cast_to, opts, stream=stream, stream_cls=stream_cls))\n                           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/anaconda3/lib/python3.13/site-packages/openai/_base_client.py\", line 1014, in request\n    raise APIConnectionError(request=request) from err\nopenai.APIConnectionError: Connection error.\n"
+      ],
+      "artifacts": {}
+    },
+    {
+      "name": "Stage 5: 학습 루프",
+      "passed": true,
+      "score": 100.0,
+      "duration_sec": 0.01,
+      "metrics": {
+        "edit1_diffs": 1,
+        "edit1_rate": 0.136,
+        "edit3_promoted": 1,
+        "edit3_notifications": [
+          "학습 완료: 제안서 \"문체\" 섹션에서 반복 수정 패턴을 감지했습니다. (3회 반복) 다음 생성 시 자동 반영됩니다."
+        ],
+        "callback_triggered": true,
+        "profile_update_success": true,
+        "updated_profile_has_learning": true,
+        "version_count": 1,
+        "state_saved": true,
+        "saved_histories": 1,
+        "saved_patterns": 1
+      },
+      "issues": [],
+      "artifacts": {}
+    }
+  ]
+}

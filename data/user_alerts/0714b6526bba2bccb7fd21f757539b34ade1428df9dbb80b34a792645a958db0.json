@@ -1,0 +1,54 @@
+{
+  "email": "integration@example.com",
+  "enabled": true,
+  "schedule": "daily_2",
+  "hours": [
+    9,
+    18
+  ],
+  "companyProfile": {
+    "description": "교통신호등 제조 전문. ISO 9001 보유.",
+    "mainProducts": [
+      "교통신호등",
+      "CCTV"
+    ],
+    "excludedAreas": [
+      "안산",
+      "부산"
+    ]
+  },
+  "rules": [
+    {
+      "id": "rule1",
+      "keywords": [
+        "교통신호등",
+        "CCTV"
+      ],
+      "excludeKeywords": [
+        "유지보수"
+      ],
+      "categories": [
+        "물품"
+      ],
+      "regions": [
+        "서울",
+        "경기"
+      ],
+      "excludeRegions": [
+        "안산"
+      ],
+      "productCodes": [
+        "42101",
+        "42105"
+      ],
+      "detailedItems": [
+        "교통신호등 주"
+      ],
+      "minAmt": 50000000,
+      "maxAmt": 200000000,
+      "enabled": true
+    }
+  ],
+  "updatedAt": "2026-03-02T03:58:36.404551+00:00",
+  "createdAt": "2026-03-02T03:58:36.404551+00:00"
+}

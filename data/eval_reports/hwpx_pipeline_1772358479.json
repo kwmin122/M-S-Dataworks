@@ -1,0 +1,143 @@
+{
+  "total_score": 96.5,
+  "total_time_sec": 102.7,
+  "stages": [
+    {
+      "name": "Stage 1: Profile 생성",
+      "passed": true,
+      "score": 90.9,
+      "duration_sec": 0.02,
+      "metrics": {
+        "style_analysis": "LLM",
+        "has_title": true,
+        "has_doc_style": true,
+        "has_tone": true,
+        "has_strength": true,
+        "has_strategy": true,
+        "has_hwpx_rules": true,
+        "has_history": true,
+        "tone_present": true,
+        "keywords_present": true,
+        "structure_present": false,
+        "file_saved": true,
+        "profile_length": 1243,
+        "section_count": 6
+      },
+      "issues": [
+        "[FAIL] structure_present"
+      ],
+      "artifacts": {
+        "profile_md": "/var/folders/7t/r63wjmq1565dv4q79tczhy4m0000gn/T/hwpx_e2e_ufrbxvw7/company_skills/demo_company/profile.md",
+        "skills_dir": "/var/folders/7t/r63wjmq1565dv4q79tczhy4m0000gn/T/hwpx_e2e_ufrbxvw7/company_skills/demo_company"
+      }
+    },
+    {
+      "name": "Stage 2: HWPX 템플릿 분석",
+      "passed": true,
+      "score": 91.7,
+      "duration_sec": 0.0,
+      "metrics": {
+        "is_valid_hwpx": true,
+        "text_length": 5141,
+        "text_preview": "구리농수산물공사 공고 제 2026-3호\nCCTV 감시 시스템 구축 및 유지보수 관리·운영\n(협상에 의한 계약)\n1. 입찰에 부치는 사항\n가. 용 역 명: CCTV 감시 시스템 구축 및 유지보수 관리·운영\n나. 사업기간: 시스템 구축(계약일로부터 3개월 이내), 운영(구축일로부터 60개월)\n다. 용역금액: 금591,135,000원(오억구천일백일십삼만오천원) ",
+        "key_terms_found": 5,
+        "key_terms_total": 5,
+        "styles_extracted": 0,
+        "styles": "{}",
+        "zip_entries": 10,
+        "has_section_xml": true,
+        "has_content_hpf": true,
+        "enriched_profile_has_styles": false
+      },
+      "issues": [
+        "[INFO] No font styles extracted (common for older HWPX)"
+      ],
+      "artifacts": {}
+    },
+    {
+      "name": "Stage 3: 제안서 생성 (Profile 적용)",
+      "passed": true,
+      "score": 100.0,
+      "duration_sec": 52.33,
+      "metrics": {
+        "docx_exists": true,
+        "docx_size": 44842,
+        "section_count": 6,
+        "total_chars": 11194,
+        "quality_issues": 1,
+        "blind_violations": 0,
+        "vague_expressions": 0,
+        "placeholders_found": [],
+        "rfp_keywords_matched": 7,
+        "rfp_keywords_total": 7,
+        "section_names": [
+          "제안 개요",
+          "사업 이해도",
+          "기술성",
+          "운영 방안",
+          "가격",
+          "수행 능력"
+        ],
+        "generation_time_sec": 51.5
+      },
+      "issues": [],
+      "artifacts": {
+        "docx_path": "/var/folders/7t/r63wjmq1565dv4q79tczhy4m0000gn/T/hwpx_e2e_ufrbxvw7/proposals/CCTV_감시_시스템_구축_및_유지보수_관리_운영_1772358429.docx"
+      }
+    },
+    {
+      "name": "Stage 4: HWPX 출력",
+      "passed": true,
+      "score": 100.0,
+      "duration_sec": 50.31,
+      "metrics": {
+        "md_to_hwpx_element_count": 5,
+        "md_to_hwpx_has_heading": true,
+        "md_to_hwpx_has_bold": true,
+        "md_to_hwpx_has_bullet": true,
+        "outline_sections": [
+          "제안 개요",
+          "사업 이해도",
+          "기술성",
+          "운영 방안",
+          "가격",
+          "수행 능력"
+        ],
+        "template_created": true,
+        "hwpx_generated": true,
+        "hwpx_zip_entries": 3,
+        "placeholders_remaining": 0,
+        "injected_paragraph_count": 210,
+        "hwpx_size_bytes": 7183,
+        "generation_time_sec": 50.3
+      },
+      "issues": [],
+      "artifacts": {
+        "hwpx_path": "/var/folders/7t/r63wjmq1565dv4q79tczhy4m0000gn/T/hwpx_e2e_ufrbxvw7/proposals_hwpx/CCTV_감시_시스템_구축_및_유지보수_관리_운영_1772358479.hwpx"
+      }
+    },
+    {
+      "name": "Stage 5: 학습 루프",
+      "passed": true,
+      "score": 100.0,
+      "duration_sec": 0.01,
+      "metrics": {
+        "edit1_diffs": 1,
+        "edit1_rate": 0.136,
+        "edit3_promoted": 1,
+        "edit3_notifications": [
+          "학습 완료: 제안서 \"문체\" 섹션에서 반복 수정 패턴을 감지했습니다. (3회 반복) 다음 생성 시 자동 반영됩니다."
+        ],
+        "callback_triggered": true,
+        "profile_update_success": true,
+        "updated_profile_has_learning": true,
+        "version_count": 1,
+        "state_saved": true,
+        "saved_histories": 1,
+        "saved_patterns": 1
+      },
+      "issues": [],
+      "artifacts": {}
+    }
+  ]
+}

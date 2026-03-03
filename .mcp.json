@@ -1,0 +1,23 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/claude-code/main/.mcp.schema.json",
+  "mcpServers": {
+    "github": {
+      "command": "gh",
+      "args": ["copilot", "mcp"],
+      "description": "GitHub MCP - 이슈, PR, 리포지토리 관리",
+      "disabled": true,
+      "_comment": "사용하려면 disabled를 false로 변경하고 gh CLI 설치 필요"
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@anthropic/mcp-server-filesystem",
+        "."
+      ],
+      "description": "파일 시스템 접근",
+      "disabled": true,
+      "_comment": "필요시 활성화"
+    }
+  }
+}

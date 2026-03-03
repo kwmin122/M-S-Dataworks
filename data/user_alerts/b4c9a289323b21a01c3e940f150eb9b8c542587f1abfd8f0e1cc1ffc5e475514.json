@@ -1,0 +1,29 @@
+{
+  "email": "user@example.com",
+  "enabled": true,
+  "schedule": "daily_2",
+  "hours": [
+    9,
+    18
+  ],
+  "rules": [
+    {
+      "id": "1",
+      "keywords": [
+        "교통신호등"
+      ],
+      "excludeRegions": [
+        "안산"
+      ],
+      "productCodes": [
+        "42101"
+      ],
+      "enabled": true
+    }
+  ],
+  "companyProfile": {
+    "description": "교통신호등 제조 전문"
+  },
+  "updatedAt": "2026-03-02T03:58:36.401277+00:00",
+  "createdAt": "2026-03-02T03:58:36.401277+00:00"
+}

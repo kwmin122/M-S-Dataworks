@@ -37,7 +37,7 @@ const Solutions: React.FC = () => {
               >
                 <div className="p-4 pb-2">
                   <h3 className="text-sm font-bold text-black mb-1">{card.title}</h3>
-                  <p className="text-[10px] text-gray-400 leading-relaxed whitespace-pre-line">
+                  <p className="text-[10px] text-gray-600 leading-relaxed whitespace-pre-line">
                     {card.desc}
                   </p>
                 </div>

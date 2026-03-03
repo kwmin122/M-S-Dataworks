@@ -65,19 +65,19 @@ const docs = [
 
 const PackageSection: React.FC = () => {
   return (
-    <section className="bg-white py-20 lg:py-28">
+    <section aria-labelledby="package-heading" className="bg-white py-20 lg:py-28">
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
         {/* Header */}
         <div className="mb-16">
           <p className="text-xs font-bold tracking-[0.2em] text-[#0000FF] mb-4">
             ONE-CLICK PACKAGE
           </p>
-          <h2 className="text-3xl sm:text-4xl lg:text-[42px] font-black text-black tracking-tight leading-tight mb-6">
+          <h2 id="package-heading" className="text-3xl sm:text-4xl lg:text-[42px] font-black text-black tracking-tight leading-tight mb-6">
             GO 판정 후,
             <br />
             전체 패키지를 만듭니다.
           </h2>
-          <p className="text-sm text-gray-400 leading-relaxed max-w-2xl">
+          <p className="text-sm text-gray-600 leading-relaxed max-w-2xl">
             제안서부터 발표자료까지 — 원클릭으로 입찰 패키지 전체를 생성합니다.
             <br />
             외주 비용 300~1,000만원, 2~4주 소요되던 작업을 AI가 수 분 만에.
@@ -106,11 +106,11 @@ const PackageSection: React.FC = () => {
                 {doc.title}
               </h3>
               <ul className="space-y-1.5">
-                {doc.lines.map((line) => (
+                {doc.lines.map((line, idx) => (
                   <li
-                    key={line}
+                    key={`${doc.num}-${idx}`}
                     className={`text-[11px] leading-relaxed ${
-                      doc.featured ? 'text-white/80' : 'text-gray-400'
+                      doc.featured ? 'text-white/80' : 'text-gray-600'
                     }`}
                   >
                     {line}

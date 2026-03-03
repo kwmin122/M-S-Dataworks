@@ -93,7 +93,7 @@ const Pricing: React.FC<PricingProps> = ({ onSelectPro, onStart, onEnterprise })
               <div>
                 <p
                   className={`text-xs font-bold tracking-[0.2em] mb-6 ${
-                    tier.featured ? 'text-white/60' : 'text-gray-400'
+                    tier.featured ? 'text-white/60' : 'text-gray-600'
                   }`}
                 >
                   {tier.label}
@@ -108,7 +108,7 @@ const Pricing: React.FC<PricingProps> = ({ onSelectPro, onStart, onEnterprise })
                   </span>
                   <span
                     className={`text-sm ${
-                      tier.featured ? 'text-white/60' : 'text-gray-400'
+                      tier.featured ? 'text-white/60' : 'text-gray-600'
                     }`}
                   >
                     {tier.sub}
@@ -146,7 +146,7 @@ const Pricing: React.FC<PricingProps> = ({ onSelectPro, onStart, onEnterprise })
           ))}
         </div>
 
-        <p className="mt-10 text-center text-xs text-gray-400">
+        <p className="mt-10 text-center text-xs text-gray-600">
           VAT 별도. 요금제는 사전 공지 후 변경될 수 있습니다.
         </p>
       </div>
