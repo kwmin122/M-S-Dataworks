@@ -2514,12 +2514,15 @@ async def download_proposal_proxy(filename: str):
             resp = await client.get(f"{fastapi_url}/api/proposals/download/{filename}")
         if resp.status_code == 200:
             from fastapi.responses import Response
+            # Use ASCII-safe fallback for filename, actual UTF-8 filename in filename*
+            # RFC 2231: filename (ASCII) + filename* (UTF-8 encoded)
+            ascii_filename = "document.bin"  # Safe fallback for old browsers
             return Response(
                 content=resp.content,
                 media_type=media_type,
                 headers={
                     "Content-Disposition": (
-                        f'attachment; filename="{filename}"; '
+                        f'attachment; filename="{ascii_filename}"; '
                         f"filename*=UTF-8''{urllib.parse.quote(filename)}"
                     )
                 },
