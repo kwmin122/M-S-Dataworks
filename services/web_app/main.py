@@ -18,6 +18,7 @@ import secrets
 import shutil
 import sys
 import tempfile
+import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -1677,13 +1678,23 @@ async def analyze_uploaded_document(
     )
 
     try:
-        analysis = await asyncio.to_thread(analyzer.analyze, str(saved_path))
+        # Increase timeout for large PDFs (58+ pages can take 2-3 minutes)
+        analysis = await asyncio.wait_for(
+            asyncio.to_thread(analyzer.analyze, str(saved_path)),
+            timeout=240.0  # 4 minutes (프론트엔드 180초보다 여유있게)
+        )
+    except asyncio.TimeoutError:
+        logger.error("Document analysis timeout after 240s: %s", file.filename)
+        raise HTTPException(
+            status_code=504,
+            detail="문서 분석 시간이 초과되었습니다 (4분). 페이지 수가 너무 많거나 복잡한 문서일 수 있습니다."
+        )
     except ImportError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"문서 분석 실패: {exc}") from exc
     except Exception as exc:
-        logger.warning("Upload analysis failed: %s", exc)
+        logger.error("Upload analysis failed: %s\n%s", exc, traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"문서 분석 중 오류: {exc}") from exc
 
     # RFP 요약 + 매칭을 동시 실행 (둘 다 분석 결과만 필요, 서로 독립적)
