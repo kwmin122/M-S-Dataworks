@@ -6,7 +6,7 @@ from typing import Optional
 
 import chromadb
 
-from knowledge_models import KnowledgeCategory, KnowledgeUnit, SourceType
+from knowledge_models import KnowledgeCategory, KnowledgeUnit, SourceType, DocumentType
 
 
 class KnowledgeDB:
@@ -53,6 +53,7 @@ class KnowledgeDB:
             "is_law_based": unit.is_law_based,
             "condition": unit.condition,
             "has_conflict_flag": unit.has_conflict_flag,
+            "document_type": unit.document_type.value,
         }
 
     def add(self, unit: KnowledgeUnit) -> None:
@@ -76,12 +77,18 @@ class KnowledgeDB:
         query: str,
         top_k: int = 10,
         category: Optional[KnowledgeCategory] = None,
+        document_types: Optional[list[DocumentType]] = None,
     ) -> list[KnowledgeUnit]:
-        where = {"category": category.value} if category else None
+        where = {}
+        if category:
+            where["category"] = category.value
+        if document_types:
+            where["document_type"] = {"$in": [dt.value for dt in document_types]}
+
         results = self._collection.query(
             query_texts=[query],
             n_results=top_k,
-            where=where,
+            where=where if where else None,
         )
         units = []
         for meta in (results.get("metadatas") or [[]])[0]:
@@ -97,6 +104,7 @@ class KnowledgeDB:
                 is_law_based=meta.get("is_law_based", False),
                 condition=meta.get("condition", ""),
                 has_conflict_flag=meta.get("has_conflict_flag", False),
+                document_type=DocumentType(meta["document_type"]) if meta.get("document_type") else DocumentType.COMMON,
             ))
         units.sort(key=lambda u: u.effective_score(), reverse=True)
         return units

@@ -10,14 +10,18 @@ RUN npm run build
 FROM python:3.11-slim
 WORKDIR /app
 
-# System deps for PDF/document parsing + curl for health checks
+# System deps for PDF/document parsing + curl for health checks + 한글 폰트 (간트차트)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libglib2.0-0 curl \
+    fonts-nanum fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 # Python deps
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+
+# matplotlib 폰트 캐시 재생성 (한글 폰트 인식)
+RUN python -c "import matplotlib.pyplot as plt; plt.figure()"
 
 # App source
 COPY . .

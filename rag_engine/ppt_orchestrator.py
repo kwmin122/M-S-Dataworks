@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional
 
 from knowledge_db import KnowledgeDB
+from knowledge_models import DocumentType
 from phase2_models import PptResult, SlideType, build_rfp_context
 from ppt_slide_planner import plan_slides, generate_qna_pairs
 from ppt_content_extractor import extract_slide_content
@@ -54,7 +55,7 @@ def generate_ppt(
         kb = KnowledgeDB(persist_directory=knowledge_db_path)
         title = rfx_result.get("title", "")
         query = f"기술평가 PT 발표자료 작성 {title}"
-        units = kb.search(query, top_k=10)
+        units = kb.search(query, top_k=10, document_types=[DocumentType.PPT, DocumentType.COMMON])
         knowledge_texts = [u.rule for u in units if u.rule]
     except Exception as exc:
         logger.warning("KnowledgeDB search failed, proceeding without Layer 1: %s", exc)

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from knowledge_db import KnowledgeDB
-from knowledge_models import ProposalOutline
+from knowledge_models import ProposalOutline, DocumentType
 from phase2_models import build_rfp_context
 from proposal_planner import build_proposal_outline
 from section_writer import write_section, rewrite_section
@@ -231,7 +231,7 @@ def generate_proposal(
         search_query = f"{section.name} {section.evaluation_item}"
         if memo and memo.knowledge_hints:
             search_query += " " + " ".join(memo.knowledge_hints)
-        knowledge = kb.search(search_query, top_k=10)
+        knowledge = kb.search(search_query, top_k=10, document_types=[DocumentType.PROPOSAL, DocumentType.COMMON])
         name, text, residuals = _write_and_check_section(
             section=section,
             rfp_context=rfp_context,

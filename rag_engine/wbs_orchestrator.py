@@ -12,6 +12,7 @@ import time
 from typing import Any, Optional
 
 from knowledge_db import KnowledgeDB
+from knowledge_models import DocumentType
 from phase2_models import MethodologyType, WbsResult
 from wbs_planner import plan_wbs
 from wbs_generator import generate_wbs_xlsx, generate_gantt_chart, generate_wbs_docx
@@ -46,7 +47,7 @@ def generate_wbs(
         kb = KnowledgeDB(persist_directory=knowledge_db_path)
         title = rfx_result.get("title", "")
         query = f"수행계획서 WBS 작성 {title}"
-        units = kb.search(query, top_k=10)
+        units = kb.search(query, top_k=10, document_types=[DocumentType.WBS, DocumentType.COMMON])
         knowledge_texts = [u.rule for u in units if u.rule]
     except Exception as exc:
         logger.warning("KnowledgeDB search failed, proceeding without Layer 1: %s", exc)

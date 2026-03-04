@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 from company_db import CompanyDB
 from knowledge_db import KnowledgeDB
+from knowledge_models import DocumentType
 from phase2_models import TrackRecordDocResult, TrackRecordEntry, PersonnelEntry, build_rfp_context
 from track_record_writer import (
     select_track_records,
@@ -55,7 +56,7 @@ def generate_track_record_doc(
         kb = KnowledgeDB(persist_directory=knowledge_db_path)
         title = rfx_result.get("title", "")
         query = f"유사수행실적 기술서 경력기술서 작성 {title}"
-        units = kb.search(query, top_k=10)
+        units = kb.search(query, top_k=10, document_types=[DocumentType.TRACK_RECORD, DocumentType.COMMON])
         knowledge_texts = [u.rule for u in units if u.rule]
     except Exception as exc:
         logger.warning("KnowledgeDB search failed, proceeding without Layer 1: %s", exc)

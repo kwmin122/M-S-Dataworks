@@ -31,6 +31,15 @@ class SourceType(str, Enum):
     CONSULTANT = "consultant"
 
 
+class DocumentType(str, Enum):
+    """문서 타입별 지식 분류."""
+    PPT = "ppt"              # PT 발표자료
+    WBS = "wbs"              # 수행계획서/WBS
+    PROPOSAL = "proposal"    # 기술제안서
+    TRACK_RECORD = "track_record"  # 실적기술서
+    COMMON = "common"        # 모든 문서 타입 공통
+
+
 # Source-weighted base confidence (design doc SS2-1 Step 2-A)
 SOURCE_BASE_CONFIDENCE: dict[SourceType, float] = {
     SourceType.OFFICIAL_GUIDE: 0.85,
@@ -95,6 +104,7 @@ class KnowledgeUnit:
     condition: str = ""                         # conditional branch rule (Pass 2 CONDITIONAL)
     has_conflict_flag: bool = False             # true conflict existed (winner)
     tags: list[str] = field(default_factory=list)
+    document_type: DocumentType = DocumentType.COMMON  # 문서 타입 분류 (PPT/WBS/PROPOSAL/COMMON)
 
     def is_valid(self) -> bool:
         return bool(self.rule and self.category and self.explanation)

@@ -419,7 +419,8 @@ async def generate_proposal_v2(req: GenerateProposalV2Request):
 
 _PROPOSALS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "proposals")
 _COMPANY_DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "company_db")
-_KNOWLEDGE_DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "knowledge_db")
+# Layer 1 지식 DB는 프로젝트 루트의 data/knowledge_db (495 유닛 위치)
+_KNOWLEDGE_DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "knowledge_db")
 _SAFE_FILENAME_RE = _re.compile(r'^[a-zA-Z0-9가-힣._\-]+\.(docx|xlsx|pptx|png)$')
 
 _MIME_TYPES: dict[str, str] = {
