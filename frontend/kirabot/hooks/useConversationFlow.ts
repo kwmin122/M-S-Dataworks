@@ -1337,6 +1337,7 @@ export function useConversationFlow() {
 
             const sectionList = result.sections.map((s, i) => `${i + 1}. ${s.name}`).join('\n');
             let msg = `제안서 DOCX가 생성되었습니다! (${result.generation_time_sec}초)\n\n**섹션 구성:**\n${sectionList}`;
+            msg += `\n\n⚠️ **중요**: 서버 재시작 시 파일이 삭제됩니다. 지금 바로 다운로드하세요!`;
             if (result.docx_filename) {
               const downloadUrl = api.getProposalDownloadUrl(result.docx_filename);
               msg += `\n\n[📥 제안서 DOCX 다운로드](${downloadUrl})`;
@@ -1406,6 +1407,7 @@ export function useConversationFlow() {
 
             let msg = `수행계획서/WBS가 생성되었습니다! (${result.generation_time_sec}초)\n\n`;
             msg += `**총 ${result.total_months}개월, ${result.tasks_count}개 태스크**\n\n`;
+            msg += `⚠️ **중요**: 서버 재시작 시 파일이 삭제됩니다. 지금 바로 다운로드하세요!\n\n`;
             if (result.xlsx_filename) {
               const url = api.getFileDownloadUrl(result.xlsx_filename);
               msg += `[📊 WBS Excel 다운로드](${url})\n\n`;
@@ -1445,6 +1447,7 @@ export function useConversationFlow() {
 
             let msg = `PPT 발표자료가 생성되었습니다! (${result.generation_time_sec}초)\n\n`;
             msg += `**${result.slide_count}장, 발표시간 ${result.total_duration_min}분**\n\n`;
+            msg += `⚠️ **중요**: 서버 재시작 시 파일이 삭제됩니다. 지금 바로 다운로드하세요!\n\n`;
             if (result.pptx_filename) {
               const url = api.getFileDownloadUrl(result.pptx_filename);
               msg += `[🎯 PPT 다운로드](${url})\n\n`;
@@ -1482,6 +1485,7 @@ export function useConversationFlow() {
 
             let msg = `실적/경력 기술서가 생성되었습니다! (${result.generation_time_sec}초)\n\n`;
             msg += `**실적 ${result.track_record_count}건, 인력 ${result.personnel_count}명**\n\n`;
+            msg += `⚠️ **중요**: 서버 재시작 시 파일이 삭제됩니다. 지금 바로 다운로드하세요!\n\n`;
             if (result.docx_filename) {
               const url = api.getFileDownloadUrl(result.docx_filename);
               msg += `[📄 실적/경력 기술서 DOCX 다운로드](${url})`;
