@@ -1109,6 +1109,40 @@ def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/debug/oauth")
+def debug_oauth(request: Request) -> dict[str, Any]:
+    """OAuth 환경변수 진단 (값은 마스킹). 관리자 전용."""
+    _require_admin(request)
+
+    google_client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+    google_client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+    google_redirect_uri = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "").strip()
+    google_post_login = os.getenv("GOOGLE_OAUTH_POST_LOGIN_URL", "").strip()
+
+    kakao_client_id = os.getenv("KAKAO_CLIENT_ID", "").strip()
+    kakao_client_secret = os.getenv("KAKAO_CLIENT_SECRET", "").strip()
+    kakao_redirect_uri = os.getenv("KAKAO_REDIRECT_URI", "").strip()
+
+    auth_cookie_secure = os.getenv("AUTH_COOKIE_SECURE", "").strip()
+
+    return {
+        "google": {
+            "client_id_set": bool(google_client_id),
+            "client_id_preview": google_client_id[:12] + "***" if google_client_id else "(empty)",
+            "client_secret_set": bool(google_client_secret),
+            "redirect_uri": google_redirect_uri or "(not set)",
+            "post_login_url": google_post_login or "(not set)",
+        },
+        "kakao": {
+            "client_id_set": bool(kakao_client_id),
+            "client_id_preview": kakao_client_id[:8] + "***" if kakao_client_id else "(empty)",
+            "client_secret_set": bool(kakao_client_secret),
+            "redirect_uri": kakao_redirect_uri or "(not set)",
+        },
+        "auth_cookie_secure": auth_cookie_secure or "0",
+    }
+
+
 @app.get("/api/debug/smtp")
 def debug_smtp(request: Request) -> dict[str, Any]:
     """이메일 환경변수 진단 (값은 마스킹). 관리자 전용."""

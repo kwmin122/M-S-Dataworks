@@ -10,9 +10,9 @@ RUN npm run build
 FROM python:3.11-slim
 WORKDIR /app
 
-# System deps for PDF/document parsing
+# System deps for PDF/document parsing + curl for health checks
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 libglib2.0-0 \
+    libgl1 libglib2.0-0 curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Python deps
@@ -29,6 +29,13 @@ COPY --from=frontend-build /app/frontend/kirabot/dist /app/frontend/kirabot/dist
 ENV PORT=8000
 EXPOSE 8000
 
-# Start from the services/web_app directory so relative imports work
-WORKDIR /app/services/web_app
-CMD ["sh", "-c", "python -c \"import uvicorn; uvicorn.run('main:app', host='0.0.0.0', port=int(__import__('os').environ.get('PORT', '8000')))\""]
+# Copy startup script
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
+# Set FASTAPI_URL for web_app → rag_engine proxy (allow override)
+ENV FASTAPI_URL=${FASTAPI_URL:-http://localhost:8001}
+
+# Start both services
+WORKDIR /app
+CMD ["/app/start.sh"]
