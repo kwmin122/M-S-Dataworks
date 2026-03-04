@@ -359,7 +359,8 @@ export type MessageAction =
   | { type: 'view_checklist' }
   | { type: 'generate_wbs' }
   | { type: 'generate_ppt' }
-  | { type: 'generate_track_record' };
+  | { type: 'generate_track_record' }
+  | { type: 'open_company_onboarding' };
 
 // ── 문서 멘션 (다중 문서 질의) ──
 
@@ -457,4 +458,28 @@ export interface Subscription {
   currentPeriodEnd?: string;
   cancelledAt?: string;
   updatedAt?: string;
+}
+
+// ── Company Onboarding ──
+export interface TrackRecordInput {
+  project_name: string;
+  client: string;
+  period: string;
+  contract_amount?: string;
+  description?: string;
+  technologies?: string[];
+}
+
+export interface PersonnelInput {
+  name: string;
+  role: string;
+  experience_years: number;
+  certifications?: string[];
+  description?: string;
+}
+
+export interface CompanyOnboardingData {
+  companyName: string;
+  trackRecord: TrackRecordInput | null;
+  personnel: PersonnelInput | null;
 }

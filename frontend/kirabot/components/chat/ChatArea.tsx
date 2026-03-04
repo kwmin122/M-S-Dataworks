@@ -4,8 +4,10 @@ import ChatHeader from './ChatHeader';
 import MessageList from './MessageList';
 import ChatInput from './ChatInput';
 import WelcomeScreen from './WelcomeScreen';
+import CompanyOnboardingModal from './CompanyOnboardingModal';
 import { useActiveConversation } from '../../hooks/useActiveConversation';
 import { useConversationFlow } from '../../hooks/useConversationFlow';
+import { useChatContext } from '../../context/ChatContext';
 import type { MessageAction, User } from '../../types';
 
 interface ChatAreaProps {
@@ -14,11 +16,42 @@ interface ChatAreaProps {
 
 const ChatArea: React.FC<ChatAreaProps> = ({ user }) => {
   const { conversation } = useActiveConversation();
+  const { dispatch } = useChatContext();
   const { startNewConversation, handleUserText, handleAction } = useConversationFlow();
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [isOnboardingModalOpen, setIsOnboardingModalOpen] = useState(false);
 
   const onAction = (action: MessageAction) => {
+    if (action.type === 'open_company_onboarding') {
+      setIsOnboardingModalOpen(true);
+      return;
+    }
     void handleAction(action);
+  };
+
+  const handleOnboardingComplete = (companyName: string) => {
+    // Update conversation with company name
+    dispatch({
+      type: 'UPDATE_CONVERSATION',
+      updates: {
+        companyProfile: {
+          companyName,
+          businessType: '',
+          businessNumber: '',
+          certifications: [],
+          regions: [],
+          employeeCount: null,
+          annualRevenue: '',
+          keyExperience: [],
+          specializations: [],
+          documents: [],
+          aiExtraction: null,
+          lastAnalyzedAt: null,
+          createdAt: new Date().toISOString(),
+        },
+      },
+    });
+    setIsOnboardingModalOpen(false);
   };
 
   const showOnboardingBanner =
@@ -96,6 +129,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({ user }) => {
       )}
       <MessageList onAction={onAction} />
       <ChatInput onSendText={(text, sourceFiles) => void handleUserText(text, sourceFiles)} onAction={onAction} />
+      <CompanyOnboardingModal
+        isOpen={isOnboardingModalOpen}
+        onClose={() => setIsOnboardingModalOpen(false)}
+        onComplete={handleOnboardingComplete}
+      />
     </div>
   );
 };

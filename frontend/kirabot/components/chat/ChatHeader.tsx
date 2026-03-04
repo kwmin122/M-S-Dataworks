@@ -110,6 +110,17 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ onAction }) => {
               <Building2 size={14} />
               회사 문서 추가
             </button>
+            {!conversation?.companyProfile && (
+              <button
+                type="button"
+                onClick={() => onAction?.({ type: 'open_company_onboarding' })}
+                className="flex items-center gap-1 rounded-md border border-green-400 bg-green-50 px-2.5 py-1 text-[13px] font-medium text-green-700 hover:bg-green-100 transition-colors"
+                disabled={state.isProcessing}
+              >
+                <Building2 size={14} />
+                회사 정보 입력 (5분)
+              </button>
+            )}
           </>
         )}
         {/* 패널 닫힌 상태에서 문서 다시 열기 */}

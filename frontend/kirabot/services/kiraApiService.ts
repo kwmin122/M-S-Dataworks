@@ -9,12 +9,14 @@ import {
   EvalBatchResponse,
   EvalJob,
   NaraAttachment,
+  PersonnelInput,
   ProfileHistoryResponse,
   ProfileMdResponse,
   ProposalSections,
   ProposalSectionsResponse,
   SessionStats,
   Subscription,
+  TrackRecordInput,
 } from '../types';
 
 const API_BASE_URL = (
@@ -895,4 +897,56 @@ export async function reassembleProposal(
     body: JSON.stringify({ docx_filename: docxFilename }),
   });
   return parseJson<{ success: boolean; docx_filename: string }>(res);
+}
+
+// ── Company DB (Onboarding) ──
+
+export async function addTrackRecord(
+  data: TrackRecordInput,
+): Promise<{ id: string; total: number }> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/track-records`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return parseJson<{ id: string; total: number }>(res);
+}
+
+export async function addPersonnel(
+  data: PersonnelInput,
+): Promise<{ id: string; total: number }> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/personnel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return parseJson<{ id: string; total: number }>(res);
+}
+
+export async function getCompanyDBProfile(): Promise<{
+  profile: {
+    company_name: string;
+    track_record_count: number;
+    personnel_count: number;
+  } | null;
+}> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/profile`);
+  return parseJson<{
+    profile: {
+      company_name: string;
+      track_record_count: number;
+      personnel_count: number;
+    } | null;
+  }>(res);
+}
+
+export async function updateCompanyDBProfile(
+  data: { company_name: string },
+): Promise<{ success: boolean }> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/profile`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return parseJson<{ success: boolean }>(res);
 }

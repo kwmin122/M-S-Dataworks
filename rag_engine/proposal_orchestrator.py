@@ -110,6 +110,7 @@ def _write_and_check_section(
     strategy_memo=None,
     middleware=None,
     total_pages: int = 50,
+    template_mode: bool = False,
 ) -> tuple[str, str, list[QualityIssue]]:
     """Write section, quality check, rewrite if critical issues found.
 
@@ -126,6 +127,7 @@ def _write_and_check_section(
         strategy_memo=strategy_memo,
         middleware=middleware,
         total_pages=total_pages,
+        template_mode=template_mode,
     )
 
     issues = check_quality(text, company_name=company_name)
@@ -168,11 +170,13 @@ def generate_proposal(
     api_key: Optional[str] = None,
     max_workers: int = 3,
     output_format: str = "docx",
+    template_mode: bool = False,
 ) -> ProposalResult:
     """Generate a complete proposal DOCX from RFP analysis result.
 
     Layer 1 (범용 지식) + Layer 2 (회사 맞춤) 결합.
     company_context가 비어있으면 CompanyDB에서 자동 빌드.
+    template_mode=True일 때는 범용 초안 + 회사 맞춤 체크박스 삽입.
     """
     import logging as _log
     _logger = _log.getLogger(__name__)
@@ -183,8 +187,8 @@ def generate_proposal(
     from llm_middleware import LLMMiddleware
     middleware = LLMMiddleware()
 
-    # 0. Build company context from CompanyDB if not provided
-    if not company_context:
+    # 0. Build company context from CompanyDB if not provided (skip in template mode)
+    if not company_context and not template_mode:
         try:
             from company_context_builder import build_company_context
             company_context = build_company_context(rfx_result, company_db_path=company_db_path)
@@ -243,6 +247,7 @@ def generate_proposal(
             strategy_memo=memo,
             middleware=middleware,
             total_pages=total_pages,
+            template_mode=template_mode,
         )
         return name, text, residuals
 
