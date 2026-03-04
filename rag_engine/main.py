@@ -85,6 +85,11 @@ async def lifespan(app: FastAPI):
         _engine_error = f"Unexpected error during startup: {exc}"
         logger.error(_engine_error)
 
+    # Ensure proposals directory exists
+    proposals_dir = os.path.join(this_dir, "data", "proposals")
+    os.makedirs(proposals_dir, exist_ok=True)
+    logger.info("Proposals directory ready at %s", proposals_dir)
+
     # Load auto-learner state
     auto_learn_dir = os.path.join(this_dir, "data", "auto_learning")
     try:
