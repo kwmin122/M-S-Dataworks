@@ -30,7 +30,7 @@ const SettingsPage: React.FC = () => {
       <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-200">
         <button
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={() => navigate('/chat')}
           className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 transition-colors"
         >
           <ArrowLeft size={16} />
