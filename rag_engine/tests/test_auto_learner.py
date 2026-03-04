@@ -24,26 +24,41 @@ def test_no_change_returns_zero():
 def test_first_edit_records_only():
     result = process_edit_feedback("c1", "섹션1", "원본 내용", "수정 내용")
     assert result.new_diffs >= 1
-    assert result.promoted_patterns == []  # 1회: 기록만
+    assert len(result.promoted_patterns) == 1  # 1회: pending 생성
+    assert result.promoted_patterns[0].status == "pending"
+    assert result.promoted_patterns[0].occurrence_count == 1
+    assert any("학습할까요" in n for n in result.notifications)
 
 
 def test_second_edit_still_candidate():
     process_edit_feedback("c2", "섹션1", "원본 내용 A", "수정 내용 B")
     result = process_edit_feedback("c2", "섹션1", "원본 내용 A", "수정 내용 B")
-    assert result.promoted_patterns == []  # 2회: 후보 마킹만
+    # 2회: 여전히 pending, 새로 promoted되지는 않음 (이미 pending이므로)
+    assert result.promoted_patterns == []
 
 
 def test_third_edit_promotes_pattern():
-    for _ in range(3):
-        result = process_edit_feedback("c3", "섹션1", "원본 내용입니다", "수정된 내용입니다")
+    # 1회: pending 생성
+    result1 = process_edit_feedback("c3", "섹션1", "원본 내용입니다", "수정된 내용입니다")
+    assert len(result1.promoted_patterns) == 1
+    assert result1.promoted_patterns[0].status == "pending"
 
-    assert len(result.promoted_patterns) >= 1
-    assert result.notifications  # 사용자 알림 있어야 함
-    assert "학습 완료" in result.notifications[0]
+    # 2회: pending 유지
+    result2 = process_edit_feedback("c3", "섹션1", "원본 내용입니다", "수정된 내용입니다")
+    # 이미 pending이므로 새로 promoted 안 됨
 
-    # Verify pattern is stored
+    # 3회: confirmed로 전환
+    result3 = process_edit_feedback("c3", "섹션1", "원본 내용입니다", "수정된 내용입니다")
+    assert len(result3.promoted_patterns) >= 1
+    assert result3.promoted_patterns[0].status == "confirmed"
+    assert result3.notifications  # 사용자 알림 있어야 함
+    assert "학습 완료" in result3.notifications[0]
+
+    # Verify pattern is stored as confirmed
     patterns = get_learned_patterns("c3")
     assert len(patterns) >= 1
+    confirmed = [p for p in patterns if p.status == "confirmed"]
+    assert len(confirmed) >= 1
 
 
 def test_already_learned_not_promoted_again():

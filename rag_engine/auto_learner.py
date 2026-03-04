@@ -4,13 +4,14 @@ When a user repeatedly edits AI-generated text in the same way (3+ times),
 the pattern is automatically promoted to Layer 2 company-specific rules.
 
 Flow:
-  1회: 기록만 (학습 안 함)
-  2회: 후보로 마킹
-  3회+: Layer 2 자동 반영 + 사용자 알림 메시지 반환
+  1회: pending 생성 (사용자 승인 대기)
+  2회: 계속 pending
+  3회+: 자동 confirmed 전환 + Layer 2 반영
 """
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 from dataclasses import dataclass, field, asdict
@@ -25,6 +26,8 @@ from diff_tracker import (
     compute_edit_rate,
 )
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class LearnedPattern:
@@ -36,6 +39,7 @@ class LearnedPattern:
     edited_example: str     # what user changed it to
     occurrence_count: int
     description: str        # human-readable description
+    status: str = "pending"  # "pending" (1-2회, 승인 대기) | "confirmed" (3회+ 또는 사용자 승인)
 
 
 @dataclass
@@ -106,38 +110,79 @@ def process_edit_feedback(
         # Update history with new diffs
         update_history(history, diffs)
 
-        # Check for patterns reaching threshold
-        recurring = detect_recurring_patterns(history, threshold=PATTERN_THRESHOLD)
-        already_learned = {p.pattern_key for p in _learned_patterns.get(composite_key, [])}
+        if composite_key not in _learned_patterns:
+            _learned_patterns[composite_key] = []
 
+        existing_patterns = {p.pattern_key: p for p in _learned_patterns[composite_key]}
         new_promoted: list[LearnedPattern] = []
         notifications: list[str] = []
-
         doc_type_label = {"proposal": "제안서", "wbs": "WBS", "ppt": "PPT", "track_record": "실적기술서"}.get(doc_type, doc_type)
 
-        for diff in recurring:
-            if diff.pattern_key in already_learned:
+        # Check all patterns in history (not just recurring ones)
+        for pattern_key, count in history.pattern_counts.items():
+            # Find corresponding diff
+            matching_diff = next((d for d in history.diffs if d.pattern_key == pattern_key), None)
+            if not matching_diff:
                 continue
 
-            pattern = LearnedPattern(
-                pattern_key=diff.pattern_key,
-                diff_type=diff.diff_type,
-                section_name=diff.section_name,
-                original_example=diff.original[:200],
-                edited_example=diff.edited[:200],
-                occurrence_count=diff.occurrence_count,
-                description=_describe_pattern(diff),
-            )
-            new_promoted.append(pattern)
+            existing_pattern = existing_patterns.get(pattern_key)
 
-            if composite_key not in _learned_patterns:
-                _learned_patterns[composite_key] = []
-            _learned_patterns[composite_key].append(pattern)
+            # Case 1: 1-2회 → pending (if not already exists)
+            if count < PATTERN_THRESHOLD:
+                if existing_pattern is None:
+                    # Create new pending pattern
+                    pattern = LearnedPattern(
+                        pattern_key=pattern_key,
+                        diff_type=matching_diff.diff_type,
+                        section_name=matching_diff.section_name,
+                        original_example=matching_diff.original[:200],
+                        edited_example=matching_diff.edited[:200],
+                        occurrence_count=count,
+                        description=_describe_pattern(matching_diff),
+                        status="pending",
+                    )
+                    _learned_patterns[composite_key].append(pattern)
+                    new_promoted.append(pattern)
+                    notifications.append(
+                        f"💡 {doc_type_label} \"{matching_diff.section_name}\" 섹션에서 새로운 작성 패턴을 발견했어요. "
+                        f"이 변경사항을 학습할까요?"
+                    )
+                elif existing_pattern.status == "pending":
+                    # Update occurrence count for pending pattern
+                    existing_pattern.occurrence_count = count
 
-            notifications.append(
-                f"학습 완료: {doc_type_label} \"{diff.section_name}\" 섹션에서 반복 수정 패턴을 감지했습니다. "
-                f"({diff.occurrence_count}회 반복) 다음 생성 시 자동 반영됩니다."
-            )
+            # Case 2: 3회+ → confirmed (auto-promote or upgrade from pending)
+            elif count >= PATTERN_THRESHOLD:
+                if existing_pattern is None:
+                    # Create new confirmed pattern
+                    pattern = LearnedPattern(
+                        pattern_key=pattern_key,
+                        diff_type=matching_diff.diff_type,
+                        section_name=matching_diff.section_name,
+                        original_example=matching_diff.original[:200],
+                        edited_example=matching_diff.edited[:200],
+                        occurrence_count=count,
+                        description=_describe_pattern(matching_diff),
+                        status="confirmed",
+                    )
+                    _learned_patterns[composite_key].append(pattern)
+                    new_promoted.append(pattern)
+                    notifications.append(
+                        f"학습 완료: {doc_type_label} \"{matching_diff.section_name}\" 섹션에서 반복 수정 패턴을 감지했습니다. "
+                        f"({count}회 반복) 다음 생성 시 자동 반영됩니다."
+                    )
+                elif existing_pattern.status == "pending":
+                    # Upgrade pending → confirmed
+                    existing_pattern.status = "confirmed"
+                    existing_pattern.occurrence_count = count
+                    new_promoted.append(existing_pattern)
+                    notifications.append(
+                        f"학습 완료: {doc_type_label} \"{matching_diff.section_name}\" 패턴이 자동 학습되었습니다. "
+                        f"({count}회 반복) 다음 생성 시 자동 반영됩니다."
+                    )
+                elif existing_pattern.status == "confirmed":
+                    # Update occurrence count only
+                    existing_pattern.occurrence_count = count
 
         # Trigger profile update callback if patterns were promoted
         if new_promoted and on_pattern_promoted:
@@ -157,11 +202,57 @@ def process_edit_feedback(
     )
 
 
-def get_learned_patterns(company_id: str, doc_type: str = "proposal") -> list[LearnedPattern]:
-    """Get all learned patterns for a company and doc type."""
+def get_learned_patterns(company_id: str, doc_type: str = "proposal", status: str | None = None) -> list[LearnedPattern]:
+    """Get learned patterns for a company and doc type.
+
+    Args:
+        company_id: Company identifier.
+        doc_type: Document type.
+        status: Filter by status ("pending"|"confirmed"|None for all).
+    """
     composite_key = f"{doc_type}:{company_id}"
     with _lock:
-        return list(_learned_patterns.get(composite_key, []))
+        patterns = _learned_patterns.get(composite_key, [])
+        if status:
+            return [p for p in patterns if p.status == status]
+        return list(patterns)
+
+
+def get_pending_patterns(company_id: str, doc_type: str = "proposal") -> list[LearnedPattern]:
+    """Get pending patterns awaiting user approval."""
+    return get_learned_patterns(company_id, doc_type, status="pending")
+
+
+def approve_pattern(company_id: str, pattern_key: str, doc_type: str = "proposal") -> bool:
+    """Approve a pending pattern → confirmed.
+
+    Returns:
+        True if pattern was found and approved, False otherwise.
+    """
+    composite_key = f"{doc_type}:{company_id}"
+    with _lock:
+        patterns = _learned_patterns.get(composite_key, [])
+        for pattern in patterns:
+            if pattern.pattern_key == pattern_key and pattern.status == "pending":
+                pattern.status = "confirmed"
+                return True
+        return False
+
+
+def reject_pattern(company_id: str, pattern_key: str, doc_type: str = "proposal") -> bool:
+    """Reject (remove) a pending pattern.
+
+    Returns:
+        True if pattern was found and removed, False otherwise.
+    """
+    composite_key = f"{doc_type}:{company_id}"
+    with _lock:
+        patterns = _learned_patterns.get(composite_key, [])
+        for i, pattern in enumerate(patterns):
+            if pattern.pattern_key == pattern_key and pattern.status == "pending":
+                patterns.pop(i)
+                return True
+        return False
 
 
 def get_edit_rate_history(company_id: str, doc_type: str = "proposal") -> list[float]:
@@ -267,6 +358,7 @@ def load_state(directory: str) -> None:
                         edited_example=p["edited_example"],
                         occurrence_count=p["occurrence_count"],
                         description=p["description"],
+                        status=p.get("status", "confirmed"),  # default to confirmed for legacy patterns
                     )
                     for p in plist
                 ]

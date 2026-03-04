@@ -837,6 +837,79 @@ async def edit_feedback_endpoint(req: EditFeedbackRequest):
     }
 
 
+@app.get("/api/pending-knowledge")
+async def get_pending_knowledge_endpoint(
+    company_id: str = Query(min_length=1, max_length=256),
+    doc_type: str = Query(default="proposal", pattern=r"^(proposal|wbs|ppt|track_record)$"),
+):
+    """Get pending patterns awaiting user approval."""
+    try:
+        from auto_learner import get_pending_patterns
+        patterns = await asyncio.to_thread(get_pending_patterns, company_id, doc_type)
+        return {
+            "patterns": [
+                {
+                    "pattern_key": p.pattern_key,
+                    "diff_type": p.diff_type,
+                    "section_name": p.section_name,
+                    "original_example": p.original_example,
+                    "edited_example": p.edited_example,
+                    "occurrence_count": p.occurrence_count,
+                    "description": p.description,
+                    "status": p.status,
+                }
+                for p in patterns
+            ]
+        }
+    except Exception as exc:
+        logger.error("get pending knowledge failed: %s", exc)
+        raise HTTPException(status_code=500, detail="대기 중인 학습 조회 실패") from exc
+
+
+class ApproveKnowledgeRequest(BaseModel):
+    company_id: str = Field(min_length=1, max_length=256)
+    pattern_key: str = Field(min_length=1)
+    doc_type: str = Field(default="proposal", pattern=r"^(proposal|wbs|ppt|track_record)$")
+
+
+@app.post("/api/approve-knowledge")
+async def approve_knowledge_endpoint(req: ApproveKnowledgeRequest):
+    """Approve a pending pattern → confirmed."""
+    try:
+        from auto_learner import approve_pattern
+        success = await asyncio.to_thread(approve_pattern, req.company_id, req.pattern_key, req.doc_type)
+        if not success:
+            raise HTTPException(status_code=404, detail="패턴을 찾을 수 없거나 이미 승인되었습니다")
+        return {"success": True, "message": "학습 패턴이 승인되었습니다"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("approve knowledge failed: %s", exc)
+        raise HTTPException(status_code=500, detail="학습 승인 실패") from exc
+
+
+class RejectKnowledgeRequest(BaseModel):
+    company_id: str = Field(min_length=1, max_length=256)
+    pattern_key: str = Field(min_length=1)
+    doc_type: str = Field(default="proposal", pattern=r"^(proposal|wbs|ppt|track_record)$")
+
+
+@app.delete("/api/reject-knowledge")
+async def reject_knowledge_endpoint(req: RejectKnowledgeRequest):
+    """Reject (remove) a pending pattern."""
+    try:
+        from auto_learner import reject_pattern
+        success = await asyncio.to_thread(reject_pattern, req.company_id, req.pattern_key, req.doc_type)
+        if not success:
+            raise HTTPException(status_code=404, detail="패턴을 찾을 수 없거나 이미 삭제되었습니다")
+        return {"success": True, "message": "학습 패턴이 거부되었습니다"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("reject knowledge failed: %s", exc)
+        raise HTTPException(status_code=500, detail="학습 거부 실패") from exc
+
+
 # ---------------------------------------------------------------------------
 # Company DB CRUD
 # ---------------------------------------------------------------------------
