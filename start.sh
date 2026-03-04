@@ -49,6 +49,14 @@ for i in {1..30}; do
   sleep 1
 done
 
+# Warmup: Initialize ChromaDB before accepting user requests
+echo "Warming up ChromaDB..."
+if ! curl -s -f http://localhost:8001/warmup > /dev/null 2>&1; then
+  echo "WARNING: ChromaDB warmup failed, but continuing anyway"
+  echo "First user request may experience initialization delay"
+fi
+echo "ChromaDB warmup completed"
+
 # Start web_app in foreground on $PORT (Railway default)
 echo "Starting web_app on port ${PORT:-8000}..."
 cd /app/services/web_app

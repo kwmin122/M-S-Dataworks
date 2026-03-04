@@ -132,6 +132,53 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/healthz")
+async def healthz() -> dict[str, str]:
+    """
+    Readiness probe. Checks if RAG stack is loaded.
+    Returns 503 if RAG engine failed to initialize.
+    """
+    if _engine_error or _rag_engine_cls is None:
+        raise HTTPException(
+            status_code=503,
+            detail=f"RAG engine unavailable: {_engine_error or 'stack not loaded'}",
+        )
+    return {"status": "ready"}
+
+
+@app.get("/warmup")
+async def warmup() -> dict[str, str]:
+    """
+    Warmup endpoint to initialize ChromaDB on startup.
+    Creates a RAGEngine instance to trigger ChromaDB collection loading.
+    """
+    if _engine_error or _rag_engine_cls is None:
+        raise HTTPException(
+            status_code=503,
+            detail=f"RAG engine unavailable: {_engine_error or 'stack not loaded'}",
+        )
+
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="OPENAI_API_KEY environment variable is not set.",
+        )
+
+    try:
+        # Create RAGEngine instance to trigger ChromaDB initialization
+        this_dir = os.path.dirname(os.path.abspath(__file__))
+        persist_dir = os.path.join(this_dir, "data", "vectordb")
+        _ = _rag_engine_cls(persist_directory=persist_dir)
+        return {"status": "warmed_up", "message": "ChromaDB initialized successfully"}
+    except Exception as exc:
+        logger.error("Warmup failed: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail=f"Warmup failed: {exc}",
+        )
+
+
 @app.post("/api/analyze-bid", response_model=AnalyzeBidResponse)
 async def analyze_bid(request: AnalyzeBidRequest) -> AnalyzeBidResponse:
     """
