@@ -440,6 +440,38 @@ class DocumentParser:
             metadata={"file_type": "docx"},
         )
 
+    @staticmethod
+    def _table_to_markdown(table) -> str:
+        """pdfplumber 표 데이터 → GFM 마크다운 테이블.
+
+        Args:
+            table: list[list] — pdfplumber extract_tables() 결과
+
+        Returns:
+            마크다운 테이블 문자열. 행 1개 이하면 빈 문자열.
+        """
+        if not table or len(table) < 2:
+            return ""
+
+        def _cell(v):
+            s = str(v or "").strip()
+            return s.replace("|", "\\|").replace("\n", " ")
+
+        header = [_cell(c) for c in table[0]]
+        col_count = len(header)
+        lines = [
+            "| " + " | ".join(header) + " |",
+            "| " + " | ".join(["---"] * col_count) + " |",
+        ]
+
+        for row in table[1:]:
+            cells = [_cell(c) for c in row]
+            while len(cells) < col_count:
+                cells.append("")
+            lines.append("| " + " | ".join(cells[:col_count]) + " |")
+
+        return "\n".join(lines)
+
     def _parse_pdf(self, path: Path) -> ParsedDocument:
         pages: list[str] = []
 
