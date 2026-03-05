@@ -481,8 +481,25 @@ class DocumentParser:
 
             with pdfplumber.open(str(path)) as pdf:
                 for page in pdf.pages:
+                    parts: list[str] = []
+
+                    # 텍스트 추출
                     page_text = page.extract_text() or ""
-                    normalized = self.chunker._normalize_text(page_text)
+                    if page_text.strip():
+                        parts.append(page_text)
+
+                    # 표 추출 → 마크다운 변환
+                    try:
+                        tables = page.extract_tables() or []
+                        for table in tables:
+                            md = self._table_to_markdown(table)
+                            if md:
+                                parts.append(md)
+                    except Exception:
+                        pass  # 표 추출 실패 시 텍스트만 사용
+
+                    combined = "\n\n".join(parts)
+                    normalized = self.chunker._normalize_text(combined)
                     pages.append(normalized)
         except ImportError:
             pass

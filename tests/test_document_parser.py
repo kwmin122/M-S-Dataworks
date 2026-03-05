@@ -74,3 +74,60 @@ class TestTableToMarkdown:
         result = DocumentParser._table_to_markdown(table)
         assert "첫째줄 둘째줄" in result
         assert "\n" not in result.split("\n")[2]
+
+
+class TestPdfTableIntegration:
+    """_parse_pdf() 표 추출 통합 테스트."""
+
+    def test_parse_pdf_with_tables_mock(self, tmp_path):
+        """pdfplumber 표 추출이 page text에 포함되는지."""
+        from unittest.mock import patch, MagicMock
+
+        parser = DocumentParser()
+
+        # parse()가 path.exists() 체크하므로 더미 파일 생성
+        pdf_path = tmp_path / "test.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4 dummy")
+
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = "일반 텍스트 내용"
+        mock_page.extract_tables.return_value = [
+            [["항목", "점수"], ["사업이해", "15"], ["기술방안", "25"]],
+        ]
+
+        mock_pdf = MagicMock()
+        mock_pdf.pages = [mock_page]
+        mock_pdf.__enter__ = lambda s: s
+        mock_pdf.__exit__ = MagicMock(return_value=False)
+
+        with patch("pdfplumber.open", return_value=mock_pdf):
+            doc = parser.parse(str(pdf_path))
+
+        assert "일반 텍스트 내용" in doc.text
+        assert "| 항목 | 점수 |" in doc.text
+        assert "| 사업이해 | 15 |" in doc.text
+
+    def test_parse_pdf_no_tables(self, tmp_path):
+        """표 없는 PDF → 기존 동작 유지."""
+        from unittest.mock import patch, MagicMock
+
+        parser = DocumentParser()
+
+        # parse()가 path.exists() 체크하므로 더미 파일 생성
+        pdf_path = tmp_path / "test.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4 dummy")
+
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = "텍스트만 있는 페이지"
+        mock_page.extract_tables.return_value = []
+
+        mock_pdf = MagicMock()
+        mock_pdf.pages = [mock_page]
+        mock_pdf.__enter__ = lambda s: s
+        mock_pdf.__exit__ = MagicMock(return_value=False)
+
+        with patch("pdfplumber.open", return_value=mock_pdf):
+            doc = parser.parse(str(pdf_path))
+
+        assert "텍스트만 있는 페이지" in doc.text
+        assert "|" not in doc.text
