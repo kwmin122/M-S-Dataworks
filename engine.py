@@ -17,6 +17,7 @@ from typing import Any, Optional
 from dataclasses import dataclass, field
 
 from document_parser import DocumentParser, TextChunk
+from korean_tokenizer import tokenize_ko
 
 try:
     from rank_bm25 import BM25Okapi as _BM25Okapi
@@ -324,7 +325,7 @@ class RAGEngine:
                     "metadata": m,
                 })
             if docs:
-                self._bm25 = _BM25Okapi([d.split() for d in docs])
+                self._bm25 = _BM25Okapi([tokenize_ko(d) for d in docs])
             self._bm25_dirty = False
         except Exception as exc:
             print(f"⚠️ BM25 인덱스 재구성 실패 (벡터 검색으로 fallback): {exc}")
@@ -335,6 +336,49 @@ class RAGEngine:
         if not filter_metadata:
             return True
         return all(metadata.get(k) == v for k, v in filter_metadata.items())
+
+    @staticmethod
+    def _mmr_rerank(
+        candidates: list,
+        top_k: int,
+        lambda_param: float = 0.7,
+    ) -> list:
+        """MMR(Maximal Marginal Relevance) 리랭킹.
+
+        관련성(lambda)과 다양성(1-lambda)을 균형.
+        """
+        if len(candidates) <= top_k:
+            return candidates
+
+        from difflib import SequenceMatcher
+
+        selected = []
+        remaining = list(candidates)
+
+        # 첫 번째: 가장 높은 RRF 점수
+        remaining.sort(key=lambda r: r.score, reverse=True)
+        selected.append(remaining.pop(0))
+
+        while len(selected) < top_k and remaining:
+            best_score = -float("inf")
+            best_idx = 0
+
+            for i, cand in enumerate(remaining):
+                relevance = cand.score
+                max_sim = 0.0
+                for sel in selected:
+                    sim = SequenceMatcher(None, cand.text[:200], sel.text[:200]).ratio()
+                    max_sim = max(max_sim, sim)
+
+                mmr = lambda_param * relevance - (1 - lambda_param) * max_sim
+
+                if mmr > best_score:
+                    best_score = mmr
+                    best_idx = i
+
+            selected.append(remaining.pop(best_idx))
+
+        return selected
 
     def _search_hybrid(
         self,
@@ -356,48 +400,54 @@ class RAGEngine:
             return self._search_vector(query, top_k, filter_metadata)
 
         # BM25 점수 (후보 인덱스만)
-        full_scores = self._bm25.get_scores(query.split())
+        full_scores = self._bm25.get_scores(tokenize_ko(query))
         candidate_scores = [(orig_idx, full_scores[orig_idx]) for orig_idx, _ in candidates]
         bm25_ranked = sorted(candidate_scores, key=lambda x: x[1], reverse=True)
 
         # 2) 벡터 검색 결과
         vector_results = self._search_vector(query, top_k * 2, filter_metadata)
 
-        # 3) RRF 결합 (k=60 표준) — chunk_key 기준 통일
+        # 3) RRF 결합 (k=60 표준, BM25 7:3 가중) — chunk_key 기준 통일
         K = 60
+        BM25_WEIGHT = 0.7
+        VECTOR_WEIGHT = 0.3
         rrf: dict = {}
 
-        # BM25 기여 (chunk_key 사용)
+        # BM25 기여 (70% 가중)
         for rank, (orig_idx, _) in enumerate(bm25_ranked[:top_k * 2]):
             ck = self._bm25_entries[orig_idx]["chunk_key"]
-            rrf[ck] = rrf.get(ck, 0.0) + 1.0 / (K + rank + 1)
+            rrf[ck] = rrf.get(ck, 0.0) + BM25_WEIGHT * (1.0 / (K + rank + 1))
 
-        # 벡터 기여 (동일 chunk_key)
+        # 벡터 기여 (30% 가중)
         for rank, vr in enumerate(vector_results):
             ck = f"{vr.source_file}_{vr.chunk_id}"
-            rrf[ck] = rrf.get(ck, 0.0) + 1.0 / (K + rank + 1)
+            rrf[ck] = rrf.get(ck, 0.0) + VECTOR_WEIGHT * (1.0 / (K + rank + 1))
 
         # 4) 전체 후보 풀 구성: 벡터 결과 + BM25-only 엔트리
         vector_by_key = {f"{r.source_file}_{r.chunk_id}": r for r in vector_results}
         bm25_by_key   = {e["chunk_key"]: e for _, e in candidates}
 
         ranked_keys = sorted(rrf, key=rrf.__getitem__, reverse=True)
-        final: list[SearchResult] = []
+        pool: list[SearchResult] = []  # 확대 후보 풀
         for ck in ranked_keys:
-            if len(final) >= top_k:
+            if len(pool) >= top_k * 3:  # MMR 입력용 확대 풀
                 break
             if ck in vector_by_key:
-                final.append(vector_by_key[ck])
+                sr = vector_by_key[ck]
+                sr.score = rrf[ck]  # RRF 점수로 교체
+                pool.append(sr)
             elif ck in bm25_by_key:
                 entry = bm25_by_key[ck]
-                final.append(SearchResult(
+                pool.append(SearchResult(
                     text=entry["doc"],
                     score=rrf[ck],
                     source_file=entry["metadata"].get("source_file", "unknown"),
                     chunk_id=entry["metadata"].get("chunk_id", -1),
                     metadata=entry["metadata"],
                 ))
-        return final
+
+        # MMR 리랭킹 → 최종 top_k
+        return self._mmr_rerank(pool, top_k)
     
     def search_multiple(
         self,
