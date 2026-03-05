@@ -12,6 +12,9 @@ pdfplumber>=0.9.0
 
 # 📊 RAG 파이프라인
 chromadb>=0.4.0
+rank-bm25>=0.2.2
+kiwipiepy>=0.18.0
+umap-learn>=0.5.0
 
 # 📝 문서 파싱
 python-docx>=0.8.11
