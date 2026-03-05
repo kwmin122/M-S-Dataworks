@@ -60,3 +60,57 @@ def test_summarize_cluster():
         summary = indexer._summarize_texts(texts)
 
     assert "요약" in summary
+
+
+def test_raptor_integration_with_engine():
+    """engine.py와 RAPTOR 통합 — 요약 노드가 ChromaDB에 저장."""
+    from unittest.mock import patch, MagicMock
+    import time
+    from engine import RAGEngine
+
+    class _FakeEF:
+        def __call__(self, input):
+            return [[0.1] * 256 for _ in input]
+        def name(self):
+            return "default"
+
+    engine = RAGEngine(
+        persist_directory="/tmp/test_raptor_engine",
+        collection_name=f"raptor_test_{int(time.time() * 1e6)}",
+        embedding_function=_FakeEF(),
+        hybrid_enabled=False,
+    )
+    engine._raptor_enabled = True
+
+    # Mock the RaptorIndexer
+    from raptor_indexer import RaptorIndexer, RaptorNode
+    mock_indexer = MagicMock(spec=RaptorIndexer)
+    mock_indexer.min_chunks = 3
+    mock_indexer.build_tree.return_value = [
+        RaptorNode(text="요약 노드 1", level=1, source_chunks=[0, 1]),
+        RaptorNode(text="요약 노드 2", level=1, source_chunks=[2, 3]),
+    ]
+    engine._raptor = mock_indexer
+
+    # Add enough chunks to trigger RAPTOR (need >= min_chunks=3)
+    for i in range(5):
+        engine.add_text_directly(f"청크 {i}: 테스트 내용 번호 {i}", f"source_{i}")
+
+    # Note: add_text_directly doesn't trigger RAPTOR (only add_document does)
+    # So let's test add_document with a mock
+    from document_parser import TextChunk
+    mock_chunks = [
+        TextChunk(text=f"청크 {i}", chunk_id=i, source_file="test.pdf")
+        for i in range(5)
+    ]
+
+    with patch.object(engine.parser, 'parse_and_chunk', return_value=mock_chunks):
+        engine.add_document("test.pdf")
+
+    # Verify RAPTOR build_tree was called
+    mock_indexer.build_tree.assert_called_once()
+
+    # Verify summary nodes are in collection (5 original + 2 raptor)
+    count = engine.collection.count()
+    # 5 from add_text_directly + 5 from add_document + 2 raptor nodes = 12
+    assert count >= 12, f"Expected >= 12 docs, got {count}"

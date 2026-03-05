@@ -94,6 +94,16 @@ class RAGEngine:
         self._bm25_dirty: bool = False
         self._bm25_lock = threading.Lock()
 
+        # RAPTOR 트리 인덱싱 설정
+        self._raptor_enabled: bool = os.getenv("RAPTOR_ENABLED", "0") == "1"
+        self._raptor = None
+        if self._raptor_enabled:
+            try:
+                from raptor_indexer import RaptorIndexer
+                self._raptor = RaptorIndexer()
+            except ImportError:
+                self._raptor_enabled = False
+
         # STEP 1: ChromaDB 초기화
         self._init_vectordb()
     
@@ -211,6 +221,27 @@ class RAGEngine:
         )
 
         self._bm25_dirty = True
+
+        # RAPTOR 트리 빌드 (옵트인)
+        if self._raptor_enabled and self._raptor and len(chunks) >= self._raptor.min_chunks:
+            try:
+                texts = [c.text for c in chunks]
+                tree_nodes = self._raptor.build_tree(texts)
+                if tree_nodes:
+                    rap_ids = [n.node_id for n in tree_nodes]
+                    rap_docs = [n.text for n in tree_nodes]
+                    rap_metas = [{
+                        "source_file": os.path.basename(file_path),
+                        "chunk_id": -1,
+                        "page_number": -1,
+                        "type": "raptor_summary",
+                        "raptor_level": n.level,
+                    } for n in tree_nodes]
+                    self.collection.add(ids=rap_ids, documents=rap_docs, metadatas=rap_metas)
+                    self._bm25_dirty = True
+            except Exception as exc:
+                print(f"⚠️ RAPTOR 트리 빌드 실패 (원본 청크는 정상 저장): {exc}")
+
         print(f"✅ 문서 추가 완료: {os.path.basename(file_path)} ({len(chunks)}개 청크)")
         return len(chunks)
     
