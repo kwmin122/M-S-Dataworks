@@ -22,7 +22,7 @@
 
 ---
 
-## 1. Kiwi BM25 + Vector 앙상블 (7:3 가중 RRF)
+## 1. Kiwi BM25 + Vector 앙상블 (7:3 가중 RRF + MMR 리랭킹)
 
 ### 문제
 ```python
@@ -81,6 +81,12 @@ rrf[ck] += BM25_WEIGHT * (1.0 / (K + rank + 1))
 # 벡터 기여
 rrf[ck] += VECTOR_WEIGHT * (1.0 / (K + rank + 1))
 ```
+
+**MMR(Maximal Marginal Relevance) 리랭킹:**
+- LangChain `EnsembleRetriever(search_type="mmr")` 패턴을 LangChain 없이 직접 구현
+- 가중 RRF 후 MMR 리랭킹 → 관련성(λ=0.7) + 다양성(1-λ=0.3)
+- `difflib.SequenceMatcher`로 텍스트 유사도 계산 → 중복 청크 페널티
+- 효과: 같은 섹션의 유사한 청크가 연속 배치되는 것을 방지, 검색 결과의 정보 커버리지 향상
 
 **왜 FAISS 별도 추가 안 하는가:**
 - ChromaDB 내부가 이미 HNSW (≈ FAISS IVF) — 동일 dense retrieval 성능
