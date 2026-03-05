@@ -407,7 +407,7 @@ export interface CompanyDbStats {
   total_knowledge_units: number;
 }
 
-export async function addTrackRecord(record: TrackRecord): Promise<{ id: string; total: number }> {
+export async function addTrackRecord(record: TrackRecordInput): Promise<{ id: string; total: number }> {
   const res = await fetchWithError(`${API_BASE_URL}/api/company-db/track-records`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -416,7 +416,7 @@ export async function addTrackRecord(record: TrackRecord): Promise<{ id: string;
   return parseJson<{ id: string; total: number }>(res);
 }
 
-export async function addPersonnel(person: Personnel): Promise<{ id: string; total: number }> {
+export async function addPersonnel(person: PersonnelInput): Promise<{ id: string; total: number }> {
   const res = await fetchWithError(`${API_BASE_URL}/api/company-db/personnel`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -897,30 +897,6 @@ export async function reassembleProposal(
     body: JSON.stringify({ docx_filename: docxFilename }),
   });
   return parseJson<{ success: boolean; docx_filename: string }>(res);
-}
-
-// ── Company DB (Onboarding) ──
-
-export async function addTrackRecord(
-  data: TrackRecordInput,
-): Promise<{ id: string; total: number }> {
-  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/track-records`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  return parseJson<{ id: string; total: number }>(res);
-}
-
-export async function addPersonnel(
-  data: PersonnelInput,
-): Promise<{ id: string; total: number }> {
-  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/personnel`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  return parseJson<{ id: string; total: number }>(res);
 }
 
 export async function getCompanyDBProfile(): Promise<{
