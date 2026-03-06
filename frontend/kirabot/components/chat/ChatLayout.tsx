@@ -4,6 +4,7 @@ import { usePersistedConversations } from '../../hooks/usePersistedConversations
 import Sidebar from './Sidebar';
 import ChatArea from './ChatArea';
 import ContextPanel from './ContextPanel';
+import UserGuide from './UserGuide';
 import type { User } from '../../types';
 
 interface ChatLayoutProps {
@@ -16,7 +17,7 @@ interface ChatLayoutProps {
 function ChatLayoutInner({ user, onLogout, onNavigateHome }: ChatLayoutProps) {
   usePersistedConversations();
 
-  const { state } = useChatContext();
+  const { state, dispatch } = useChatContext();
   const hasPanelContent = state.contextPanel.type !== 'none';
 
   // 패널 비율 (0~1, 기본 0.5 = 반반)
@@ -59,9 +60,13 @@ function ChatLayoutInner({ user, onLogout, onNavigateHome }: ChatLayoutProps) {
     <div className="flex h-screen overflow-hidden bg-slate-50">
       <Sidebar user={user} onLogout={onLogout} onHome={onNavigateHome} />
       <div className="flex flex-1 min-w-0 h-full overflow-hidden">
-        {/* Chat area */}
+        {/* Chat area or User Guide */}
         <div style={hasPanelContent ? { flex: `${1 - panelRatio}` } : undefined} className={hasPanelContent ? 'min-w-0 h-full overflow-hidden' : 'flex-1 min-w-0 h-full overflow-hidden'}>
-          <ChatArea user={user} />
+          {state.currentView === 'guide' ? (
+            <UserGuide onClose={() => dispatch({ type: 'SET_CURRENT_VIEW', view: 'chat' })} />
+          ) : (
+            <ChatArea user={user} />
+          )}
         </div>
         {/* Context panel */}
         {hasPanelContent && (

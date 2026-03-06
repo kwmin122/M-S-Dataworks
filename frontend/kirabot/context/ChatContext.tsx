@@ -15,6 +15,7 @@ export interface ChatState {
   sidebarCollapsed: boolean;
   contextPanel: ContextPanelContent;
   isProcessing: boolean;
+  currentView: 'chat' | 'guide';
 }
 
 const initialState: ChatState = {
@@ -23,6 +24,7 @@ const initialState: ChatState = {
   sidebarCollapsed: false,
   contextPanel: { type: 'none' },
   isProcessing: false,
+  currentView: 'chat',
 };
 
 // ── Actions ──
@@ -39,7 +41,8 @@ type ChatAction =
   | { type: 'SET_PROCESSING'; value: boolean }
   | { type: 'SET_SIDEBAR_COLLAPSED'; value: boolean }
   | { type: 'UPDATE_CONVERSATION'; conversationId: string; updates: Partial<Conversation> }
-  | { type: 'LOAD_CONVERSATIONS'; conversations: Conversation[]; activeId: string | null };
+  | { type: 'LOAD_CONVERSATIONS'; conversations: Conversation[]; activeId: string | null }
+  | { type: 'SET_CURRENT_VIEW'; view: 'chat' | 'guide' };
 
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
@@ -136,6 +139,9 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         conversations: action.conversations,
         activeConversationId: action.activeId,
       };
+
+    case 'SET_CURRENT_VIEW':
+      return { ...state, currentView: action.view };
 
     default:
       return state;

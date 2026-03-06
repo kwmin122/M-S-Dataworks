@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { MessageSquare, Bell, TrendingUp, Shield } from 'lucide-react';
+import { MessageSquare, Bell, TrendingUp, Shield, BookOpen } from 'lucide-react';
 import { useChatContext } from '../../context/ChatContext';
 import { useConversationFlow } from '../../hooks/useConversationFlow';
 import SidebarHeader from './SidebarHeader';
@@ -69,6 +69,24 @@ const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, onHome }) => {
           );
         })}
       </nav>
+      {/* User Guide Button (Chat screen only) */}
+      {location.pathname === '/chat' && (
+        <div className="px-2 py-2 border-b border-white/10">
+          <button
+            type="button"
+            onClick={() => dispatch({ type: 'SET_CURRENT_VIEW', view: state.currentView === 'guide' ? 'chat' : 'guide' })}
+            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              state.currentView === 'guide'
+                ? 'bg-sidebar-active/20 text-white'
+                : 'text-slate-400 hover:bg-sidebar-hover hover:text-white'
+            } ${collapsed ? 'justify-center px-0' : ''}`}
+            title={collapsed ? '사용 가이드' : undefined}
+          >
+            <BookOpen size={18} className="shrink-0" />
+            {!collapsed && <span>사용 가이드</span>}
+          </button>
+        </div>
+      )}
       <ConversationList
         conversations={state.conversations}
         activeId={state.activeConversationId}
