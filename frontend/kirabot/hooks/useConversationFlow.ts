@@ -481,7 +481,7 @@ export function useConversationFlow() {
         } as InlineFormMessage);
       } else if (value === 'setup_alert') {
         trackEvent('chat_started', { mode: 'alert_setup' });
-        navigate('/settings/alerts');
+        navigate('/alerts');
       } else if (value === 'company_onboarding') {
         trackEvent('chat_started', { mode: 'company_onboarding' });
         pushText('회사 역량 DB를 구축합니다. 먼저 기본 정보를 입력해주세요.');

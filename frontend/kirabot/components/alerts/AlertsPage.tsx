@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, Save, X } from 'lucide-react';
+import { Bell, Save, X, AlertCircle } from 'lucide-react';
 import CompanyProfileSection from './CompanyProfileSection';
 import AlertFilterSection from './AlertFilterSection';
 import { getUserAlertConfig, saveUserAlertConfig } from '../../services/kiraApiService';
@@ -147,6 +147,18 @@ export const AlertsPage: React.FC = () => {
               aria-label="전체 활성화"
             />
           </label>
+        </div>
+      </div>
+
+      {/* Email Sending Notice Banner */}
+      <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-6 py-3">
+        <div className="mx-auto flex max-w-3xl items-start gap-3">
+          <AlertCircle size={18} className="mt-0.5 shrink-0 text-amber-600" />
+          <div className="flex-1">
+            <p className="text-sm text-amber-800">
+              <strong>알림 설정이 저장됩니다.</strong> 실제 이메일 발송 기능은 현재 개발 중입니다.
+            </p>
+          </div>
         </div>
       </div>
 

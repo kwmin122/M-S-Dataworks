@@ -18,7 +18,6 @@ import ProtectedRoute from './components/layout/ProtectedRoute';
 import AppShell from './components/layout/AppShell';
 import ChatPage from './components/chat/ChatPage';
 import DashboardPage from './components/dashboard/DashboardPage';
-import AlertSettingsPage from './components/settings/AlertSettingsPage';
 import SettingsPage from './components/settings/SettingsPage';
 import SettingsGeneral from './components/settings/SettingsGeneral';
 import SettingsAccount from './components/settings/SettingsAccount';
@@ -232,7 +231,6 @@ function AppRoutes() {
           </ProtectedRoute>
         }>
           <Route path="/chat" element={<ChatPage user={user} />} />
-          <Route path="/settings/alerts" element={<AlertSettingsPage />} />
           <Route path="/alerts" element={<AlertsPage />} />
           <Route path="/forecast" element={<ForecastPage />} />
           <Route path="/admin" element={user?.isAdmin ? <AdminPage /> : <Navigate to="/chat" replace />} />
