@@ -185,7 +185,8 @@ export type ChatMessageType =
   | 'inline_form'
   | 'file_upload'
   | 'status'
-  | 'checklist';
+  | 'checklist'
+  | 'learning_suggestion';
 
 export interface BaseChatMessage {
   id: string;
@@ -268,6 +269,24 @@ export interface ChecklistChatMessage extends BaseChatMessage {
   mandatory_count: number;
 }
 
+export interface LearnedPattern {
+  pattern_key: string;
+  diff_type: string;
+  section_name: string;
+  original_example: string;
+  edited_example: string;
+  occurrence_count: number;
+  description: string;
+  status: 'pending' | 'confirmed';
+}
+
+export interface LearningSuggestionMessage extends BaseChatMessage {
+  type: 'learning_suggestion';
+  text: string;
+  patterns: LearnedPattern[];
+  doc_type: string;
+}
+
 export type ChatMessage =
   | TextChatMessage
   | ButtonChoiceMessage
@@ -276,7 +295,8 @@ export type ChatMessage =
   | InlineFormMessage
   | FileUploadMessage
   | StatusChatMessage
-  | ChecklistChatMessage;
+  | ChecklistChatMessage
+  | LearningSuggestionMessage;
 
 // ── 대화 Phase ──
 
@@ -360,7 +380,8 @@ export type MessageAction =
   | { type: 'generate_wbs' }
   | { type: 'generate_ppt' }
   | { type: 'generate_track_record' }
-  | { type: 'open_company_onboarding' };
+  | { type: 'open_company_onboarding' }
+  | { type: 'open_pending_knowledge' };
 
 // ── 문서 멘션 (다중 문서 질의) ──
 

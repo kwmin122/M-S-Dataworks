@@ -926,3 +926,40 @@ export async function updateCompanyDBProfile(
   });
   return parseJson<{ success: boolean }>(res);
 }
+
+// ── Pending Knowledge (학습 제안) ──
+
+export async function getPendingKnowledge(
+  companyId: string,
+  docType: string = 'proposal',
+): Promise<{ patterns: import('../types').LearnedPattern[] }> {
+  const url = `${API_BASE_URL}/api/pending-knowledge?company_id=${encodeURIComponent(companyId)}&doc_type=${encodeURIComponent(docType)}`;
+  const res = await fetchWithError(url);
+  return parseJson<{ patterns: import('../types').LearnedPattern[] }>(res);
+}
+
+export async function approveKnowledge(
+  companyId: string,
+  patternKey: string,
+  docType: string = 'proposal',
+): Promise<{ success: boolean; message: string }> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/approve-knowledge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ company_id: companyId, pattern_key: patternKey, doc_type: docType }),
+  });
+  return parseJson<{ success: boolean; message: string }>(res);
+}
+
+export async function rejectKnowledge(
+  companyId: string,
+  patternKey: string,
+  docType: string = 'proposal',
+): Promise<{ success: boolean; message: string }> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/reject-knowledge`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ company_id: companyId, pattern_key: patternKey, doc_type: docType }),
+  });
+  return parseJson<{ success: boolean; message: string }>(res);
+}

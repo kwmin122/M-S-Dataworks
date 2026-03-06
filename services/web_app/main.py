@@ -4493,6 +4493,36 @@ async def verify_payment_amount(request: Request) -> dict[str, Any]:
     }
 
 
+@app.get("/api/pending-knowledge")
+async def get_pending_knowledge_proxy(company_id: str, doc_type: str = "proposal") -> dict[str, Any]:
+    """Proxy to rag_engine GET /api/pending-knowledge."""
+    params = {"company_id": company_id, "doc_type": doc_type}
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(f"{RAG_ENGINE_URL}/api/pending-knowledge", params=params)
+        r.raise_for_status()
+        return r.json()
+
+
+@app.post("/api/approve-knowledge")
+async def approve_knowledge_proxy(request: Request) -> dict[str, Any]:
+    """Proxy to rag_engine POST /api/approve-knowledge."""
+    body = await request.json()
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.post(f"{RAG_ENGINE_URL}/api/approve-knowledge", json=body)
+        r.raise_for_status()
+        return r.json()
+
+
+@app.delete("/api/reject-knowledge")
+async def reject_knowledge_proxy(request: Request) -> dict[str, Any]:
+    """Proxy to rag_engine DELETE /api/reject-knowledge."""
+    body = await request.json()
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.delete(f"{RAG_ENGINE_URL}/api/reject-knowledge", json=body)
+        r.raise_for_status()
+        return r.json()
+
+
 @app.get("/{path_name:path}")
 def frontend_spa(path_name: str) -> FileResponse:
     """

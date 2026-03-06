@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { PanelLeft, PanelRight, PanelRightOpen, FileText, Building2 } from 'lucide-react';
+import { PanelLeft, PanelRight, PanelRightOpen, FileText, Building2, Lightbulb } from 'lucide-react';
 import { useActiveConversation } from '../../hooks/useActiveConversation';
 import { useChatContext } from '../../context/ChatContext';
 import type { ConversationPhase, DocumentTab, MessageAction } from '../../types';
@@ -119,6 +119,17 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ onAction }) => {
               >
                 <Building2 size={14} />
                 회사 정보 입력 (5분)
+              </button>
+            )}
+            {conversation?.companyProfile && (
+              <button
+                type="button"
+                onClick={() => onAction?.({ type: 'open_pending_knowledge' })}
+                className="flex items-center gap-1 rounded-md border border-blue-400 bg-blue-50 px-2.5 py-1 text-[13px] font-medium text-blue-700 hover:bg-blue-100 transition-colors"
+                disabled={state.isProcessing}
+              >
+                <Lightbulb size={14} />
+                학습 제안
               </button>
             )}
           </>

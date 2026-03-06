@@ -5,6 +5,7 @@ import MessageList from './MessageList';
 import ChatInput from './ChatInput';
 import WelcomeScreen from './WelcomeScreen';
 import CompanyOnboardingModal from './CompanyOnboardingModal';
+import PendingKnowledgeModal from './PendingKnowledgeModal';
 import { useActiveConversation } from '../../hooks/useActiveConversation';
 import { useConversationFlow } from '../../hooks/useConversationFlow';
 import { useChatContext } from '../../context/ChatContext';
@@ -20,10 +21,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({ user }) => {
   const { startNewConversation, handleUserText, handleAction } = useConversationFlow();
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [isOnboardingModalOpen, setIsOnboardingModalOpen] = useState(false);
+  const [isPendingKnowledgeModalOpen, setIsPendingKnowledgeModalOpen] = useState(false);
 
   const onAction = (action: MessageAction) => {
     if (action.type === 'open_company_onboarding') {
       setIsOnboardingModalOpen(true);
+      return;
+    }
+    if (action.type === 'open_pending_knowledge') {
+      setIsPendingKnowledgeModalOpen(true);
       return;
     }
     void handleAction(action);
@@ -31,26 +37,29 @@ const ChatArea: React.FC<ChatAreaProps> = ({ user }) => {
 
   const handleOnboardingComplete = (companyName: string) => {
     // Update conversation with company name
-    dispatch({
-      type: 'UPDATE_CONVERSATION',
-      updates: {
-        companyProfile: {
-          companyName,
-          businessType: '',
-          businessNumber: '',
-          certifications: [],
-          regions: [],
-          employeeCount: null,
-          annualRevenue: '',
-          keyExperience: [],
-          specializations: [],
-          documents: [],
-          aiExtraction: null,
-          lastAnalyzedAt: null,
-          createdAt: new Date().toISOString(),
+    if (conversation) {
+      dispatch({
+        type: 'UPDATE_CONVERSATION',
+        conversationId: conversation.id,
+        updates: {
+          companyProfile: {
+            companyName,
+            businessType: '',
+            businessNumber: '',
+            certifications: [],
+            regions: [],
+            employeeCount: null,
+            annualRevenue: '',
+            keyExperience: [],
+            specializations: [],
+            documents: [],
+            aiExtraction: null,
+            lastAnalyzedAt: null,
+            createdAt: new Date().toISOString(),
+          },
         },
-      },
-    });
+      });
+    }
     setIsOnboardingModalOpen(false);
   };
 
@@ -133,6 +142,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({ user }) => {
         isOpen={isOnboardingModalOpen}
         onClose={() => setIsOnboardingModalOpen(false)}
         onComplete={handleOnboardingComplete}
+      />
+      <PendingKnowledgeModal
+        isOpen={isPendingKnowledgeModalOpen}
+        onClose={() => setIsPendingKnowledgeModalOpen(false)}
+        companyId={conversation?.sessionId || 'default'}
+        docType="proposal"
       />
     </div>
   );
