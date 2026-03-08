@@ -1,0 +1,20 @@
+{
+  "company_001": {
+    "name": "삼성SDS",
+    "name_en": "Samsung SDS",
+    "established": "1985-03",
+    "revenue": 15000000000000,
+    "employees": 25000,
+    "tech_ratio": 0.72,
+    "business_areas": ["클라우드", "AI/빅데이터", "DX컨설팅", "보안"],
+    "certifications": {
+      "정보처리기사": 1200,
+      "PMP": 450,
+      "AWS_SAA": 380,
+      "정보보안기사": 650
+    },
+    "major_clients": ["행정안전부", "국방부", "금융위원회"],
+    "project_categories": ["공공SI", "클라우드", "금융IT", "AI/빅데이터"],
+    "real_benchmark": true
+  }
+}
