@@ -35,13 +35,13 @@ MONITOR_PID=$!
 
 # Wait for rag_engine to be ready (health check polling)
 echo "Waiting for rag_engine to be ready..."
-for i in {1..30}; do
+for i in {1..20}; do
   if curl -s http://localhost:8001/healthz > /dev/null 2>&1; then
     echo "rag_engine is ready"
     break
   fi
-  if [ $i -eq 30 ]; then
-    echo "ERROR: rag_engine failed to start within 30 seconds"
+  if [ $i -eq 20 ]; then
+    echo "ERROR: rag_engine failed to start within 20 seconds"
     echo "=== rag_engine startup logs ==="
     cat /tmp/rag_engine.log
     exit 1
