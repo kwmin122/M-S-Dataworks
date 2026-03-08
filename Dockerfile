@@ -23,22 +23,32 @@ RUN pip install --no-cache-dir -r requirements.txt
 # matplotlib 폰트 캐시 재생성 (한글 폰트 인식)
 RUN python -c "import matplotlib.pyplot as plt; plt.figure()"
 
+# Create non-root user
+RUN groupadd -r app && useradd -r -g app app
+
 # App source
-COPY . .
+COPY --chown=app:app . .
 
 # Copy built frontend from stage 1
-COPY --from=frontend-build /app/frontend/kirabot/dist /app/frontend/kirabot/dist
+COPY --from=frontend-build --chown=app:app /app/frontend/kirabot/dist /app/frontend/kirabot/dist
 
 # Railway injects $PORT; default 8000
 ENV PORT=8000
 EXPOSE 8000
 
 # Copy startup script
-COPY start.sh /app/start.sh
+COPY --chown=app:app start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
 # Set FASTAPI_URL for web_app → rag_engine proxy (allow override)
 ENV FASTAPI_URL=${FASTAPI_URL:-http://localhost:8001}
+
+# Create writable directories for non-root user
+RUN mkdir -p /app/data /app/frontend/kirabot/dist && \
+    chown -R app:app /app/data /app/frontend/kirabot/dist
+
+# Switch to non-root user
+USER app
 
 # Start both services
 WORKDIR /app

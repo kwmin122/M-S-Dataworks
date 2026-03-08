@@ -234,6 +234,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """Add security headers to all responses."""
+    response = await call_next(request)
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    """Add request_id for structured logging correlation."""
+    import uuid
+    request_id = str(uuid.uuid4())
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
 SESSIONS: dict[str, WebRuntimeSession] = {}
 # HMAC key for signing OAuth state tokens (survives restarts via env var)
 _OAUTH_STATE_KEY = (os.getenv("OAUTH_STATE_SECRET") or os.getenv("GOOGLE_OAUTH_CLIENT_SECRET") or "").encode()
@@ -1655,8 +1678,20 @@ async def analyze_uploaded_document(
     session_id: str = Form(...),
     file: UploadFile = File(...),
 ) -> dict[str, Any]:
+    from services.web_app.structured_logger import get_structured_logger
+    slog = get_structured_logger("web_app.analyze")
+    slog.set_request_id(getattr(request.state, "request_id", None))
+
     session = _get_or_create_session(session_id)
     company_chunk_count = _inject_company_profile_if_needed(session, request)
+
+    slog.info(
+        "analysis_started",
+        session_id=session_id,
+        filename=file.filename,
+        file_size=file.size if hasattr(file, 'size') else None,
+        company_chunks=company_chunk_count,
+    )
 
     quota = _enforce_quota_or_raise(
         request=request,
@@ -1683,18 +1718,21 @@ async def analyze_uploaded_document(
             asyncio.to_thread(analyzer.analyze, str(saved_path)),
             timeout=240.0  # 4 minutes (프론트엔드 180초보다 여유있게)
         )
+        slog.info("analysis_completed", session_id=session_id, filename=file.filename)
     except asyncio.TimeoutError:
-        logger.error("Document analysis timeout after 240s: %s", file.filename)
+        slog.error("analysis_timeout", session_id=session_id, filename=file.filename, timeout_sec=240)
         raise HTTPException(
             status_code=504,
             detail="문서 분석 시간이 초과되었습니다 (4분). 페이지 수가 너무 많거나 복잡한 문서일 수 있습니다."
         )
     except ImportError as exc:
+        slog.error("analysis_import_error", session_id=session_id, error=str(exc))
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
+        slog.error("analysis_value_error", session_id=session_id, error=str(exc))
         raise HTTPException(status_code=400, detail=f"문서 분석 실패: {exc}") from exc
     except Exception as exc:
-        logger.error("Upload analysis failed: %s\n%s", exc, traceback.format_exc())
+        slog.error("analysis_failed", session_id=session_id, error=str(exc), traceback=traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"문서 분석 중 오류: {exc}") from exc
 
     # RFP 요약 + 매칭을 동시 실행 (둘 다 분석 결과만 필요, 서로 독립적)
