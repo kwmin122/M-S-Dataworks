@@ -2032,7 +2032,7 @@ def chat_with_references(payload: ChatPayload, request: Request) -> dict[str, An
 
 @app.post("/api/bids/search")
 @limiter.limit("20/minute")
-async def api_bids_search(payload: BidSearchPayload) -> dict[str, Any]:
+async def api_bids_search(payload: BidSearchPayload, request: Request) -> dict[str, Any]:
     """나라장터 공고 검색."""
     kw = payload.keywords
     if isinstance(kw, list):
@@ -2362,7 +2362,7 @@ class GeneralChatPayload(BaseModel):
 
 @app.post("/api/chat/general")
 @limiter.limit("30/minute")
-async def general_chat(payload: GeneralChatPayload) -> dict[str, Any]:
+async def general_chat(payload: GeneralChatPayload, request: Request) -> dict[str, Any]:
     """세션/문서 없이 일반 대화. 공공조달 도우미 역할."""
     message = payload.message.strip()
     if not message:
