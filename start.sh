@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+echo "=== START.SH STARTING ==="
+echo "Working directory: $(pwd)"
+echo "User: $(whoami)"
+echo "PORT: ${PORT:-8000}"
+
 # Graceful shutdown handler
 cleanup() {
   echo "Shutting down services..."
@@ -24,10 +29,17 @@ monitor_rag_engine() {
 
 # Start rag_engine in background on port 8001
 echo "Starting rag_engine on port 8001..."
+if [ ! -d "/app/rag_engine" ]; then
+  echo "ERROR: /app/rag_engine directory not found!"
+  exit 1
+fi
 cd /app/rag_engine
+echo "Changed to: $(pwd)"
+echo "Starting uvicorn..."
 python -m uvicorn main:app --host 0.0.0.0 --port 8001 \
   > /tmp/rag_engine.log 2>&1 &
 RAG_PID=$!
+echo "rag_engine started with PID: $RAG_PID"
 
 # Start background monitor
 monitor_rag_engine &
@@ -36,16 +48,27 @@ MONITOR_PID=$!
 # Wait for rag_engine to be ready (health check polling)
 echo "Waiting for rag_engine to be ready..."
 for i in {1..20}; do
+  # Check if process is still alive
+  if ! kill -0 $RAG_PID 2>/dev/null; then
+    echo "ERROR: rag_engine process died!"
+    echo "=== rag_engine crash logs ==="
+    cat /tmp/rag_engine.log
+    exit 1
+  fi
+
   if curl -s http://localhost:8001/healthz > /dev/null 2>&1; then
-    echo "rag_engine is ready"
+    echo "rag_engine is ready (attempt $i)"
     break
   fi
+
   if [ $i -eq 20 ]; then
     echo "ERROR: rag_engine failed to start within 20 seconds"
     echo "=== rag_engine startup logs ==="
     cat /tmp/rag_engine.log
     exit 1
   fi
+
+  echo "Waiting for rag_engine... ($i/20)"
   sleep 1
 done
 
@@ -59,5 +82,13 @@ echo "ChromaDB warmup completed"
 
 # Start web_app in foreground on $PORT (Railway default)
 echo "Starting web_app on port ${PORT:-8000}..."
+if [ ! -d "/app/services/web_app" ]; then
+  echo "ERROR: /app/services/web_app directory not found!"
+  exit 1
+fi
 cd /app/services/web_app
+echo "Changed to: $(pwd)"
+echo "Checking main.py..."
+ls -la main.py
+echo "Starting uvicorn on port ${PORT:-8000}..."
 python -c "import uvicorn; uvicorn.run('main:app', host='0.0.0.0', port=int(__import__('os').environ.get('PORT', '8000')))"
