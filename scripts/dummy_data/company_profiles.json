@@ -2,19 +2,403 @@
   "company_001": {
     "name": "삼성SDS",
     "name_en": "Samsung SDS",
-    "established": "1985-03",
-    "revenue": 15000000000000,
-    "employees": 25000,
+    "established": "1985-05",
+    "revenue": 13929900000000,
+    "employees": 24500,
     "tech_ratio": 0.72,
-    "business_areas": ["클라우드", "AI/빅데이터", "DX컨설팅", "보안"],
+    "business_areas": ["클라우드", "IT서비스", "물류", "AI/빅데이터", "보안"],
     "certifications": {
       "정보처리기사": 1200,
       "PMP": 450,
       "AWS_SAA": 380,
-      "정보보안기사": 650
+      "정보보안기사": 520,
+      "CISA": 180,
+      "기타": 850
     },
-    "major_clients": ["행정안전부", "국방부", "금융위원회"],
-    "project_categories": ["공공SI", "클라우드", "금융IT", "AI/빅데이터"],
-    "real_benchmark": true
+    "major_clients": ["삼성전자", "삼성물산", "공공기관", "금융권", "제조업"],
+    "project_categories": ["SI", "클라우드", "물류시스템", "보안", "컨설팅"],
+    "real_benchmark": true,
+    "notes": "2025년 매출 13.9조원, 영업이익 9,571억원. 클라우드 사업 매출 2.68조원 (15.4% 성장)"
+  },
+  "company_002": {
+    "name": "LG CNS",
+    "name_en": "LG CNS",
+    "established": "1987-10",
+    "revenue": 6129500000000,
+    "employees": 6200,
+    "tech_ratio": 0.68,
+    "business_areas": ["AI", "클라우드", "DX컨설팅", "스마트팩토리", "금융IT"],
+    "certifications": {
+      "정보처리기사": 580,
+      "PMP": 220,
+      "AWS_SAA": 190,
+      "정보보안기사": 240,
+      "CISA": 95,
+      "기타": 420
+    },
+    "major_clients": ["LG전자", "LG화학", "공공기관", "금융권", "제조업"],
+    "project_categories": ["SI", "클라우드", "AI플랫폼", "DX컨설팅", "스마트팩토리"],
+    "real_benchmark": true,
+    "notes": "2025년 매출 6.1조원, 영업이익 5,558억원. AI/클라우드 매출 3.59조원 (7% 성장)"
+  },
+  "company_003": {
+    "name": "현대건설",
+    "name_en": "Hyundai E&C",
+    "established": "1947-05",
+    "revenue": 31629000000000,
+    "employees": 9800,
+    "tech_ratio": 0.15,
+    "business_areas": ["건축", "토목", "플랜트", "주택", "인프라"],
+    "certifications": {
+      "건축기사": 450,
+      "토목기사": 520,
+      "건설안전기사": 280,
+      "정보처리기사": 85,
+      "기타": 620
+    },
+    "major_clients": ["국토교통부", "한국도로공사", "LH공사", "서울시", "민간발주처"],
+    "project_categories": ["건축", "토목", "플랜트", "주택", "인프라"],
+    "real_benchmark": true,
+    "notes": "2025년 매출 31.6조원. 수주액 33조원 달성"
+  },
+  "company_004": {
+    "name": "대우건설",
+    "name_en": "Daewoo E&C",
+    "established": "1973-11",
+    "revenue": 8054600000000,
+    "employees": 3200,
+    "tech_ratio": 0.12,
+    "business_areas": ["건축", "토목", "주택", "플랜트", "해외사업"],
+    "certifications": {
+      "건축기사": 180,
+      "토목기사": 210,
+      "건설안전기사": 120,
+      "정보처리기사": 35,
+      "기타": 240
+    },
+    "major_clients": ["국토교통부", "LH공사", "지자체", "민간발주처", "해외정부"],
+    "project_categories": ["건축", "토목", "주택", "플랜트", "해외건설"],
+    "real_benchmark": true,
+    "notes": "2025년 매출 8.05조원, 신규수주 14.2조원 (43.6% 증가). 수주잔고 50.6조원"
+  },
+  "company_005": {
+    "name": "한국경영컨설팅",
+    "name_en": "Korea Management Consulting",
+    "established": "2008-03",
+    "revenue": 5200000000,
+    "employees": 42,
+    "tech_ratio": 0.55,
+    "business_areas": ["경영컨설팅", "정보화전략", "사업타당성분석", "조직진단", "공공컨설팅"],
+    "certifications": {
+      "경영지도사": 8,
+      "기술사": 3,
+      "PMP": 5,
+      "정보처리기사": 12,
+      "기타": 6
+    },
+    "major_clients": ["중소벤처기업부", "산업통상자원부", "지자체", "공공기관", "중소기업"],
+    "project_categories": ["컨설팅", "정보화전략", "타당성조사", "성과평가", "교육훈련"],
+    "real_benchmark": false,
+    "notes": "중소기업 50억원급 컨설팅사. 공공컨설팅 특화"
+  },
+  "company_006": {
+    "name": "비즈니스솔루션파트너스",
+    "name_en": "Business Solution Partners",
+    "established": "2012-06",
+    "revenue": 8300000000,
+    "employees": 68,
+    "tech_ratio": 0.62,
+    "business_areas": ["디지털컨설팅", "프로세스혁신", "IT전략", "데이터분석", "교육"],
+    "certifications": {
+      "경영지도사": 12,
+      "PMP": 15,
+      "정보처리기사": 22,
+      "데이터분석전문가": 8,
+      "기타": 11
+    },
+    "major_clients": ["과학기술정보통신부", "금융권", "제조업", "유통업", "공공기관"],
+    "project_categories": ["컨설팅", "DX전략", "프로세스혁신", "데이터분석", "PMO"],
+    "real_benchmark": false,
+    "notes": "중소기업 80억원급 컨설팅사. DX 전환 컨설팅 강점"
+  },
+  "company_007": {
+    "name": "정밀기계공업",
+    "name_en": "Precision Machinery Co.",
+    "established": "2005-09",
+    "revenue": 10500000000,
+    "employees": 95,
+    "tech_ratio": 0.48,
+    "business_areas": ["정밀가공", "방산부품", "자동화설비", "금형제작", "품질검사"],
+    "certifications": {
+      "기계기사": 35,
+      "전기기사": 12,
+      "품질경영기사": 8,
+      "정보처리기사": 5,
+      "기타": 18
+    },
+    "major_clients": ["방위사업청", "현대로템", "한화디펜스", "LIG넥스원", "민간제조업"],
+    "project_categories": ["정밀가공", "방산부품", "자동화설비", "금형", "유지보수"],
+    "real_benchmark": false,
+    "notes": "중소기업 100억원급 제조업. 방산/정밀기계 특화"
+  },
+  "company_008": {
+    "name": "그린에너지솔루션",
+    "name_en": "Green Energy Solution",
+    "established": "2010-11",
+    "revenue": 15200000000,
+    "employees": 128,
+    "tech_ratio": 0.52,
+    "business_areas": ["태양광", "ESS", "풍력", "에너지관리", "O&M"],
+    "certifications": {
+      "전기기사": 38,
+      "에너지관리기사": 22,
+      "신재생에너지발전설비기사": 18,
+      "정보처리기사": 8,
+      "기타": 25
+    },
+    "major_clients": ["한국전력공사", "한국에너지공단", "지자체", "산업단지", "민간기업"],
+    "project_categories": ["태양광발전", "ESS", "에너지관리시스템", "O&M", "컨설팅"],
+    "real_benchmark": false,
+    "notes": "중소기업 150억원급 제조업. 신재생에너지 특화"
+  },
+  "company_009": {
+    "name": "AI데이터연구소",
+    "name_en": "AI Data Research Institute",
+    "established": "2016-04",
+    "revenue": 4100000000,
+    "employees": 35,
+    "tech_ratio": 0.85,
+    "business_areas": ["AI개발", "빅데이터분석", "머신러닝", "데이터컨설팅", "교육"],
+    "certifications": {
+      "정보처리기사": 18,
+      "빅데이터분석기사": 12,
+      "데이터분석전문가": 8,
+      "AWS_SAA": 6,
+      "기타": 5
+    },
+    "major_clients": ["과학기술정보통신부", "NIPA", "공공데이터포털", "스타트업", "대학"],
+    "project_categories": ["AI개발", "데이터분석", "플랫폼구축", "컨설팅", "교육"],
+    "real_benchmark": false,
+    "notes": "중소기업 40억원급 R&D. AI/빅데이터 전문"
+  },
+  "company_010": {
+    "name": "바이오헬스케어연구원",
+    "name_en": "Bio Healthcare Research Institute",
+    "established": "2014-07",
+    "revenue": 6200000000,
+    "employees": 52,
+    "tech_ratio": 0.78,
+    "business_areas": ["바이오연구", "의료기기", "헬스케어IT", "임상데이터", "건강관리"],
+    "certifications": {
+      "임상병리사": 8,
+      "의공기사": 6,
+      "정보처리기사": 15,
+      "빅데이터분석기사": 5,
+      "기타": 10
+    },
+    "major_clients": ["보건복지부", "식약처", "병원", "제약회사", "연구기관"],
+    "project_categories": ["바이오연구", "의료기기개발", "헬스케어시스템", "임상데이터분석", "건강관리서비스"],
+    "real_benchmark": false,
+    "notes": "중소기업 60억원급 R&D. 바이오/헬스케어 전문"
+  },
+  "company_011": {
+    "name": "더존비즈온",
+    "name_en": "Douzone Bizon",
+    "established": "2000-01",
+    "revenue": 446300000000,
+    "employees": 1776,
+    "tech_ratio": 0.65,
+    "business_areas": ["ERP", "그룹웨어", "전자세금계산서", "인사급여", "클라우드"],
+    "certifications": {
+      "정보처리기사": 220,
+      "PMP": 65,
+      "AWS_SAA": 48,
+      "정보보안기사": 72,
+      "기타": 135
+    },
+    "major_clients": ["중소기업", "공공기관", "지자체", "병원", "학교"],
+    "project_categories": ["ERP구축", "그룹웨어", "세무회계", "인사급여", "클라우드"],
+    "real_benchmark": true,
+    "notes": "2025년 매출 4,463억원, 영업이익 1,277억원. 중소기업 ERP 1위"
+  },
+  "company_012": {
+    "name": "한국통신네트워크",
+    "name_en": "Korea Telecom Network",
+    "established": "2003-08",
+    "revenue": 82000000000,
+    "employees": 680,
+    "tech_ratio": 0.58,
+    "business_areas": ["통신SW", "네트워크보안", "공공SI", "금융IT", "클라우드"],
+    "certifications": {
+      "정보처리기사": 140,
+      "정보보안기사": 95,
+      "네트워크관리사": 85,
+      "PMP": 42,
+      "기타": 98
+    },
+    "major_clients": ["행정안전부", "금융권", "통신사", "공공기관", "대기업"],
+    "project_categories": ["SI", "네트워크구축", "보안시스템", "클라우드", "유지보수"],
+    "real_benchmark": false,
+    "notes": "중견기업 800억원급. 통신SW/보안 특화"
+  },
+  "company_013": {
+    "name": "가비아",
+    "name_en": "Gabia",
+    "established": "1998-06",
+    "revenue": 282400000000,
+    "employees": 353,
+    "tech_ratio": 0.72,
+    "business_areas": ["클라우드", "호스팅", "도메인", "그룹웨어", "보안"],
+    "certifications": {
+      "정보처리기사": 88,
+      "AWS_SAA": 42,
+      "정보보안기사": 35,
+      "리눅스마스터": 52,
+      "기타": 48
+    },
+    "major_clients": ["중소기업", "스타트업", "공공기관", "학교", "병원"],
+    "project_categories": ["클라우드", "호스팅", "그룹웨어", "보안", "인프라"],
+    "real_benchmark": true,
+    "notes": "2024년 연결 매출 2,824억원. 클라우드/호스팅 전문"
+  },
+  "company_014": {
+    "name": "공공솔루션",
+    "name_en": "Public Solution",
+    "established": "2006-05",
+    "revenue": 62000000000,
+    "employees": 520,
+    "tech_ratio": 0.62,
+    "business_areas": ["공공SI", "금융IT", "행정시스템", "데이터분석", "컨설팅"],
+    "certifications": {
+      "정보처리기사": 115,
+      "정보보안기사": 58,
+      "PMP": 35,
+      "데이터분석전문가": 22,
+      "기타": 75
+    },
+    "major_clients": ["행정안전부", "보건복지부", "교육부", "지자체", "공공기관"],
+    "project_categories": ["SI", "행정시스템", "금융IT", "데이터분석", "PMO"],
+    "real_benchmark": false,
+    "notes": "중견기업 600억원급. 공공SI/금융IT 강점"
+  },
+  "company_015": {
+    "name": "빅데이터플랫폼",
+    "name_en": "Big Data Platform",
+    "established": "2013-09",
+    "revenue": 51000000000,
+    "employees": 420,
+    "tech_ratio": 0.70,
+    "business_areas": ["빅데이터", "AI플랫폼", "데이터분석", "클라우드", "컨설팅"],
+    "certifications": {
+      "정보처리기사": 98,
+      "빅데이터분석기사": 52,
+      "데이터분석전문가": 38,
+      "AWS_SAA": 28,
+      "기타": 62
+    },
+    "major_clients": ["과학기술정보통신부", "금융권", "통신사", "제조업", "공공기관"],
+    "project_categories": ["빅데이터플랫폼", "AI개발", "데이터분석", "클라우드", "컨설팅"],
+    "real_benchmark": false,
+    "notes": "중견기업 500억원급. 빅데이터/AI플랫폼 전문"
+  },
+  "company_016": {
+    "name": "시스템인프라",
+    "name_en": "System Infrastructure",
+    "established": "2004-11",
+    "revenue": 72000000000,
+    "employees": 580,
+    "tech_ratio": 0.56,
+    "business_areas": ["네트워크", "인프라구축", "클라우드", "보안", "운영관리"],
+    "certifications": {
+      "정보처리기사": 125,
+      "네트워크관리사": 95,
+      "정보보안기사": 68,
+      "리눅스마스터": 78,
+      "기타": 88
+    },
+    "major_clients": ["공공기관", "금융권", "대기업", "병원", "학교"],
+    "project_categories": ["네트워크구축", "인프라", "클라우드", "보안", "MSP"],
+    "real_benchmark": false,
+    "notes": "중견기업 700억원급. 네트워크/인프라 전문"
+  },
+  "company_017": {
+    "name": "클라우드마이그레이션",
+    "name_en": "Cloud Migration",
+    "established": "2011-03",
+    "revenue": 56000000000,
+    "employees": 460,
+    "tech_ratio": 0.68,
+    "business_areas": ["클라우드마이그레이션", "DevOps", "컨테이너", "MSP", "컨설팅"],
+    "certifications": {
+      "정보처리기사": 102,
+      "AWS_SAA": 65,
+      "AWS_SAP": 18,
+      "쿠버네티스관리자": 25,
+      "기타": 72
+    },
+    "major_clients": ["금융권", "통신사", "공공기관", "대기업", "스타트업"],
+    "project_categories": ["클라우드마이그레이션", "DevOps", "컨테이너", "MSP", "컨설팅"],
+    "real_benchmark": false,
+    "notes": "중견기업 550억원급. 클라우드마이그레이션 특화"
+  },
+  "company_018": {
+    "name": "보안전문",
+    "name_en": "Security Expert",
+    "established": "2007-07",
+    "revenue": 41000000000,
+    "employees": 320,
+    "tech_ratio": 0.65,
+    "business_areas": ["정보보안", "망분리", "침해대응", "보안컨설팅", "보안관제"],
+    "certifications": {
+      "정보보안기사": 95,
+      "정보처리기사": 72,
+      "CISSP": 12,
+      "CEH": 18,
+      "기타": 48
+    },
+    "major_clients": ["공공기관", "금융권", "대기업", "병원", "연구소"],
+    "project_categories": ["정보보안", "망분리", "침해대응", "보안컨설팅", "모의해킹"],
+    "real_benchmark": false,
+    "notes": "중견기업 400억원급. 정보보안 전문"
+  },
+  "company_019": {
+    "name": "보안관제",
+    "name_en": "Security Operations Center",
+    "established": "2009-02",
+    "revenue": 46000000000,
+    "employees": 380,
+    "tech_ratio": 0.62,
+    "business_areas": ["보안관제", "침해대응", "로그분석", "위협인텔리전스", "SIEM"],
+    "certifications": {
+      "정보보안기사": 88,
+      "정보처리기사": 65,
+      "CISSP": 8,
+      "CEH": 15,
+      "기타": 52
+    },
+    "major_clients": ["금융권", "공공기관", "통신사", "대기업", "병원"],
+    "project_categories": ["보안관제", "침해대응", "SIEM", "로그분석", "위협인텔리전스"],
+    "real_benchmark": false,
+    "notes": "중견기업 450억원급. 보안관제 전문"
+  },
+  "company_020": {
+    "name": "IT서비스파트너",
+    "name_en": "IT Service Partner",
+    "established": "2008-10",
+    "revenue": 53000000000,
+    "employees": 440,
+    "tech_ratio": 0.64,
+    "business_areas": ["MSP", "DevOps", "인프라운영", "클라우드", "자동화"],
+    "certifications": {
+      "정보처리기사": 108,
+      "AWS_SAA": 48,
+      "리눅스마스터": 72,
+      "네트워크관리사": 55,
+      "기타": 68
+    },
+    "major_clients": ["금융권", "공공기관", "대기업", "통신사", "제조업"],
+    "project_categories": ["MSP", "DevOps", "인프라운영", "클라우드", "자동화"],
+    "real_benchmark": false,
+    "notes": "중견기업 520억원급. MSP/DevOps 전문"
   }
 }
