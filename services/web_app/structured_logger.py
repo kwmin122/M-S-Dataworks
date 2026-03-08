@@ -44,6 +44,10 @@ class StructuredLogger:
     def debug(self, event: str, **kwargs):
         self._log("DEBUG", event, **kwargs)
 
+    def security(self, event: str, status_code: int, **kwargs):
+        """Log security events (401/403/409) with elevated visibility."""
+        self._log("WARNING", event, status_code=status_code, security_event=True, **kwargs)
+
 
 def get_structured_logger(name: str) -> StructuredLogger:
     """Get or create a structured logger."""

@@ -38,6 +38,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -216,7 +219,12 @@ async def lifespan(app: FastAPI):
         pass
 
 
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(title="Kira Web Runtime", version="0.1.0", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -255,6 +263,25 @@ async def add_request_id(request: Request, call_next):
     request.state.request_id = request_id
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
+    return response
+
+
+@app.middleware("http")
+async def log_security_events(request: Request, call_next):
+    """Log security events for 401/403/409 responses."""
+    response = await call_next(request)
+    if response.status_code in (401, 403, 409, 429):
+        from services.web_app.structured_logger import get_structured_logger
+        slog = get_structured_logger("web_app.security")
+        slog.set_request_id(getattr(request.state, "request_id", None))
+        slog.security(
+            "security_event",
+            status_code=response.status_code,
+            method=request.method,
+            path=request.url.path,
+            client_ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
     return response
 
 SESSIONS: dict[str, WebRuntimeSession] = {}
@@ -1673,6 +1700,7 @@ def clear_company_documents(payload: SessionPayload) -> dict[str, Any]:
 
 
 @app.post("/api/analyze/upload")
+@limiter.limit("10/minute")
 async def analyze_uploaded_document(
     request: Request,
     session_id: str = Form(...),
@@ -1789,6 +1817,7 @@ async def analyze_uploaded_document(
 
 
 @app.post("/api/analyze/text")
+@limiter.limit("10/minute")
 def analyze_text(payload: AnalyzeTextPayload, request: Request) -> dict[str, Any]:
     session = _get_or_create_session(payload.session_id)
     company_chunk_count = _inject_company_profile_if_needed(session, request)
@@ -1872,6 +1901,7 @@ def rematch_with_company_docs(payload: RematchPayload, request: Request) -> dict
 
 
 @app.post("/api/chat")
+@limiter.limit("30/minute")
 def chat_with_references(payload: ChatPayload, request: Request) -> dict[str, Any]:
     session = _get_or_create_session(payload.session_id)
     # 회사 프로필 문서 자동 주입 (RAG 검색에서 회사 정보 활용)
@@ -2001,6 +2031,7 @@ def chat_with_references(payload: ChatPayload, request: Request) -> dict[str, An
 
 
 @app.post("/api/bids/search")
+@limiter.limit("20/minute")
 async def api_bids_search(payload: BidSearchPayload) -> dict[str, Any]:
     """나라장터 공고 검색."""
     kw = payload.keywords
@@ -2115,6 +2146,7 @@ def serve_file_text_preview(session_id: str, bucket: str, filename: str) -> dict
 
 
 @app.post("/api/bids/analyze")
+@limiter.limit("10/minute")
 async def analyze_bid_from_nara(payload: BidAnalyzePayload, request: Request) -> dict[str, Any]:
     """나라장터 공고 첨부파일 자동 다운로드 + 분석."""
     session = _get_or_create_session(payload.session_id)
@@ -2247,6 +2279,7 @@ async def analyze_bid_from_nara(payload: BidAnalyzePayload, request: Request) ->
 
 
 @app.post("/api/bids/evaluate-batch")
+@limiter.limit("5/minute")
 async def api_bids_evaluate_batch(payload: BidEvaluateBatchPayload, request: Request) -> dict[str, Any]:
     """선택된 공고들을 순차 다운로드 + 분석하여 일괄 평가."""
     session = _get_or_create_session(payload.session_id)
@@ -2328,6 +2361,7 @@ class GeneralChatPayload(BaseModel):
 
 
 @app.post("/api/chat/general")
+@limiter.limit("30/minute")
 async def general_chat(payload: GeneralChatPayload) -> dict[str, Any]:
     """세션/문서 없이 일반 대화. 공공조달 도우미 역할."""
     message = payload.message.strip()
@@ -3900,6 +3934,7 @@ def delete_company_document(request: Request, doc_id: str) -> dict[str, Any]:
 
 
 @app.post("/api/company/reanalyze")
+@limiter.limit("5/minute")
 async def reanalyze_company_profile(request: Request) -> dict[str, Any]:
     username = _require_username(request)
     profile = _load_company_profile(username)

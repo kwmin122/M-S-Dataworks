@@ -27,9 +27,12 @@ from typing import Any
 
 import re as _re
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from models import AnalyzeBidRequest, AnalyzeBidResponse
 from proposal_generator import extract_template_sections, fill_template_sections
@@ -114,12 +117,17 @@ async def lifespan(app: FastAPI):
 # App
 # ---------------------------------------------------------------------------
 
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(
     title="Kira RAG Engine",
     description="Bid qualification analysis microservice",
     version="1.0.0",
     lifespan=lifespan,
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +188,8 @@ async def warmup() -> dict[str, str]:
 
 
 @app.post("/api/analyze-bid", response_model=AnalyzeBidResponse)
-async def analyze_bid(request: AnalyzeBidRequest) -> AnalyzeBidResponse:
+@limiter.limit("10/minute")
+async def analyze_bid(req: AnalyzeBidRequest, request: Request) -> AnalyzeBidResponse:
     """
     Analyze bid eligibility for a given company.
 
@@ -210,13 +219,13 @@ async def analyze_bid(request: AnalyzeBidRequest) -> AnalyzeBidResponse:
         # Step 1: Extract qualification constraints from the bid attachment
         # ------------------------------------------------------------------
         analyzer: Any = _rfx_analyzer_cls(api_key=api_key)
-        rfx_result = analyzer.analyze_text(request.attachment_text)
+        rfx_result = analyzer.analyze_text(req.attachment_text)
 
         # ------------------------------------------------------------------
         # Step 2: Build an in-memory RAG engine and populate with company facts
         # ------------------------------------------------------------------
         # Use a temp collection per request so evaluations are isolated.
-        _safe_id = _re.sub(r"[^a-zA-Z0-9_\-]", "_", f"{request.bid_notice_id}_{request.organization_id}")[:60]
+        _safe_id = _re.sub(r"[^a-zA-Z0-9_\-]", "_", f"{req.bid_notice_id}_{req.organization_id}")[:60]
         collection_name = f"bid_{_safe_id}"
         rag: Any = _rag_engine_cls(
             persist_directory="",          # empty → in-memory only
@@ -225,7 +234,7 @@ async def analyze_bid(request: AnalyzeBidRequest) -> AnalyzeBidResponse:
         )
 
         # Serialize company_facts dict into a plain text blob and index it.
-        facts_text = _company_facts_to_text(request.company_facts)
+        facts_text = _company_facts_to_text(req.company_facts)
         rag.add_text_directly(facts_text, source="company_facts")
 
         # ------------------------------------------------------------------
@@ -352,7 +361,8 @@ class GenerateProposalV2Request(BaseModel):
 
 
 @app.post("/api/generate-proposal-v2")
-async def generate_proposal_v2(req: GenerateProposalV2Request):
+@limiter.limit("5/minute")
+async def generate_proposal_v2(req: GenerateProposalV2Request, request: Request):
     """Generate a full proposal DOCX using Layer 1 knowledge + RFP analysis."""
     from proposal_orchestrator import generate_proposal as _generate
 
@@ -644,7 +654,8 @@ class GenerateWbsRequest(BaseModel):
 
 
 @app.post("/api/generate-wbs")
-async def generate_wbs_endpoint(req: GenerateWbsRequest):
+@limiter.limit("5/minute")
+async def generate_wbs_endpoint(req: GenerateWbsRequest, request: Request):
     """Generate WBS (XLSX + Gantt + DOCX) from RFP analysis."""
     from wbs_orchestrator import generate_wbs as _generate_wbs
     from phase2_models import MethodologyType
@@ -701,7 +712,8 @@ class GeneratePptRequest(BaseModel):
 
 
 @app.post("/api/generate-ppt")
-async def generate_ppt_endpoint(req: GeneratePptRequest):
+@limiter.limit("5/minute")
+async def generate_ppt_endpoint(req: GeneratePptRequest, request: Request):
     """Generate PPT presentation (PPTX + QnA) from RFP analysis."""
     from ppt_orchestrator import generate_ppt as _generate_ppt
 
@@ -750,7 +762,8 @@ class GenerateTrackRecordRequest(BaseModel):
 
 
 @app.post("/api/generate-track-record")
-async def generate_track_record_endpoint(req: GenerateTrackRecordRequest):
+@limiter.limit("5/minute")
+async def generate_track_record_endpoint(req: GenerateTrackRecordRequest, request: Request):
     """Generate track record / personnel document (DOCX)."""
     from track_record_orchestrator import generate_track_record_doc as _generate
 

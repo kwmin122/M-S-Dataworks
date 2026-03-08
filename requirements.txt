@@ -37,3 +37,4 @@ fastapi>=0.112.0
 uvicorn>=0.30.0
 python-multipart>=0.0.9
 resend>=2.0.0
+slowapi>=0.1.9
