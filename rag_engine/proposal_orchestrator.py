@@ -68,10 +68,20 @@ def _try_hwpx_output(
 ) -> str:
     """Try to produce HWPX output using pypandoc-hwpx. Returns path on success, empty string on failure."""
     import logging
+    import shutil
+    import traceback
     logger = logging.getLogger(__name__)
 
     try:
         from hwpx_converter import convert_markdown_to_hwpx
+
+        # Diagnostic: Check if pypandoc-hwpx binary exists in PATH
+        pypandoc_path = shutil.which("pypandoc-hwpx")
+        if not pypandoc_path:
+            logger.warning("HWPX: pypandoc-hwpx not found in PATH, falling back to DOCX")
+            return ""
+
+        logger.info("HWPX: pypandoc-hwpx found at %s", pypandoc_path)
 
         # Combine sections into single markdown document
         md_parts = []
@@ -87,6 +97,7 @@ def _try_hwpx_output(
 
         # Find reference template if available
         template_path = _find_hwpx_template(company_skills_dir)
+        logger.info("HWPX: template_path=%s", template_path if template_path else "None")
 
         convert_markdown_to_hwpx(
             md_text=full_markdown,
@@ -98,7 +109,7 @@ def _try_hwpx_output(
         return output_path
 
     except Exception as exc:
-        logger.warning("HWPX output failed, falling back to DOCX: %s", exc)
+        logger.warning("HWPX output failed, falling back to DOCX: %s\n%s", exc, traceback.format_exc())
         return ""
 
 
