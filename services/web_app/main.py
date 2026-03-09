@@ -24,7 +24,7 @@ import urllib.parse
 import urllib.request
 import uuid
 import threading
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -91,6 +91,11 @@ from user_store import (  # noqa: E402
     username_to_scope,
 )
 from alert_storage import get_alert_config, save_alert_config  # noqa: E402
+from services.web_app.session_store import (  # noqa: E402
+    load_analysis_from_redis,
+    save_analysis_to_redis,
+    restore_analysis_from_dict,
+)
 
 
 ALLOWED_UPLOAD_EXTENSIONS = {
@@ -685,6 +690,7 @@ def _get_or_create_session(session_id: str) -> WebRuntimeSession:
     if len(SESSIONS) >= _MAX_SESSIONS:
         raise HTTPException(status_code=503, detail="서버 동시 세션 수를 초과했습니다. 잠시 후 다시 시도해주세요.")
 
+    # RAGEngine은 항상 새로 생성 (in-memory, 재생성 가능)
     rag = RAGEngine(
         persist_directory=str(ROOT_DIR / "data" / "vectordb_web"),
         collection_name=_session_collection_name(normalized),
@@ -701,6 +707,16 @@ def _get_or_create_session(session_id: str) -> WebRuntimeSession:
         created_at=now,
         last_used_at=now,
     )
+
+    # Redis에서 분석 결과 복원 시도 (Railway 재시작 후에도 보존)
+    analysis_dict = load_analysis_from_redis(normalized)
+    if analysis_dict:
+        try:
+            session.latest_rfx_analysis = restore_analysis_from_dict(analysis_dict)
+            logger.info("Restored analysis from Redis for session: %s", normalized)
+        except Exception as exc:
+            logger.warning("Failed to restore analysis from Redis: %s", exc)
+
     SESSIONS[normalized] = session
     return session
 
@@ -1827,6 +1843,12 @@ async def analyze_uploaded_document(
     session.latest_matching_result = matching
     session.latest_document_name = file.filename or saved_path.name
 
+    # Redis에 분석 결과 저장 (Railway 재시작 대비)
+    try:
+        save_analysis_to_redis(session.session_id, asdict(analysis))
+    except Exception as exc:
+        logger.warning("Failed to save analysis to Redis: %s", exc)
+
     file_url = f"/api/files/{session.session_id}/target/{saved_path.name}"
 
     serialized = _serialize_rfx_analysis(analysis)
@@ -1883,6 +1905,12 @@ def analyze_text(payload: AnalyzeTextPayload, request: Request) -> dict[str, Any
     session.latest_rfx_analysis = analysis
     session.latest_matching_result = matching
     session.latest_document_name = "direct_input.txt"
+
+    # Redis에 분석 결과 저장
+    try:
+        save_analysis_to_redis(session.session_id, asdict(analysis))
+    except Exception as exc:
+        logger.warning("Failed to save analysis to Redis: %s", exc)
 
     return {
         "ok": True,
@@ -2283,6 +2311,12 @@ async def analyze_bid_from_nara(payload: BidAnalyzePayload, request: Request) ->
     session.latest_rfx_analysis = analysis
     session.latest_matching_result = matching
     session.latest_document_name = best["fileNm"]
+
+    # Redis에 분석 결과 저장
+    try:
+        save_analysis_to_redis(session.session_id, asdict(analysis))
+    except Exception as exc:
+        logger.warning("Failed to save analysis to Redis: %s", exc)
 
     # 5. fileUrl 생성
     local_filename = Path(local_path).name
