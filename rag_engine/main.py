@@ -154,6 +154,35 @@ async def healthz() -> dict[str, str]:
     return {"status": "ready"}
 
 
+@app.get("/api/debug/env")
+async def debug_env() -> dict[str, Any]:
+    """Debug endpoint to check Railway environment and file paths."""
+    import os
+    import sys
+
+    # Paths are defined later in this file, access via globals
+    proposals_dir = globals().get("_PROPOSALS_DIR", "NOT_DEFINED")
+    knowledge_db_dir = globals().get("_KNOWLEDGE_DB_DIR", "NOT_DEFINED")
+    company_db_dir = globals().get("_COMPANY_DB_DIR", "NOT_DEFINED")
+
+    return {
+        "cwd": os.getcwd(),
+        "python_version": sys.version,
+        "proposals_dir": proposals_dir,
+        "knowledge_db_dir": knowledge_db_dir,
+        "company_db_dir": company_db_dir,
+        "proposals_dir_exists": os.path.exists(proposals_dir) if proposals_dir != "NOT_DEFINED" else False,
+        "proposals_dir_writable": os.access(proposals_dir, os.W_OK) if proposals_dir != "NOT_DEFINED" and os.path.exists(proposals_dir) else False,
+        "knowledge_db_exists": os.path.exists(knowledge_db_dir) if knowledge_db_dir != "NOT_DEFINED" else False,
+        "knowledge_db_contents": os.listdir(knowledge_db_dir) if knowledge_db_dir != "NOT_DEFINED" and os.path.exists(knowledge_db_dir) else [],
+        "company_db_exists": os.path.exists(company_db_dir) if company_db_dir != "NOT_DEFINED" else False,
+        "company_db_writable": os.access(company_db_dir, os.W_OK) if company_db_dir != "NOT_DEFINED" and os.path.exists(company_db_dir) else False,
+        "env_openai_key_set": bool(os.getenv("OPENAI_API_KEY")),
+        "env_port": os.getenv("PORT", "NOT_SET"),
+        "user": os.getenv("USER", "unknown"),
+    }
+
+
 @app.get("/warmup")
 async def warmup() -> dict[str, str]:
     """
