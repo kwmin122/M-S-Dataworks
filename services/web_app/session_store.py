@@ -47,12 +47,18 @@ def get_redis():
                 logger.warning("REDIS_ENABLED=1 but REDIS_URL not set, falling back to in-memory")
                 return None
 
+            # 환경변수로 튜닝 가능, Railway 프로덕션 최적화
+            max_conn = int(os.getenv("REDIS_MAX_CONNECTIONS", "20"))
+            conn_timeout = int(os.getenv("REDIS_CONNECT_TIMEOUT", "10"))
+            sock_timeout = int(os.getenv("REDIS_SOCKET_TIMEOUT", "10"))
+
             _redis_pool = redis.ConnectionPool.from_url(
                 redis_url,
-                max_connections=10,
+                max_connections=max_conn,
                 decode_responses=True,  # UTF-8 자동 디코딩
-                socket_connect_timeout=5,
-                socket_timeout=5,
+                socket_connect_timeout=conn_timeout,
+                socket_timeout=sock_timeout,
+                health_check_interval=30,  # 30초마다 연결 상태 확인
             )
             logger.info("Redis connection pool initialized")
         except ImportError:
