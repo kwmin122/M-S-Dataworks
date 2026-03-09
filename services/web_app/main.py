@@ -1160,6 +1160,34 @@ def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/debug/env")
+async def debug_env() -> dict[str, Any]:
+    """Debug endpoint: check file paths and rag_engine connectivity."""
+    import httpx
+
+    rag_health = "unknown"
+    rag_error = None
+    try:
+        fastapi_url = os.environ.get("FASTAPI_URL", "http://localhost:8001")
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(f"{fastapi_url}/api/debug/env")
+            if resp.status_code == 200:
+                rag_health = resp.json()
+            else:
+                rag_error = f"{resp.status_code}: {resp.text[:200]}"
+    except Exception as exc:
+        rag_error = str(exc)
+
+    return {
+        "web_app_cwd": os.getcwd(),
+        "fastapi_url": os.environ.get("FASTAPI_URL", "http://localhost:8001"),
+        "rag_engine_health": rag_health,
+        "rag_engine_error": rag_error,
+        "openai_key_set": bool(os.getenv("OPENAI_API_KEY")),
+        "port": os.getenv("PORT", "8000"),
+    }
+
+
 @app.get("/api/debug/oauth")
 def debug_oauth(request: Request) -> dict[str, Any]:
     """OAuth 환경변수 진단 (값은 마스킹). 관리자 전용."""
