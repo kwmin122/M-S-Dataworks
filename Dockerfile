@@ -44,8 +44,10 @@ RUN chmod +x /app/start.sh
 ENV FASTAPI_URL=${FASTAPI_URL:-http://localhost:8001}
 
 # Create writable directories for non-root user
-RUN mkdir -p /app/data /app/frontend/kirabot/dist && \
-    chown -R app:app /app/data /app/frontend/kirabot/dist
+RUN mkdir -p /app/data /app/frontend/kirabot/dist \
+    /app/rag_engine/data/company_db \
+    /app/rag_engine/data/proposals && \
+    chown -R app:app /app/data /app/frontend/kirabot/dist /app/rag_engine/data
 
 # Switch to non-root user
 USER app
