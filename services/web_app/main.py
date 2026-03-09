@@ -2592,11 +2592,19 @@ async def generate_proposal_v2(payload: ProposalGenerateV2Payload) -> dict[str, 
 
     rfx_dict = _build_rfx_dict(session.latest_rfx_analysis)
 
-    return await _proxy_to_rag(
-        "POST", "/api/generate-proposal-v2",
-        {"rfx_result": rfx_dict, "total_pages": payload.total_pages, "output_format": payload.output_format},
-        timeout=300,
-    )
+    try:
+        return await _proxy_to_rag(
+            "POST", "/api/generate-proposal-v2",
+            {"rfx_result": rfx_dict, "total_pages": payload.total_pages, "output_format": payload.output_format},
+            timeout=300,
+        )
+    except HTTPException:
+        raise  # Re-raise HTTPException as-is
+    except Exception as exc:
+        # DEBUG: Catch unexpected errors
+        import traceback
+        error_detail = f"web_app proxy error: {type(exc).__name__}: {str(exc)}\n\nTraceback:\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=error_detail) from exc
 
 
 # ── 제안서 DOCX 다운로드 프록시 ──
