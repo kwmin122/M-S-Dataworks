@@ -410,7 +410,9 @@ async def generate_proposal_v2(req: GenerateProposalV2Request, request: Request)
         )
     except Exception as exc:
         logger.error("generate_proposal_v2 failed: %s\n%s", exc, traceback.format_exc())
-        raise HTTPException(status_code=500, detail="제안서 생성 실패") from exc
+        # DEBUG: Include full error in response (remove after debugging)
+        error_detail = f"제안서 생성 실패: {type(exc).__name__}: {str(exc)}\n\nTraceback:\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=error_detail) from exc
 
     # Return only filename, not full server path (security: C1)
     docx_filename = os.path.basename(result.docx_path) if result.docx_path else ""
