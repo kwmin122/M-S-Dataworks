@@ -8,3 +8,4 @@ lxml>=5.0.0
 python-hwpx>=0.3.0
 pypandoc-hwpx>=0.1.0
 slowapi>=0.1.9
+mistune>=3.0.0
