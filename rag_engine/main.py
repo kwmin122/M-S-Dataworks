@@ -165,6 +165,17 @@ async def debug_env() -> dict[str, Any]:
     knowledge_db_dir = globals().get("_KNOWLEDGE_DB_DIR", "NOT_DEFINED")
     company_db_dir = globals().get("_COMPANY_DB_DIR", "NOT_DEFINED")
 
+    # Test proposal_orchestrator import
+    import_test = "unknown"
+    import_error = None
+    try:
+        from proposal_orchestrator import generate_proposal as _test_import
+        import_test = "success"
+    except Exception as exc:
+        import traceback
+        import_test = "failed"
+        import_error = f"{type(exc).__name__}: {str(exc)}\nTraceback:\n{traceback.format_exc()}"
+
     return {
         "cwd": os.getcwd(),
         "python_version": sys.version,
@@ -180,6 +191,8 @@ async def debug_env() -> dict[str, Any]:
         "env_openai_key_set": bool(os.getenv("OPENAI_API_KEY")),
         "env_port": os.getenv("PORT", "NOT_SET"),
         "user": os.getenv("USER", "unknown"),
+        "proposal_orchestrator_import": import_test,
+        "import_error": import_error,
     }
 
 
