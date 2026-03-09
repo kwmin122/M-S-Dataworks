@@ -650,7 +650,10 @@ class RFxAnalyzer:
                           else self._build_general_extraction_prompt(chunk_text))
                 return idx, self._extract_single_pass(prompt=prompt, model_name=model_name)
 
-            with ThreadPoolExecutor(max_workers=min(2, len(chunks))) as pool:  # rate limit 방지: 4→2
+            # Railway 환경 감지 (PORT 환경변수 존재 시 Railway로 판단)
+            is_railway = os.getenv("PORT") is not None
+            max_parallel = min(4 if is_railway else 2, len(chunks))  # Railway: 4, Local: 2
+            with ThreadPoolExecutor(max_workers=max_parallel) as pool:
                 futures = {pool.submit(_extract_chunk, (i, ct)): i
                            for i, ct in enumerate(chunks, start=1)}
                 indexed: list[tuple[int, RFxAnalysisResult]] = []
@@ -671,7 +674,7 @@ class RFxAnalyzer:
         try:
             structured_payload = self._chat_json(
                 prompt=prompt,
-                max_tokens=4096,
+                max_tokens=2500,  # 4096→2500 최적화 (대부분 응답 2000 토큰 미만)
                 temperature=0.1,
                 schema_name="rfx_extraction",
                 schema=RFX_EXTRACTION_JSON_SCHEMA,
@@ -687,7 +690,7 @@ class RFxAnalyzer:
                 ) from structured_error
             response_text = self._chat(
                 prompt=prompt,
-                max_tokens=4096,
+                max_tokens=2500,  # 최적화
                 temperature=0.1,
                 model=model_name,
             )
@@ -702,7 +705,7 @@ class RFxAnalyzer:
 """
                 repaired_text = self._chat(
                     prompt=repair_prompt,
-                    max_tokens=4096,
+                    max_tokens=2500,  # 최적화
                     temperature=0.0,
                     model=model_name,
                 )
