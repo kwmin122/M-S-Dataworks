@@ -214,13 +214,22 @@ const AnalysisResultView: React.FC<Props> = ({ message, onAction }) => {
           </div>
         ) : null}
 
-        <button type="button"
-          onClick={() => onAction?.({ type: 'generate_proposal_v2', bidTitle: a?.title || '' })}
-          className="mt-1 flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-kira-600 to-kira-700 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:from-kira-700 hover:to-kira-800 transition-all"
-        >
-          <Sparkles size={14} />
-          제안서 생성 (DOCX)
-        </button>
+        <div className="mt-1 flex gap-2">
+          <button type="button"
+            onClick={() => onAction?.({ type: 'generate_proposal_v2', bidTitle: a?.title || '', format: 'docx' })}
+            className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-kira-600 to-kira-700 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:from-kira-700 hover:to-kira-800 transition-all"
+          >
+            <Sparkles size={14} />
+            제안서 생성 (DOCX)
+          </button>
+          <button type="button"
+            onClick={() => onAction?.({ type: 'generate_proposal_v2', bidTitle: a?.title || '', format: 'hwpx' })}
+            className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-emerald-700 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:from-emerald-700 hover:to-emerald-800 transition-all"
+          >
+            <Sparkles size={14} />
+            제안서 생성 (HWPX)
+          </button>
+        </div>
       </div>
     );
   };

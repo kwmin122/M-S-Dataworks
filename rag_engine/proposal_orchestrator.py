@@ -66,28 +66,32 @@ def _try_hwpx_output(
     safe_title: str,
     ts: int,
 ) -> str:
-    """Try to produce HWPX output. Returns path on success, empty string on failure."""
+    """Try to produce HWPX output using pypandoc-hwpx. Returns path on success, empty string on failure."""
     import logging
     logger = logging.getLogger(__name__)
 
-    template_path = _find_hwpx_template(company_skills_dir)
-    if not template_path:
-        logger.info("No HWPX template found, falling back to DOCX")
-        return ""
-
     try:
-        from hwpx_injector import inject_content
+        from hwpx_converter import convert_markdown_to_hwpx
 
-        # Convert sections list to dict for injector
-        sections_dict = {name: text for name, text in sections}
+        # Combine sections into single markdown document
+        md_parts = []
+        for section_name, section_text in sections:
+            md_parts.append(f"# {section_name}\n\n")
+            md_parts.append(section_text)
+            md_parts.append("\n\n")
+
+        full_markdown = "".join(md_parts)
 
         hwpx_filename = f"{safe_title}_{ts}.hwpx"
         output_path = os.path.join(output_dir, hwpx_filename)
 
-        inject_content(
-            template_path=template_path,
-            sections=sections_dict,
+        # Find reference template if available
+        template_path = _find_hwpx_template(company_skills_dir)
+
+        convert_markdown_to_hwpx(
+            md_text=full_markdown,
             output_path=output_path,
+            reference_doc=template_path if template_path else None,
         )
 
         logger.info("HWPX output generated: %s", output_path)

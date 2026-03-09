@@ -372,7 +372,7 @@ export type MessageAction =
   | { type: 'header_add_company' }
   | { type: 'setup_alert' }
   | { type: 'welcome_action'; value: string }
-  | { type: 'generate_proposal_v2'; bidTitle: string }
+  | { type: 'generate_proposal_v2'; bidTitle: string; format?: 'docx' | 'hwpx' }
   | { type: 'delete_company_doc'; sourceFile: string }
   | { type: 'undo_company_upload'; sourceFiles: string[] }
   | { type: 'ask_about_doc'; sourceFile: string }

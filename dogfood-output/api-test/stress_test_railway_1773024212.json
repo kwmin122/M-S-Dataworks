@@ -1,0 +1,65 @@
+{
+  "start_time": "2026-03-09T11:42:36.313557",
+  "end_time": "2026-03-09T11:43:32.567466",
+  "environment": "railway",
+  "tests": [
+    {
+      "name": "Upload Company Docs",
+      "status": "PASS",
+      "duration_sec": 9.85,
+      "timestamp": "2026-03-09T11:42:46.490727",
+      "details": {
+        "files_uploaded": 5,
+        "total_chunks": 0
+      }
+    },
+    {
+      "name": "Analyze Bid",
+      "status": "PASS",
+      "duration_sec": 44.45,
+      "timestamp": "2026-03-09T11:43:30.938481",
+      "details": {
+        "file": "(공고문) 제2차 치유농업 연구개발 및 육성을 위한 종합계획(27-31) 수립 연구용역.pdf",
+        "requirements_count": 5,
+        "go_no_go": null,
+        "score": 24.0
+      }
+    },
+    {
+      "name": "Generate Proposal DOCX",
+      "status": "FAIL",
+      "duration_sec": 0.55,
+      "timestamp": "2026-03-09T11:43:31.493733",
+      "details": {
+        "status_code": 500,
+        "error": "{\"detail\":\"Internal Server Error\"}"
+      }
+    },
+    {
+      "name": "Generate Proposal HWPX",
+      "status": "FAIL",
+      "duration_sec": 0.46,
+      "timestamp": "2026-03-09T11:43:31.952567",
+      "details": {
+        "status_code": 500,
+        "error": "{\"detail\":\"Internal Server Error\"}"
+      }
+    },
+    {
+      "name": "Checklist Extraction",
+      "status": "PASS",
+      "duration_sec": 0.61,
+      "timestamp": "2026-03-09T11:43:32.567168",
+      "details": {
+        "total_items": 4,
+        "mandatory": 4
+      }
+    }
+  ],
+  "summary": {
+    "total": 5,
+    "passed": 3,
+    "failed": 2,
+    "avg_response_time_sec": 11.18
+  }
+}

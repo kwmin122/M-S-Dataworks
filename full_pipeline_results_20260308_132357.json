@@ -1,0 +1,101 @@
+[
+  {
+    "scenario_id": "TS-001",
+    "company": "삼성SDS",
+    "match_type": "HIGH",
+    "steps": {
+      "step1_upload_company": {
+        "success": true,
+        "duration_ms": 4844,
+        "chunks": 10
+      },
+      "step2_analyze": {
+        "success": false,
+        "duration_ms": 38,
+        "error": "Analyze failed: 400, {\"detail\":\"문서 분석 실패: 지원하지 않는 파일 형식입니다: \"}"
+      },
+      "step7_checklist": {
+        "success": false,
+        "duration_ms": 0,
+        "error": "Checklist extraction failed: 400, {\"detail\":\"분석된 RFP가 없습니다. 먼저 공고를 분석해주세요.\"}"
+      }
+    },
+    "accuracy": {
+      "go_no_go_accurate": false,
+      "proposal_accurate": false,
+      "wbs_accurate": false,
+      "ppt_accurate": false,
+      "checklist_accurate": false,
+      "overall_pass": false,
+      "accuracy_score": 0.0
+    },
+    "overall_success": false,
+    "total_duration_ms": 4886
+  },
+  {
+    "scenario_id": "TS-002",
+    "company": "제조기업 A",
+    "match_type": "LOW",
+    "steps": {
+      "step1_upload_company": {
+        "success": false,
+        "duration_ms": 0,
+        "error": "회사 문서 없음: data/company_docs/제조기업 A_회사소개서.pdf"
+      },
+      "step2_analyze": {
+        "success": false,
+        "duration_ms": 1067,
+        "error": "Analyze failed: 400, {\"detail\":\"문서 분석 실패: 지원하지 않는 파일 형식입니다: \"}"
+      },
+      "step7_checklist": {
+        "success": false,
+        "duration_ms": 0,
+        "error": "Checklist extraction failed: 400, {\"detail\":\"분석된 RFP가 없습니다. 먼저 공고를 분석해주세요.\"}"
+      }
+    },
+    "accuracy": {
+      "go_no_go_accurate": false,
+      "proposal_accurate": false,
+      "wbs_accurate": false,
+      "ppt_accurate": false,
+      "checklist_accurate": false,
+      "overall_pass": false,
+      "accuracy_score": 0.0
+    },
+    "overall_success": false,
+    "total_duration_ms": 1068
+  },
+  {
+    "scenario_id": "TS-003",
+    "company": "더존비즈온",
+    "match_type": "HIGH",
+    "steps": {
+      "step1_upload_company": {
+        "success": true,
+        "duration_ms": 4834,
+        "chunks": 10
+      },
+      "step2_analyze": {
+        "success": false,
+        "duration_ms": 38,
+        "error": "Analyze failed: 400, {\"detail\":\"문서 분석 실패: 지원하지 않는 파일 형식입니다: \"}"
+      },
+      "step7_checklist": {
+        "success": false,
+        "duration_ms": 0,
+        "error": "Checklist extraction failed: 400, {\"detail\":\"분석된 RFP가 없습니다. 먼저 공고를 분석해주세요.\"}"
+      }
+    },
+    "accuracy": {
+      "go_no_go_accurate": false,
+      "proposal_accurate": false,
+      "wbs_accurate": false,
+      "ppt_accurate": false,
+      "checklist_accurate": false,
+      "overall_pass": false,
+      "accuracy_score": 0.0
+    },
+    "overall_success": false,
+    "total_duration_ms": 4873
+  }
+]

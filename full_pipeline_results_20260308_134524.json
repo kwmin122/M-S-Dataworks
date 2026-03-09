@@ -1,0 +1,122 @@
+[
+  {
+    "scenario_id": "TS-001",
+    "company": "삼성SDS",
+    "match_type": "HIGH",
+    "steps": {
+      "step1_upload_company": {
+        "success": true,
+        "duration_ms": 966,
+        "chunks": 10
+      },
+      "step2_analyze": {
+        "success": true,
+        "duration_ms": 50675,
+        "actual_score": 40.0,
+        "actual_result": "NO-GO",
+        "expected_score": 95,
+        "expected_result": "GO",
+        "score_diff": 55.0,
+        "score_accurate": false,
+        "result_match": false
+      },
+      "step7_checklist": {
+        "success": true,
+        "duration_ms": 20,
+        "items": 4,
+        "item_count_accurate": false
+      }
+    },
+    "accuracy": {
+      "go_no_go_accurate": false,
+      "proposal_accurate": false,
+      "wbs_accurate": false,
+      "ppt_accurate": false,
+      "checklist_accurate": false,
+      "overall_pass": false,
+      "accuracy_score": 0.0
+    },
+    "overall_success": false,
+    "total_duration_ms": 51664
+  },
+  {
+    "scenario_id": "TS-002",
+    "company": "정밀기계공업",
+    "match_type": "LOW",
+    "steps": {
+      "step1_upload_company": {
+        "success": true,
+        "duration_ms": 1059,
+        "chunks": 10
+      },
+      "step2_analyze": {
+        "success": true,
+        "duration_ms": 52144,
+        "actual_score": 47.5,
+        "actual_result": "🟡 CONDITIONAL - 필수 요건 3개 증빙 확인 필요",
+        "expected_score": 45,
+        "expected_result": "NO-GO",
+        "score_diff": 2.5,
+        "score_accurate": true,
+        "result_match": false
+      },
+      "step7_checklist": {
+        "success": true,
+        "duration_ms": 19,
+        "items": 4,
+        "item_count_accurate": false
+      }
+    },
+    "accuracy": {
+      "go_no_go_accurate": false,
+      "proposal_accurate": false,
+      "wbs_accurate": false,
+      "ppt_accurate": false,
+      "checklist_accurate": false,
+      "overall_pass": false,
+      "accuracy_score": 0.0
+    },
+    "overall_success": false,
+    "total_duration_ms": 53223
+  },
+  {
+    "scenario_id": "TS-003",
+    "company": "더존비즈온",
+    "match_type": "HIGH",
+    "steps": {
+      "step1_upload_company": {
+        "success": true,
+        "duration_ms": 955,
+        "chunks": 10
+      },
+      "step2_analyze": {
+        "success": true,
+        "duration_ms": 61903,
+        "actual_score": 7.5,
+        "actual_result": "NO-GO",
+        "expected_score": 88,
+        "expected_result": "GO",
+        "score_diff": 80.5,
+        "score_accurate": false,
+        "result_match": false
+      },
+      "step7_checklist": {
+        "success": true,
+        "duration_ms": 19,
+        "items": 4,
+        "item_count_accurate": false
+      }
+    },
+    "accuracy": {
+      "go_no_go_accurate": false,
+      "proposal_accurate": false,
+      "wbs_accurate": false,
+      "ppt_accurate": false,
+      "checklist_accurate": false,
+      "overall_pass": false,
+      "accuracy_score": 0.0
+    },
+    "overall_success": false,
+    "total_duration_ms": 62879
+  }
+]

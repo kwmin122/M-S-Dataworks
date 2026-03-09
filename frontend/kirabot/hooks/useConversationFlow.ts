@@ -1328,27 +1328,32 @@ export function useConversationFlow() {
             break;
           }
 
+          const format = (action as any).format || 'docx';
+          const formatName = format === 'hwpx' ? 'HWPX' : 'DOCX';
+
           setProcessing(true);
-          pushStatus('loading', 'A-lite 제안서(DOCX)를 생성하고 있어요... (약 3~5분 소요)');
+          pushStatus('loading', `A-lite 제안서(${formatName})를 생성하고 있어요... (약 3~5분 소요)`);
 
           try {
-            const result = await api.generateProposalV2(conversation.sessionId);
+            const result = await api.generateProposalV2(conversation.sessionId, 50, format);
             removeLastStatus();
 
             const sectionList = result.sections.map((s, i) => `${i + 1}. ${s.name}`).join('\n');
-            let msg = `제안서 DOCX가 생성되었습니다! (${result.generation_time_sec}초)\n\n**섹션 구성:**\n${sectionList}`;
+            let msg = `제안서 ${formatName}가 생성되었습니다! (${result.generation_time_sec}초)\n\n**섹션 구성:**\n${sectionList}`;
             msg += `\n\n⚠️ **중요**: 서버 재시작 시 파일이 삭제됩니다. 지금 바로 다운로드하세요!`;
-            if (result.docx_filename) {
-              const downloadUrl = api.getProposalDownloadUrl(result.docx_filename);
-              msg += `\n\n[📥 제안서 DOCX 다운로드](${downloadUrl})`;
-              try { localStorage.setItem('kira_last_proposal', result.docx_filename); } catch { /* noop */ }
+
+            const filename = result.output_filename || result.docx_filename || result.hwpx_filename;
+            if (filename) {
+              const downloadUrl = api.getProposalDownloadUrl(filename);
+              msg += `\n\n[📥 제안서 ${formatName} 다운로드](${downloadUrl})`;
+              try { localStorage.setItem('kira_last_proposal', filename); } catch { /* noop */ }
             }
             if (result.quality_issues.length > 0) {
               msg += `\n\n**품질 이슈 ${result.quality_issues.length}건:**\n` +
                 result.quality_issues.map(q => `- [${q.severity}] ${q.detail}`).join('\n');
             }
             pushText(msg);
-            trackEvent('proposal_v2_generated', { time: result.generation_time_sec });
+            trackEvent('proposal_v2_generated', { time: result.generation_time_sec, format });
           } catch (error) {
             removeLastStatus();
             const msg = error instanceof Error ? error.message : '알 수 없는 오류';

@@ -2532,6 +2532,7 @@ async def generate_proposal(payload: ProposalGeneratePayload) -> dict[str, Any]:
 class ProposalGenerateV2Payload(BaseModel):
     session_id: str
     total_pages: int = Field(default=50, ge=10, le=200)
+    output_format: str = Field(default="docx", pattern="^(docx|hwpx)$")
 
 
 def _build_rfx_dict(analysis: Any) -> dict[str, Any]:
@@ -2565,7 +2566,7 @@ async def generate_proposal_v2(payload: ProposalGenerateV2Payload) -> dict[str, 
 
     return await _proxy_to_rag(
         "POST", "/api/generate-proposal-v2",
-        {"rfx_result": rfx_dict, "total_pages": payload.total_pages},
+        {"rfx_result": rfx_dict, "total_pages": payload.total_pages, "output_format": payload.output_format},
         timeout=300,
     )
 
@@ -2575,6 +2576,7 @@ async def generate_proposal_v2(payload: ProposalGenerateV2Payload) -> dict[str, 
 
 _DOWNLOAD_MIME_TYPES: dict[str, str] = {
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".hwpx": "application/x-hwpml",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     ".png": "image/png",
@@ -2583,9 +2585,9 @@ _DOWNLOAD_MIME_TYPES: dict[str, str] = {
 
 @app.get("/api/proposal/download/{filename}")
 async def download_proposal_proxy(filename: str):
-    """Proxy file download from rag_engine (DOCX/XLSX/PPTX/PNG)."""
+    """Proxy file download from rag_engine (DOCX/HWPX/XLSX/PPTX/PNG)."""
     import re as _re
-    if not _re.match(r'^[a-zA-Z0-9가-힣._\-]+\.(docx|xlsx|pptx|png)$', filename) or len(filename) > 150:
+    if not _re.match(r'^[a-zA-Z0-9가-힣._\-]+\.(docx|hwpx|xlsx|pptx|png)$', filename) or len(filename) > 150:
         raise HTTPException(status_code=400, detail="잘못된 파일명입니다.")
 
     ext = os.path.splitext(filename)[1].lower()

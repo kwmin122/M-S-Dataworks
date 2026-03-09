@@ -259,6 +259,8 @@ export interface ProposalV2QualityIssue {
 
 export interface ProposalV2Response {
   docx_filename: string;
+  hwpx_filename: string;
+  output_filename: string;
   sections: ProposalV2Section[];
   quality_issues: ProposalV2QualityIssue[];
   generation_time_sec: number;
@@ -267,12 +269,13 @@ export interface ProposalV2Response {
 export async function generateProposalV2(
   sessionId: string,
   totalPages: number = 50,
+  outputFormat: 'docx' | 'hwpx' = 'docx',
 ): Promise<ProposalV2Response> {
   const res = await fetchWithError(`${API_BASE_URL}/api/proposal/generate-v2`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, total_pages: totalPages }),
-    timeoutMs: 300_000, // 5분 — DOCX 생성 시간 소요
+    body: JSON.stringify({ session_id: sessionId, total_pages: totalPages, output_format: outputFormat }),
+    timeoutMs: 300_000, // 5분 — DOCX/HWPX 생성 시간 소요
   });
   return parseJson<ProposalV2Response>(res);
 }

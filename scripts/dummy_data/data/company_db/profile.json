@@ -1,0 +1,270 @@
+{
+  "name": "IT서비스파트너",
+  "registration_number": "company_020-4438958",
+  "licenses": [
+    "정보통신공사업",
+    "소프트웨어사업자"
+  ],
+  "certifications": [
+    "정보처리기사",
+    "AWS_SAA",
+    "리눅스마스터",
+    "네트워크관리사",
+    "기타"
+  ],
+  "capital": 5300000000.0,
+  "employee_count": 440,
+  "track_records": [
+    {
+      "project_name": "외교부 공공데이터 사업",
+      "client": "외교부",
+      "period": "2020.07 ~ 2021.04",
+      "amount": 3545316678,
+      "description": "공공데이터 솔루션 구축 및 운영",
+      "technologies": [
+        "Oracle",
+        "Spring Framework",
+        "PostgreSQL"
+      ],
+      "outcome": "장애 제로 운영"
+    },
+    {
+      "project_name": "교육부 공공데이터 사업",
+      "client": "교육부",
+      "period": "2021.07 ~ 2022.07",
+      "amount": 3770905958,
+      "description": "공공데이터 솔루션 구축 및 운영",
+      "technologies": [
+        "PostgreSQL",
+        "Java",
+        "Oracle"
+      ],
+      "outcome": "사용자 만족도 95점 이상"
+    },
+    {
+      "project_name": "국방부 공공데이터 사업",
+      "client": "국방부",
+      "period": "2023.06 ~ 2023.12",
+      "amount": 1373518959,
+      "description": "공공데이터 솔루션 구축 및 운영",
+      "technologies": [
+        "Spring Framework",
+        "Linux",
+        "PostgreSQL"
+      ],
+      "outcome": "성능 30% 향상"
+    },
+    {
+      "project_name": "국방부 행정시스템 사업",
+      "client": "국방부",
+      "period": "2022.09 ~ 2023.09",
+      "amount": 3032562363,
+      "description": "행정시스템 솔루션 구축 및 운영",
+      "technologies": [
+        "Java",
+        "Spring Framework",
+        "Oracle"
+      ],
+      "outcome": "비용 20% 절감"
+    },
+    {
+      "project_name": "교육부 전자정부 사업",
+      "client": "교육부",
+      "period": "2021.06 ~ 2021.12",
+      "amount": 2395080343,
+      "description": "전자정부 솔루션 구축 및 운영",
+      "technologies": [
+        "Linux",
+        "Spring Framework",
+        "Oracle"
+      ],
+      "outcome": "장애 제로 운영"
+    },
+    {
+      "project_name": "행정안전부 공공데이터 사업",
+      "client": "행정안전부",
+      "period": "2023.03 ~ 2024.09",
+      "amount": 4231258430,
+      "description": "공공데이터 솔루션 구축 및 운영",
+      "technologies": [
+        "PostgreSQL",
+        "Spring Framework",
+        "Oracle"
+      ],
+      "outcome": "사용자 만족도 95점 이상"
+    },
+    {
+      "project_name": "외교부 행정시스템 사업",
+      "client": "외교부",
+      "period": "2023.09 ~ 2024.09",
+      "amount": 3186557581,
+      "description": "행정시스템 솔루션 구축 및 운영",
+      "technologies": [
+        "PostgreSQL",
+        "Oracle",
+        "Java"
+      ],
+      "outcome": "비용 20% 절감"
+    },
+    {
+      "project_name": "교육부 행정시스템 사업",
+      "client": "교육부",
+      "period": "2024.11 ~ 2025.05",
+      "amount": 2862335974,
+      "description": "행정시스템 솔루션 구축 및 운영",
+      "technologies": [
+        "PostgreSQL",
+        "Java",
+        "Spring Framework"
+      ],
+      "outcome": "비용 20% 절감"
+    },
+    {
+      "project_name": "국토교통부 행정시스템 사업",
+      "client": "국토교통부",
+      "period": "2021.11 ~ 2023.11",
+      "amount": 3381689618,
+      "description": "행정시스템 솔루션 구축 및 운영",
+      "technologies": [
+        "PostgreSQL",
+        "Spring Framework",
+        "Oracle"
+      ],
+      "outcome": "성능 30% 향상"
+    },
+    {
+      "project_name": "국방부 전자정부 사업",
+      "client": "국방부",
+      "period": "2022.12 ~ 2023.09",
+      "amount": 4807537734,
+      "description": "전자정부 솔루션 구축 및 운영",
+      "technologies": [
+        "PostgreSQL",
+        "Linux",
+        "Java"
+      ],
+      "outcome": "사용자 만족도 95점 이상"
+    },
+    {
+      "project_name": "국토교통부 행정시스템 사업",
+      "client": "국토교통부",
+      "period": "2021.08 ~ 2022.02",
+      "amount": 2949090580,
+      "description": "행정시스템 솔루션 구축 및 운영",
+      "technologies": [
+        "Linux",
+        "Spring Framework",
+        "PostgreSQL"
+      ],
+      "outcome": "시스템 안정성 99.9% 달성"
+    },
+    {
+      "project_name": "행정안전부 전자정부 사업",
+      "client": "행정안전부",
+      "period": "2022.08 ~ 2023.02",
+      "amount": 4454579216,
+      "description": "전자정부 솔루션 구축 및 운영",
+      "technologies": [
+        "Java",
+        "Linux",
+        "PostgreSQL"
+      ],
+      "outcome": "장애 제로 운영"
+    }
+  ],
+  "personnel": [
+    {
+      "name": "이현주",
+      "role": "선임개발자",
+      "experience_years": 9,
+      "certifications": [
+        "리눅스마스터",
+        "기타"
+      ],
+      "key_projects": [],
+      "specialties": []
+    },
+    {
+      "name": "김은지",
+      "role": "수석컨설턴트",
+      "experience_years": 8,
+      "certifications": [
+        "정보처리기사"
+      ],
+      "key_projects": [],
+      "specialties": []
+    },
+    {
+      "name": "이준서",
+      "role": "선임개발자",
+      "experience_years": 8,
+      "certifications": [
+        "리눅스마스터",
+        "AWS_SAA"
+      ],
+      "key_projects": [],
+      "specialties": []
+    },
+    {
+      "name": "김영철",
+      "role": "책임연구원",
+      "experience_years": 9,
+      "certifications": [
+        "정보처리기사",
+        "기타",
+        "네트워크관리사"
+      ],
+      "key_projects": [],
+      "specialties": []
+    },
+    {
+      "name": "박예진",
+      "role": "책임연구원",
+      "experience_years": 9,
+      "certifications": [
+        "리눅스마스터",
+        "AWS_SAA",
+        "기타"
+      ],
+      "key_projects": [],
+      "specialties": []
+    },
+    {
+      "name": "김영철",
+      "role": "책임PM",
+      "experience_years": 8,
+      "certifications": [
+        "네트워크관리사"
+      ],
+      "key_projects": [],
+      "specialties": []
+    },
+    {
+      "name": "엄도윤",
+      "role": "책임PM",
+      "experience_years": 12,
+      "certifications": [
+        "정보처리기사",
+        "기타"
+      ],
+      "key_projects": [],
+      "specialties": []
+    },
+    {
+      "name": "이서영",
+      "role": "기술총괄",
+      "experience_years": 13,
+      "certifications": [
+        "리눅스마스터",
+        "네트워크관리사"
+      ],
+      "key_projects": [],
+      "specialties": []
+    }
+  ],
+  "writing_style": {
+    "tone": "formal",
+    "length": "detailed",
+    "technical_depth": "high"
+  }
+}

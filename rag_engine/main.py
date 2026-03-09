@@ -358,6 +358,7 @@ class GenerateProposalV2Request(BaseModel):
     company_context: str = ""
     company_name: str | None = None
     total_pages: int = Field(default=50, ge=10, le=200)
+    output_format: str = Field(default="docx", pattern="^(docx|hwpx)$")
 
 
 @app.post("/api/generate-proposal-v2")
@@ -376,6 +377,7 @@ async def generate_proposal_v2(req: GenerateProposalV2Request, request: Request)
             knowledge_db_path=_KNOWLEDGE_DB_DIR,
             company_skills_dir=_get_company_skills_dir(),
             total_pages=req.total_pages,
+            output_format=req.output_format,
         )
     except Exception as exc:
         logger.error("generate_proposal_v2 failed: %s\n%s", exc, traceback.format_exc())
@@ -383,11 +385,13 @@ async def generate_proposal_v2(req: GenerateProposalV2Request, request: Request)
 
     # Return only filename, not full server path (security: C1)
     docx_filename = os.path.basename(result.docx_path) if result.docx_path else ""
+    hwpx_filename = os.path.basename(result.hwpx_path) if result.hwpx_path else ""
+    output_filename = hwpx_filename or docx_filename
 
-    # Persist full section markdown alongside DOCX for later editing
-    if docx_filename and result.sections:
+    # Persist full section markdown alongside output for later editing
+    if output_filename and result.sections:
         try:
-            base_name = docx_filename.rsplit(".", 1)[0]
+            base_name = output_filename.rsplit(".", 1)[0]
             sections_path = os.path.join(_PROPOSALS_DIR, f"{base_name}_sections.json")
             import json as _json
             import tempfile as _tmpfile
@@ -414,6 +418,8 @@ async def generate_proposal_v2(req: GenerateProposalV2Request, request: Request)
 
     return {
         "docx_filename": docx_filename,
+        "hwpx_filename": hwpx_filename,
+        "output_filename": output_filename,
         "sections": [{"name": n, "preview": t[:500]} for n, t in result.sections],
         "quality_issues": [
             {"category": qi.category, "severity": qi.severity, "detail": qi.detail}
@@ -431,10 +437,11 @@ _PROPOSALS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"
 _COMPANY_DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "company_db")
 # Layer 1 지식 DB는 프로젝트 루트의 data/knowledge_db (495 유닛 위치)
 _KNOWLEDGE_DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "knowledge_db")
-_SAFE_FILENAME_RE = _re.compile(r'^[a-zA-Z0-9가-힣._\-]+\.(docx|xlsx|pptx|png)$')
+_SAFE_FILENAME_RE = _re.compile(r'^[a-zA-Z0-9가-힣._\-]+\.(docx|hwpx|xlsx|pptx|png)$')
 
 _MIME_TYPES: dict[str, str] = {
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".hwpx": "application/x-hwpml",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     ".png": "image/png",

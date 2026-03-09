@@ -1,0 +1,101 @@
+[
+  {
+    "scenario_id": "TS-001",
+    "company": "삼성SDS",
+    "match_type": "HIGH",
+    "steps": {
+      "step1_upload_company": {
+        "success": false,
+        "duration_ms": 19,
+        "error": "Upload failed: 404, {\"detail\":\"Not Found\"}"
+      },
+      "step2_analyze": {
+        "success": false,
+        "duration_ms": 1,
+        "error": "Analyze failed: 404, {\"detail\":\"Not Found\"}"
+      },
+      "step7_checklist": {
+        "success": false,
+        "duration_ms": 0,
+        "error": "Checklist extraction failed: 404, {\"detail\":\"Not Found\"}"
+      }
+    },
+    "accuracy": {
+      "go_no_go_accurate": false,
+      "proposal_accurate": false,
+      "wbs_accurate": false,
+      "ppt_accurate": false,
+      "checklist_accurate": false,
+      "overall_pass": false,
+      "accuracy_score": 0.0
+    },
+    "overall_success": false,
+    "total_duration_ms": 23
+  },
+  {
+    "scenario_id": "TS-002",
+    "company": "제조기업 A",
+    "match_type": "LOW",
+    "steps": {
+      "step1_upload_company": {
+        "success": false,
+        "duration_ms": 0,
+        "error": "회사 문서 없음: data/company_docs/제조기업 A_회사소개서.pdf"
+      },
+      "step2_analyze": {
+        "success": false,
+        "duration_ms": 12,
+        "error": "Analyze failed: 404, {\"detail\":\"Not Found\"}"
+      },
+      "step7_checklist": {
+        "success": false,
+        "duration_ms": 0,
+        "error": "Checklist extraction failed: 404, {\"detail\":\"Not Found\"}"
+      }
+    },
+    "accuracy": {
+      "go_no_go_accurate": false,
+      "proposal_accurate": false,
+      "wbs_accurate": false,
+      "ppt_accurate": false,
+      "checklist_accurate": false,
+      "overall_pass": false,
+      "accuracy_score": 0.0
+    },
+    "overall_success": false,
+    "total_duration_ms": 13
+  },
+  {
+    "scenario_id": "TS-003",
+    "company": "더존비즈온",
+    "match_type": "HIGH",
+    "steps": {
+      "step1_upload_company": {
+        "success": false,
+        "duration_ms": 9,
+        "error": "Upload failed: 404, {\"detail\":\"Not Found\"}"
+      },
+      "step2_analyze": {
+        "success": false,
+        "duration_ms": 0,
+        "error": "Analyze failed: 404, {\"detail\":\"Not Found\"}"
+      },
+      "step7_checklist": {
+        "success": false,
+        "duration_ms": 0,
+        "error": "Checklist extraction failed: 404, {\"detail\":\"Not Found\"}"
+      }
+    },
+    "accuracy": {
+      "go_no_go_accurate": false,
+      "proposal_accurate": false,
+      "wbs_accurate": false,
+      "ppt_accurate": false,
+      "checklist_accurate": false,
+      "overall_pass": false,
+      "accuracy_score": 0.0
+    },
+    "overall_success": false,
+    "total_duration_ms": 10
+  }
+]

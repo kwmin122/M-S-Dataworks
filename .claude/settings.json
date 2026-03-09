@@ -52,10 +52,11 @@
     ],
     "Stop": [
       {
+        "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "echo '\\a'"
+            "command": "say \"$(basename $(pwd)) 작업 완료여\""
           }
         ]
       }
