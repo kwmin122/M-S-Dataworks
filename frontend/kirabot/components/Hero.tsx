@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import Button from './Button';
 import { trackEvent } from '../utils/analytics';
 
@@ -7,20 +7,39 @@ interface HeroProps {
   onAlertSetup?: () => void;
 }
 
+const SPLINE_URL = 'https://my.spline.design/interactiveaiwebsite-WIBfsJZbIYpUeijSVLawHWPr/';
+
 const Hero: React.FC<HeroProps> = ({ onStart, onAlertSetup }) => {
+  const [splineLoaded, setSplineLoaded] = useState(false);
+
+  const handleIframeLoad = useCallback(() => {
+    setSplineLoaded(true);
+  }, []);
+
   return (
     <section className="relative w-full overflow-hidden bg-slate-50 lg:h-screen min-h-[800px] flex flex-col justify-center">
 
-      {/* 3D Background Layer */}
-      <div className="absolute inset-0 w-full h-full z-0">
-         <iframe
-            src='https://my.spline.design/interactiveaiwebsite-WIBfsJZbIYpUeijSVLawHWPr/'
-            frameBorder='0'
-            width='100%'
-            height='100%'
-            className="w-full h-full lg:scale-105 lg:translate-x-24 transition-transform duration-1000"
-            title="Inference Search 3D"
-        ></iframe>
+      {/* Animated CSS Fallback — always present behind iframe */}
+      <div className="absolute inset-0 w-full h-full z-0 overflow-hidden">
+        <div className="hero-mesh absolute inset-0" />
+      </div>
+
+      {/* 3D Spline Layer — overlays the CSS fallback when loaded */}
+      <div
+        className="absolute inset-0 w-full h-full z-0 transition-opacity duration-1000"
+        style={{ opacity: splineLoaded ? 1 : 0 }}
+      >
+        <iframe
+          src={SPLINE_URL}
+          frameBorder="0"
+          width="100%"
+          height="100%"
+          allow="autoplay; fullscreen; xr-spatial-tracking"
+          loading="lazy"
+          onLoad={handleIframeLoad}
+          className="w-full h-full lg:scale-105 lg:translate-x-24 transition-transform duration-1000"
+          title="Inference Search 3D"
+        />
       </div>
 
       {/* Gradient Overlay */}
