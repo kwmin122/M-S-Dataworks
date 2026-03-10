@@ -51,13 +51,25 @@ export function usePersistedConversations(): void {
       }
 
       if (raw) {
-        const parsed = JSON.parse(raw);
-        const conversations: Conversation[] = Array.isArray(parsed) ? parsed : [];
-        dispatch({
-          type: 'LOAD_CONVERSATIONS',
-          conversations,
-          activeId: aId || conversations[0]?.id || null,
-        });
+        const parsed: unknown = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+          // corrupt data — skip
+        } else {
+          // Validate each conversation has required fields
+          const conversations = parsed.filter(
+            (c): c is Conversation =>
+              c != null &&
+              typeof c === 'object' &&
+              typeof (c as Record<string, unknown>).id === 'string' &&
+              typeof (c as Record<string, unknown>).phase === 'string' &&
+              Array.isArray((c as Record<string, unknown>).messages),
+          );
+          dispatch({
+            type: 'LOAD_CONVERSATIONS',
+            conversations,
+            activeId: aId || conversations[0]?.id || null,
+          });
+        }
       }
     } catch {
       // corrupt data — ignore

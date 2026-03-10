@@ -5,6 +5,7 @@ import Sidebar from './Sidebar';
 import ChatArea from './ChatArea';
 import ContextPanel from './ContextPanel';
 import UserGuide from './UserGuide';
+import ProductTour from '../onboarding/ProductTour';
 import type { User } from '../../types';
 
 interface ChatLayoutProps {
@@ -58,12 +59,19 @@ function ChatLayoutInner({ user, onLogout, onNavigateHome }: ChatLayoutProps) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
+      <ProductTour />
       <Sidebar user={user} onLogout={onLogout} onHome={onNavigateHome} />
       <div className="flex flex-1 min-w-0 h-full overflow-hidden">
         {/* Chat area or User Guide */}
         <div style={hasPanelContent ? { flex: `${1 - panelRatio}` } : undefined} className={hasPanelContent ? 'min-w-0 h-full overflow-hidden' : 'flex-1 min-w-0 h-full overflow-hidden'}>
           {state.currentView === 'guide' ? (
-            <UserGuide onClose={() => dispatch({ type: 'SET_CURRENT_VIEW', view: 'chat' })} />
+            <UserGuide
+              onClose={() => dispatch({ type: 'SET_CURRENT_VIEW', view: 'chat' })}
+              onStartCompanyDB={() => {
+                dispatch({ type: 'SET_CURRENT_VIEW', view: 'chat' });
+                setTimeout(() => window.dispatchEvent(new CustomEvent('kira:start-company-db')), 100);
+              }}
+            />
           ) : (
             <ChatArea user={user} />
           )}

@@ -24,6 +24,28 @@ import type {
 
 const UPLOAD_ACCEPT = '.pdf,.doc,.docx,.txt,.hwp,.hwpx,.xlsx,.xls,.csv,.pptx,.ppt';
 
+const DOC_HISTORY_MAX = 10;
+
+/** Push a new entry to a localStorage document history array (max DOC_HISTORY_MAX). */
+function pushDocHistory<T>(key: string, data: T, label: string): void {
+  try {
+    const raw = localStorage.getItem(key);
+    let arr: Array<{ id: string; timestamp: number; label: string; data: T }> = [];
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        arr = parsed;
+      } else {
+        // Legacy single-object format — wrap it
+        arr = [{ id: `legacy_${Date.now()}`, timestamp: Date.now(), label: '이전 생성물', data: parsed as T }];
+      }
+    }
+    const entry = { id: `doc_${Date.now()}`, timestamp: Date.now(), label, data };
+    arr = [entry, ...arr].slice(0, DOC_HISTORY_MAX);
+    localStorage.setItem(key, JSON.stringify(arr));
+  } catch { /* noop */ }
+}
+
 const GREETING_PATTERN = /^(안녕|하이|헬로|hi|hello|반가|좋은\s*(아침|오후|저녁)|감사|고마워|ㅎㅇ|ㅎ2)[\s!?.~ㅋㅎ]*$/i;
 
 function detectFileType(fileName: string): DocFileType {
@@ -121,9 +143,11 @@ export function useConversationFlow() {
   const { conversation, conversationId } = useActiveConversation();
   const navigate = useNavigate();
 
-  // Keep latest conversation ref for async operations to avoid stale closures
+  // Keep latest refs for async operations to avoid stale closures
   const conversationRef = useRef(conversation);
   conversationRef.current = conversation;
+  const contextPanelRef = useRef(state.contextPanel);
+  contextPanelRef.current = state.contextPanel;
 
   const push = useCallback(
     (message: ChatMessage) => {
@@ -254,12 +278,13 @@ export function useConversationFlow() {
           pushText(res.answer, res.references, res.scoped_to);
           if (conversation.activeDocFilter) updateConv({ activeDocFilter: null });
           if (res.references?.length) {
+            const panel = contextPanelRef.current;
             const currentUrl = conversation?.uploadedFileUrl ||
-              (state.contextPanel.type === 'pdf' ? state.contextPanel.blobUrl : '') ||
-              (state.contextPanel.type === 'documents' ? state.contextPanel.tabs[0]?.url : '');
+              (panel.type === 'pdf' ? panel.blobUrl : '') ||
+              (panel.type === 'documents' ? panel.tabs[0]?.url : '');
 
-            if (state.contextPanel.type === 'documents') {
-              const updatedTabs = state.contextPanel.tabs.map((tab, i) =>
+            if (panel.type === 'documents') {
+              const updatedTabs = panel.tabs.map((tab, i) =>
                 i === 0 ? { ...tab, page: res.references![0].page } : tab,
               );
               dispatch({
@@ -306,8 +331,7 @@ export function useConversationFlow() {
             companyDocUrls: [...existingUrls, { name: 'company_info.txt', url: `/api/files/${sid}/company/company_info.txt` }],
           });
 
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const prevPhase = (conversation as any)._prevPhase as ConversationPhase | undefined;
+          const prevPhase = conversation._prevPhase;
           if (prevPhase && prevPhase !== 'doc_upload_company') {
             pushText(`회사 정보가 등록되었습니다. (${result.company_chunks}개 지식 조각)`);
             if ((prevPhase === 'doc_chat' || prevPhase === 'bid_search_results' || prevPhase === 'bid_eval_results') && sid) {
@@ -333,7 +357,7 @@ export function useConversationFlow() {
             push({
               id: msgId(), role: 'bot', type: 'file_upload', timestamp: Date.now(),
               text: '이제 분석할 문서(RFP/입찰공고)를 업로드해주세요.',
-              accept: UPLOAD_ACCEPT, multiple: false,
+              accept: UPLOAD_ACCEPT, multiple: true,
             } as FileUploadMessage);
           }
         } catch (error) {
@@ -421,7 +445,7 @@ export function useConversationFlow() {
         return;
       }
     },
-    [conversationId, conversation, push, pushText, pushStatus, removeLastStatus, setProcessing, setPhase, updateConv, dispatch, state.contextPanel],
+    [conversationId, conversation, push, pushText, pushStatus, removeLastStatus, setProcessing, setPhase, updateConv, dispatch],
   );
 
   // ── Shared FSM transition for feature selection ──
@@ -444,7 +468,7 @@ export function useConversationFlow() {
             timestamp: Date.now(),
             text: '분석할 문서(RFP/입찰공고)를 업로드해주세요.',
             accept: UPLOAD_ACCEPT,
-            multiple: false,
+            multiple: true,
           } as FileUploadMessage);
         } else {
           // No company profile — show original choice with settings hint
@@ -551,7 +575,7 @@ export function useConversationFlow() {
               timestamp: Date.now(),
               text: '분석할 문서(RFP/입찰공고)를 업로드해주세요.',
               accept: UPLOAD_ACCEPT,
-              multiple: false,
+              multiple: true,
             } as FileUploadMessage);
           } else if (action.value === 'add_company_docs') {
             setPhase('doc_upload_company');
@@ -599,7 +623,7 @@ export function useConversationFlow() {
               timestamp: Date.now(),
               text: '분석할 문서(RFP/입찰공고)를 업로드해주세요.',
               accept: UPLOAD_ACCEPT,
-              multiple: false,
+              multiple: true,
             } as FileUploadMessage);
           }
           break;
@@ -683,7 +707,7 @@ export function useConversationFlow() {
                   timestamp: Date.now(),
                   text: '이제 분석할 문서(RFP/입찰공고)를 업로드해주세요.',
                   accept: UPLOAD_ACCEPT,
-                  multiple: false,
+                  multiple: true,
                 } as FileUploadMessage);
               }
             } catch (error) {
@@ -694,10 +718,12 @@ export function useConversationFlow() {
               setProcessing(false);
             }
           } else if (conversation.phase === 'doc_upload_target') {
-            trackEvent('document_uploaded', { doc_type: 'analysis', file_type: files[0]?.name.split('.').pop() });
+            trackEvent('document_uploaded', { doc_type: 'analysis', file_type: files[0]?.name.split('.').pop(), file_count: files.length });
             setProcessing(true);
             setPhase('doc_analyzing');
-            pushStatus('loading', '문서를 분석하고 있어요. 잠시만 기다려주세요...');
+            pushStatus('loading', files.length > 1
+              ? `${files.length}개 문서를 분석하고 있어요. 잠시만 기다려주세요...`
+              : '문서를 분석하고 있어요. 잠시만 기다려주세요...');
 
             try {
               // Use ref for latest session value
@@ -707,15 +733,18 @@ export function useConversationFlow() {
                 updateConv({ sessionId: sid });
               }
 
-              const result = await api.analyzeDocument(sid, files[0]);
+              const result = await api.analyzeDocument(sid, files);
               removeLastStatus();
 
               // Build document tabs for context panel
-              const fileName = files[0].name;
-              let analysisUrl: string | null = null;
-              if (result.fileUrl) {
-                analysisUrl = `${api.getApiBaseUrl()}${result.fileUrl}`;
-              } else if (files[0].type.includes('pdf')) {
+              const allFileNames = result.filenames || [result.filename];
+              const allFileUrls = (result.fileUrls || (result.fileUrl ? [result.fileUrl] : []))
+                .map(u => `${api.getApiBaseUrl()}${u}`);
+              const primaryFileName = allFileNames[0];
+
+              // Primary analysis URL — prefer server URL, fallback to blob for PDF
+              let analysisUrl: string | null = allFileUrls[0] || null;
+              if (!analysisUrl && files[0].type.includes('pdf')) {
                 analysisUrl = URL.createObjectURL(files[0]);
               }
 
@@ -723,9 +752,14 @@ export function useConversationFlow() {
                 // Revoke previous blob URL if it exists
                 const prev = conversation.uploadedFileUrl;
                 if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev);
-                updateConv({ uploadedFileUrl: analysisUrl, uploadedFileName: fileName });
+                updateConv({
+                  uploadedFileUrl: analysisUrl,
+                  uploadedFileName: primaryFileName,
+                  uploadedFileUrls: allFileUrls,
+                  uploadedFileNames: allFileNames,
+                });
                 const companyDocs = conversation.companyDocUrls || [];
-                const tabs = buildDocumentTabs({ url: analysisUrl, fileName }, companyDocs);
+                const tabs = buildDocumentTabs({ url: analysisUrl, fileName: primaryFileName }, companyDocs);
                 if (tabs.length > 0) {
                   dispatch({
                     type: 'SET_CONTEXT_PANEL',
@@ -745,19 +779,18 @@ export function useConversationFlow() {
 
               // Save analysis to localStorage for DocumentWorkspace RFP tab
               try {
-                localStorage.setItem('kira_last_analysis', JSON.stringify(result.analysis));
-                // Only store server-generated URLs, not blob URLs (blob: URLs expire on reload)
-                if (analysisUrl && !analysisUrl.startsWith('blob:')) {
-                  localStorage.setItem('kira_last_analysis_file_url', analysisUrl);
-                }
+                const analysisLabel = result.analysis?.title || allFileNames[0] || '문서 분석';
+                const analysisWithMeta = { ...result.analysis, _fileNames: allFileNames, _fileUrl: analysisUrl && !analysisUrl.startsWith('blob:') ? analysisUrl : '' };
+                pushDocHistory('kira_last_analysis', analysisWithMeta, analysisLabel);
                 if (sid) localStorage.setItem('kira_session_id', sid);
               } catch { /* noop */ }
 
-              trackEvent('document_analyzed', { doc_type: 'analysis', analysis_type: result.analysis?.document_type });
+              trackEvent('document_analyzed', { doc_type: 'analysis', analysis_type: result.analysis?.document_type, file_count: files.length });
               if (conversation.companyProfile?.companyName) {
                 pushText(`🏢 ${conversation.companyProfile.companyName} 정보와 함께 비교 분석이 완료되었습니다! 결과에 대해 자유롭게 질문해주세요.`);
               } else {
-                pushText('📄 문서 분석이 완료되었습니다! 결과에 대해 자유롭게 질문해주세요. 💡 설정 > 회사 정보를 등록하면 맞춤 비교 분석이 가능합니다.');
+                const multiNote = files.length > 1 ? ` (${files.length}개 문서 통합 분석)` : '';
+                pushText(`📄 문서 분석이 완료되었습니다${multiNote}! 결과에 대해 자유롭게 질문해주세요. 💡 설정 > 회사 정보를 등록하면 맞춤 비교 분석이 가능합니다.`);
               }
               setPhase('doc_chat');
               updateConv({ title: result.analysis?.title || '문서 분석' });
@@ -1102,10 +1135,8 @@ export function useConversationFlow() {
 
             // Save analysis to localStorage for DocumentWorkspace RFP tab
             try {
-              localStorage.setItem('kira_last_analysis', JSON.stringify(result.analysis));
-              if (result.fileUrl) {
-                localStorage.setItem('kira_last_analysis_file_url', `${api.getApiBaseUrl()}${result.fileUrl}`);
-              }
+              const bidAnalysisUrl = result.fileUrl ? `${api.getApiBaseUrl()}${result.fileUrl}` : '';
+              pushDocHistory('kira_last_analysis', { ...result.analysis, _fileUrl: bidAnalysisUrl }, result.analysis?.title || bid.title || '공고 분석');
               if (sid) localStorage.setItem('kira_session_id', sid);
             } catch { /* noop */ }
 
@@ -1144,7 +1175,7 @@ export function useConversationFlow() {
                 timestamp: Date.now(),
                 text: '다운로드한 공고 문서를 여기에 업로드해주세요.',
                 accept: UPLOAD_ACCEPT,
-                multiple: false,
+                multiple: true,
               } as FileUploadMessage);
             } else {
               pushStatus('error', `공고 분석 실패: ${msg}`, 'bid_analyze');
@@ -1218,15 +1249,16 @@ export function useConversationFlow() {
 
         case 'reference_clicked': {
           trackEvent('reference_clicked', { page_number: action.page, document_name: conversation?.uploadedFileName });
+          const refPanel = contextPanelRef.current;
           const currentUrl = conversation?.uploadedFileUrl ||
-            (state.contextPanel.type === 'pdf' ? state.contextPanel.blobUrl : '') ||
-            (state.contextPanel.type === 'documents' ? state.contextPanel.tabs[0]?.url : '');
+            (refPanel.type === 'pdf' ? refPanel.blobUrl : '') ||
+            (refPanel.type === 'documents' ? refPanel.tabs[0]?.url : '');
 
           if (!currentUrl) break;
 
           // If we have a documents panel, update the active tab's page/highlight
-          if (state.contextPanel.type === 'documents') {
-            const updatedTabs = state.contextPanel.tabs.map((tab, i) =>
+          if (refPanel.type === 'documents') {
+            const updatedTabs = refPanel.tabs.map((tab, i) =>
               i === 0 ? { ...tab, page: action.page, highlightText: action.text } : tab,
             );
             dispatch({
@@ -1269,7 +1301,7 @@ export function useConversationFlow() {
               timestamp: Date.now(),
               text: '분석할 문서를 다시 업로드해주세요.',
               accept: UPLOAD_ACCEPT,
-              multiple: false,
+              multiple: true,
             } as FileUploadMessage);
           } else if (action.action === 'bid_search') {
             setPhase('bid_search_input');
@@ -1298,7 +1330,7 @@ export function useConversationFlow() {
             timestamp: Date.now(),
             text: '분석할 문서(RFP/입찰공고)를 업로드해주세요.',
             accept: UPLOAD_ACCEPT,
-            multiple: false,
+            multiple: true,
           } as FileUploadMessage);
           break;
         }
@@ -1348,7 +1380,7 @@ export function useConversationFlow() {
             break;
           }
 
-          const format = (action as any).format || 'docx';
+          const format = action.format || 'docx';
           const formatName = format === 'hwpx' ? 'HWPX' : 'DOCX';
 
           setProcessing(true);
@@ -1366,7 +1398,7 @@ export function useConversationFlow() {
             if (filename) {
               const downloadUrl = api.getProposalDownloadUrl(filename);
               msg += `\n\n[📥 제안서 ${formatName} 다운로드](${downloadUrl})`;
-              try { localStorage.setItem('kira_last_proposal', filename); } catch { /* noop */ }
+              pushDocHistory('kira_last_proposal', filename, result.sections[0]?.name || filename);
             }
             if (result.quality_issues.length > 0) {
               msg += `\n\n**품질 이슈 ${result.quality_issues.length}건:**\n` +
@@ -1447,7 +1479,7 @@ export function useConversationFlow() {
             }
             pushText(msg);
             // Save WBS result to localStorage for DocumentWorkspace WBS tab
-            try { localStorage.setItem('kira_last_wbs', JSON.stringify(result)); } catch { /* noop */ }
+            pushDocHistory('kira_last_wbs', result, conversation.title || 'WBS');
             trackEvent('wbs_generated', { time: result.generation_time_sec });
           } catch (error) {
             removeLastStatus();
@@ -1487,7 +1519,7 @@ export function useConversationFlow() {
             }
             pushText(msg);
             // Save PPT result to localStorage for DocumentWorkspace PPT tab
-            try { localStorage.setItem('kira_last_ppt', JSON.stringify(result)); } catch { /* noop */ }
+            pushDocHistory('kira_last_ppt', result, conversation.title || 'PPT');
             trackEvent('ppt_generated', { time: result.generation_time_sec });
           } catch (error) {
             removeLastStatus();
@@ -1513,7 +1545,7 @@ export function useConversationFlow() {
             removeLastStatus();
 
             // Save to localStorage for DocumentWorkspace track_record tab
-            try { localStorage.setItem('kira_last_track_record', JSON.stringify(result)); } catch { /* noop */ }
+            pushDocHistory('kira_last_track_record', result, conversation.title || '실적기술서');
 
             let msg = `실적/경력 기술서가 생성되었습니다! (${result.generation_time_sec}초)\n\n`;
             msg += `**실적 ${result.track_record_count}건, 인력 ${result.personnel_count}명**\n\n`;
@@ -1617,7 +1649,7 @@ export function useConversationFlow() {
         }
       }
     },
-    [conversationId, conversation, state.contextPanel, push, pushText, pushStatus, removeLastStatus, updateMsg, updateConv, setPhase, setProcessing, dispatch, handleFeatureSelection],
+    [conversationId, conversation, push, pushText, pushStatus, removeLastStatus, updateMsg, updateConv, setPhase, setProcessing, dispatch, handleFeatureSelection],
   );
 
   return {

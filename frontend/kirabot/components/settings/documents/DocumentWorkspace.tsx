@@ -16,7 +16,7 @@ export default function DocumentWorkspace() {
   const activeTab: DocumentTab = VALID_TABS.has(rawTab) ? (rawTab as DocumentTab) : 'profile';
 
   const handleTabChange = (tab: DocumentTab) => {
-    setSearchParams({ tab });
+    setSearchParams({ tab }, { replace: true });
   };
 
   return (

@@ -66,7 +66,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ user, onSendText, onActio
         <div className="mb-4 flex justify-center">
           <KiraBotLogo size={52} />
         </div>
-        <h1 className="text-3xl font-bold text-slate-800">
+        <h1 className="text-3xl font-bold text-slate-800 font-title">
           안녕하세요, {displayName}님
         </h1>
         <p className="mt-2 text-base text-slate-500">
@@ -136,6 +136,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ user, onSendText, onActio
               type="button"
               onClick={() => onAction({ type: 'welcome_action', value })}
               className="flex items-center gap-2 rounded-full border border-kira-200 bg-kira-50 px-4 py-2 text-sm text-kira-700 shadow-sm hover:bg-kira-100 hover:shadow-md transition-colors"
+              {...(value === 'company_onboarding' ? { 'data-tour': 'company-db' } : {})}
             >
               <Icon size={16} />
               {label}

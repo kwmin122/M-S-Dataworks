@@ -39,12 +39,13 @@ const ChatInput: React.FC<Props> = ({ onSendText, onAction }) => {
       label: d.source_file,
       type: 'company' as const,
     })),
-    ...(conversation?.uploadedFileName ? [{
-      sourceFile: conversation.uploadedFileName,
-      label: conversation.uploadedFileName,
-      type: 'rfx' as const,
-    }] : []),
-  ], [conversation?.companyDocuments, conversation?.uploadedFileName]);
+    ...(conversation?.uploadedFileNames || (conversation?.uploadedFileName ? [conversation.uploadedFileName] : []))
+      .map(fn => ({
+        sourceFile: fn,
+        label: fn,
+        type: 'rfx' as const,
+      })),
+  ], [conversation?.companyDocuments, conversation?.uploadedFileNames, conversation?.uploadedFileName]);
 
   const filteredDocs = mentionQuery
     ? allDocs.filter(d => d.label.toLowerCase().includes(mentionQuery.toLowerCase()))
@@ -94,6 +95,10 @@ const ChatInput: React.FC<Props> = ({ onSendText, onAction }) => {
   const handleSend = () => {
     const trimmed = text.trim();
     if (!trimmed && docTags.length === 0) return;
+    if (!trimmed && docTags.length > 0) {
+      // docTags selected but no question — prompt the user
+      return;
+    }
     if (state.isProcessing) return;
     const sourceFiles = docTags.length > 0 ? docTags.map(t => t.sourceFile) : undefined;
     onSendText(trimmed, sourceFiles);
@@ -198,7 +203,7 @@ const ChatInput: React.FC<Props> = ({ onSendText, onAction }) => {
         </div>
       )}
       <div className="mx-auto flex max-w-3xl items-end gap-2">
-        <div className="relative flex flex-1 items-end rounded-xl border border-slate-300 bg-white px-3 py-2 focus-within:border-kira-500 focus-within:ring-2 focus-within:ring-kira-200">
+        <div data-tour="chat-input" className="relative flex flex-1 items-end rounded-xl border border-slate-300 bg-white px-3 py-2 focus-within:border-kira-500 focus-within:ring-2 focus-within:ring-kira-200">
           {/* Mention autocomplete dropdown */}
           {mentionOpen && mentionOptions.length > 0 && (
             <div ref={mentionRef} className="absolute bottom-full left-0 right-0 mb-1 rounded-xl border border-slate-200 bg-white shadow-lg overflow-hidden z-50 max-h-48 overflow-y-auto">
@@ -233,6 +238,7 @@ const ChatInput: React.FC<Props> = ({ onSendText, onAction }) => {
           {/* 파일 업로드 버튼 + 드롭다운 */}
           <div className="relative ml-2" ref={menuRef}>
             <button
+              data-tour="file-upload"
               type="button"
               onClick={() => setShowUploadMenu(!showUploadMenu)}
               className="shrink-0 text-slate-400 hover:text-slate-600 transition-colors"

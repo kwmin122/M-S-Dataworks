@@ -121,10 +121,13 @@ export async function deleteSessionCompanyDocument(sessionId: string, sourceFile
   return parseJson<{ deleted_chunks: number; remaining_chunks: number }>(response);
 }
 
-export async function analyzeDocument(sessionId: string, file: File): Promise<AnalyzeResponse> {
+export async function analyzeDocument(sessionId: string, files: File | File[]): Promise<AnalyzeResponse> {
   const form = new FormData();
   form.append('session_id', sessionId);
-  form.append('file', file);
+  const fileArray = Array.isArray(files) ? files : [files];
+  for (const f of fileArray) {
+    form.append('files', f);
+  }
 
   const response = await fetchWithError(`${API_BASE_URL}/api/analyze/upload`, {
     method: 'POST',
@@ -222,7 +225,23 @@ export async function evaluateBatch(sessionId: string, bidNoticeIds: string[]): 
 }
 
 export async function exportEvaluations(): Promise<void> {
-  window.open('/api/export/evaluations', '_blank');
+  const res = await fetchWithError(`${API_BASE_URL}/api/export/evaluations`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    throw new Error('평가 결과 내보내기에 실패했습니다.');
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const disposition = res.headers.get('Content-Disposition');
+  a.download = disposition?.match(/filename="?(.+?)"?$/)?.[1] || 'evaluations.xlsx';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 export async function generateProposal(bidNoticeId: string): Promise<{ sections: ProposalSections }> {
@@ -381,7 +400,12 @@ export async function generateTrackRecord(
   return parseJson<TrackRecordDocResponse>(res);
 }
 
+const SAFE_FILENAME_RE = /^[a-zA-Z0-9가-힣._\-]+$/;
+
 export function getFileDownloadUrl(filename: string): string {
+  if (!filename || !SAFE_FILENAME_RE.test(filename) || filename.includes('..')) {
+    throw new Error(`잘못된 파일명: ${filename}`);
+  }
   return `${API_BASE_URL}/api/proposal/download/${encodeURIComponent(filename)}`;
 }
 

@@ -3,12 +3,22 @@ import { Award, Download, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { generateTrackRecord, getFileDownloadUrl } from '../../../services/kiraApiService';
 import type { TrackRecordDocResponse } from '../../../services/kiraApiService';
+import { useDocumentHistory } from '../../../hooks/useDocumentHistory';
+import DocumentHistorySelect from '../../common/DocumentHistorySelect';
 
-const LS_KEY = 'kira_last_track_record';
+function isValidTrackRecordResponse(data: unknown): data is TrackRecordDocResponse {
+  if (!data || typeof data !== 'object') return false;
+  const d = data as Record<string, unknown>;
+  return typeof d.track_record_count === 'number' && typeof d.personnel_count === 'number';
+}
 
 export default function TrackRecordViewer() {
-  const [data, setData] = useState<TrackRecordDocResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { entries, selected, selectedId, setSelectedId, push, remove, loading } = useDocumentHistory<TrackRecordDocResponse>(
+    'kira_last_track_record',
+    isValidTrackRecordResponse,
+  );
+  const data = selected?.data ?? null;
+
   const [regenerating, setRegenerating] = useState(false);
   const [toast, setToast] = useState('');
   const [toastType, setToastType] = useState<'success' | 'error'>('success');
@@ -30,23 +40,6 @@ export default function TrackRecordViewer() {
     toastTimerRef.current = setTimeout(() => { if (mountedRef.current) setToast(''); }, 3000);
   }, []);
 
-  const loadData = useCallback(() => {
-    setLoading(true);
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as TrackRecordDocResponse;
-        setData(parsed);
-      }
-    } catch {
-      if (mountedRef.current) showToast('실적기술서 데이터 로드 실패', 'error');
-    } finally {
-      if (mountedRef.current) setLoading(false);
-    }
-  }, [showToast]);
-
-  useEffect(() => { loadData(); }, [loadData]);
-
   const handleRegenerate = async () => {
     const sessionId = localStorage.getItem('kira_session_id') || '';
     if (!sessionId) {
@@ -58,8 +51,7 @@ export default function TrackRecordViewer() {
     try {
       const result = await generateTrackRecord(sessionId);
       if (!mountedRef.current) return;
-      setData(result);
-      try { localStorage.setItem(LS_KEY, JSON.stringify(result)); } catch { /* noop */ }
+      push(result, '실적기술서');
       showToast('실적기술서가 재생성되었습니다.');
     } catch (e) {
       showToast(e instanceof Error ? e.message : '실적기술서 재생성 실패', 'error');
@@ -93,14 +85,23 @@ export default function TrackRecordViewer() {
             생성 완료
           </span>
         </div>
-        <button
-          onClick={handleRegenerate}
-          disabled={regenerating}
-          className="flex items-center gap-1 rounded-lg bg-kira-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-kira-700 disabled:opacity-50"
-        >
-          <RefreshCw size={14} className={regenerating ? 'animate-spin' : ''} />
-          {regenerating ? '재생성 중...' : '재생성'}
-        </button>
+        <div className="flex items-center gap-2">
+          <DocumentHistorySelect
+            entries={entries}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onRemove={remove}
+          />
+          <button
+            type="button"
+            onClick={handleRegenerate}
+            disabled={regenerating}
+            className="flex items-center gap-1 rounded-lg bg-kira-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-kira-700 disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={regenerating ? 'animate-spin' : ''} />
+            {regenerating ? '재생성 중...' : '재생성'}
+          </button>
+        </div>
       </div>
 
       {/* Stats row */}

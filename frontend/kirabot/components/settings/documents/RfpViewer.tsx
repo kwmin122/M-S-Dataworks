@@ -1,16 +1,28 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { ClipboardList, Download, FileSearch } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import MarkdownViewer from '../../common/MarkdownViewer';
+import { useDocumentHistory } from '../../../hooks/useDocumentHistory';
+import DocumentHistorySelect from '../../common/DocumentHistorySelect';
 import type { AnalysisPayload } from '../../../types';
 
-const LS_KEY = 'kira_last_analysis';
-const LS_FILE_KEY = 'kira_last_analysis_file_url';
+type RfpHistoryData = AnalysisPayload & { _fileUrl?: string; _fileNames?: string[] };
+
+function isValidRfpData(data: unknown): data is RfpHistoryData {
+  if (!data || typeof data !== 'object') return false;
+  const d = data as Record<string, unknown>;
+  // Must have at least one recognizable AnalysisPayload field
+  return typeof d.title === 'string' || typeof d.rfp_summary === 'string' || Array.isArray(d.requirements);
+}
 
 export default function RfpViewer() {
-  const [analysis, setAnalysis] = useState<AnalysisPayload | null>(null);
-  const [fileUrl, setFileUrl] = useState('');
-  const [loading, setLoading] = useState(true);
+  const { entries, selected, selectedId, setSelectedId, remove, loading } = useDocumentHistory<RfpHistoryData>(
+    'kira_last_analysis',
+    isValidRfpData,
+  );
+  const analysis = selected?.data ?? null;
+  const fileUrl = analysis?._fileUrl || '';
+
   const [toast, setToast] = useState('');
   const [toastType, setToastType] = useState<'success' | 'error'>('success');
   const mountedRef = useRef(true);
@@ -23,32 +35,6 @@ export default function RfpViewer() {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
   }, []);
-
-  const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
-    setToast(msg);
-    setToastType(type);
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => { if (mountedRef.current) setToast(''); }, 3000);
-  }, []);
-
-  const loadAnalysis = useCallback(() => {
-    setLoading(true);
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as AnalysisPayload;
-        setAnalysis(parsed);
-      }
-      const url = localStorage.getItem(LS_FILE_KEY) || '';
-      setFileUrl(url);
-    } catch {
-      if (mountedRef.current) showToast('분석 데이터 로드 실패', 'error');
-    } finally {
-      if (mountedRef.current) setLoading(false);
-    }
-  }, [showToast]);
-
-  useEffect(() => { loadAnalysis(); }, [loadAnalysis]);
 
   if (loading) {
     return <div className="text-center text-slate-400 py-12">RFP 분석결과 로드 중...</div>;
@@ -84,16 +70,24 @@ export default function RfpViewer() {
             분석 완료
           </span>
         </div>
-        {fileUrl && (
-          <a
-            href={fileUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
-          >
-            <Download size={14} /> 원본 다운로드
-          </a>
-        )}
+        <div className="flex items-center gap-2">
+          <DocumentHistorySelect
+            entries={entries}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onRemove={remove}
+          />
+          {fileUrl && (
+            <a
+              href={fileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
+            >
+              <Download size={14} /> 원본 다운로드
+            </a>
+          )}
+        </div>
       </div>
 
       {/* Summary info card */}

@@ -18,6 +18,7 @@ const Hero: React.FC<HeroProps> = ({ onStart, onAlertSetup }) => {
             frameBorder='0'
             width='100%'
             height='100%'
+            sandbox="allow-scripts allow-same-origin"
             className="w-full h-full lg:scale-105 lg:translate-x-24 transition-transform duration-1000"
             title="Inference Search 3D"
         ></iframe>
@@ -33,7 +34,7 @@ const Hero: React.FC<HeroProps> = ({ onStart, onAlertSetup }) => {
 
             <p className="text-sm font-semibold text-primary-600 tracking-wide mb-4">공공조달 입찰 AI 분석</p>
 
-            <h1 className="text-3xl sm:text-5xl lg:text-7xl font-extrabold tracking-tight text-slate-900 font-sans mb-6 leading-[1.15]">
+            <h1 className="text-3xl sm:text-5xl lg:text-7xl font-extrabold tracking-tight text-slate-900 font-title mb-6 leading-[1.15]">
               100페이지 공고서,<br />
               <span className="block bg-gradient-to-r from-[#1a4df5] to-[#5e94ff] bg-clip-text text-transparent">
                 AI가 3분 만에 읽어줍니다.

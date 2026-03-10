@@ -96,11 +96,13 @@ export interface AnalysisPayload {
 export interface AnalyzeResponse {
   ok: boolean;
   filename: string;
+  filenames?: string[];
   session_id: string;
   company_chunks: number;
   analysis: AnalysisPayload;
   matching: MatchingPayload | null;
   fileUrl?: string;
+  fileUrls?: string[];
 }
 
 export interface ChatReference {
@@ -329,12 +331,15 @@ export interface Conversation {
   selectedBidIds?: string[];
   uploadedFileUrl?: string;
   uploadedFileName?: string;
+  uploadedFileUrls?: string[];
+  uploadedFileNames?: string[];
   companyDocUrls?: { name: string; url: string }[];
   companyDocuments?: CompanyDocInfo[];
   _justUploadedFiles?: string[];
   companyProfile?: CompanyProfile | null;
   activeDocFilter?: string[] | null;
   _onboardingStep?: 'basic_info' | 'track_records' | 'personnel';
+  _prevPhase?: ConversationPhase;
 }
 
 // ── 컨텍스트 패널 ──

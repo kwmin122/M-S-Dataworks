@@ -1,14 +1,24 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { Presentation, Download, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { generatePpt, getFileDownloadUrl } from '../../../services/kiraApiService';
 import type { PptResponse } from '../../../services/kiraApiService';
+import { useDocumentHistory } from '../../../hooks/useDocumentHistory';
+import DocumentHistorySelect from '../../common/DocumentHistorySelect';
 
-const LS_KEY = 'kira_last_ppt';
+function isValidPptResponse(data: unknown): data is PptResponse {
+  if (!data || typeof data !== 'object') return false;
+  const d = data as Record<string, unknown>;
+  return typeof d.slide_count === 'number' && typeof d.generation_time_sec === 'number';
+}
 
 export default function PptViewer() {
-  const [ppt, setPpt] = useState<PptResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { entries, selected, selectedId, setSelectedId, push, remove, loading } = useDocumentHistory<PptResponse>(
+    'kira_last_ppt',
+    isValidPptResponse,
+  );
+  const ppt = selected?.data ?? null;
+
   const [regenerating, setRegenerating] = useState(false);
   const [toast, setToast] = useState('');
   const [toastType, setToastType] = useState<'success' | 'error'>('success');
@@ -30,23 +40,6 @@ export default function PptViewer() {
     toastTimerRef.current = setTimeout(() => { if (mountedRef.current) setToast(''); }, 3000);
   }, []);
 
-  const loadPpt = useCallback(() => {
-    setLoading(true);
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as PptResponse;
-        setPpt(parsed);
-      }
-    } catch {
-      if (mountedRef.current) showToast('PPT 데이터 로드 실패', 'error');
-    } finally {
-      if (mountedRef.current) setLoading(false);
-    }
-  }, [showToast]);
-
-  useEffect(() => { loadPpt(); }, [loadPpt]);
-
   const handleRegenerate = async () => {
     const sessionId = localStorage.getItem('kira_session_id') || '';
     if (!sessionId) {
@@ -58,8 +51,7 @@ export default function PptViewer() {
     try {
       const result = await generatePpt(sessionId);
       if (!mountedRef.current) return;
-      setPpt(result);
-      try { localStorage.setItem(LS_KEY, JSON.stringify(result)); } catch { /* noop */ }
+      push(result, 'PPT 발표자료');
       showToast('PPT가 재생성되었습니다.');
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'PPT 재생성 실패', 'error');
@@ -95,14 +87,23 @@ export default function PptViewer() {
             생성 완료
           </span>
         </div>
-        <button
-          onClick={handleRegenerate}
-          disabled={regenerating}
-          className="flex items-center gap-1 rounded-lg bg-kira-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-kira-700 disabled:opacity-50"
-        >
-          <RefreshCw size={14} className={regenerating ? 'animate-spin' : ''} />
-          {regenerating ? '재생성 중...' : '재생성'}
-        </button>
+        <div className="flex items-center gap-2">
+          <DocumentHistorySelect
+            entries={entries}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onRemove={remove}
+          />
+          <button
+            type="button"
+            onClick={handleRegenerate}
+            disabled={regenerating}
+            className="flex items-center gap-1 rounded-lg bg-kira-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-kira-700 disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={regenerating ? 'animate-spin' : ''} />
+            {regenerating ? '재생성 중...' : '재생성'}
+          </button>
+        </div>
       </div>
 
       {/* Stats row */}

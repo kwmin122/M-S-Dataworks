@@ -62,7 +62,13 @@ const ChatPage: React.FC<ChatPageProps> = ({ user }) => {
         className={hasPanelContent ? 'min-w-0 h-full overflow-hidden' : 'flex-1 min-w-0 h-full overflow-hidden'}
       >
         {state.currentView === 'guide' ? (
-          <UserGuide onClose={() => dispatch({ type: 'SET_CURRENT_VIEW', view: 'chat' })} />
+          <UserGuide
+            onClose={() => dispatch({ type: 'SET_CURRENT_VIEW', view: 'chat' })}
+            onStartCompanyDB={() => {
+              dispatch({ type: 'SET_CURRENT_VIEW', view: 'chat' });
+              setTimeout(() => window.dispatchEvent(new CustomEvent('kira:start-company-db')), 100);
+            }}
+          />
         ) : (
           <ChatArea user={user} />
         )}

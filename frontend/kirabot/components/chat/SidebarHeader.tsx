@@ -46,6 +46,7 @@ const SidebarHeader: React.FC<SidebarHeaderProps> = ({ collapsed, onToggle, onNe
               </button>
             )}
             <button
+              data-tour="new-chat"
               type="button"
               onClick={onNewChat}
               className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-300 hover:bg-sidebar-hover hover:text-white transition-colors"

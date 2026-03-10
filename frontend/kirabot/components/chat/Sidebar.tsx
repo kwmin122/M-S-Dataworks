@@ -1,8 +1,9 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { MessageSquare, Bell, TrendingUp, Shield, BookOpen } from 'lucide-react';
+import { MessageSquare, Bell, TrendingUp, Shield, BookOpen, CirclePlay } from 'lucide-react';
 import { useChatContext } from '../../context/ChatContext';
 import { useConversationFlow } from '../../hooks/useConversationFlow';
+import { startProductTour } from '../onboarding/ProductTour';
 import SidebarHeader from './SidebarHeader';
 import ConversationList from './ConversationList';
 import SidebarFooter from './SidebarFooter';
@@ -33,6 +34,7 @@ const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, onHome }) => {
 
   return (
     <div
+      data-tour="sidebar"
       className={`flex flex-col bg-sidebar shrink-0 transition-all duration-300 ${
         collapsed ? 'w-[60px]' : 'w-60'
       }`}
@@ -69,10 +71,11 @@ const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, onHome }) => {
           );
         })}
       </nav>
-      {/* User Guide Button (Chat screen only) */}
+      {/* User Guide + Tour restart (Chat screen only) */}
       {location.pathname === '/chat' && (
-        <div className="px-2 py-2 border-b border-white/10">
+        <div className="px-2 py-2 border-b border-white/10 space-y-0.5">
           <button
+            data-tour="user-guide"
             type="button"
             onClick={() => dispatch({ type: 'SET_CURRENT_VIEW', view: state.currentView === 'guide' ? 'chat' : 'guide' })}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
@@ -84,6 +87,17 @@ const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, onHome }) => {
           >
             <BookOpen size={18} className="shrink-0" />
             {!collapsed && <span>사용 가이드</span>}
+          </button>
+          <button
+            type="button"
+            onClick={startProductTour}
+            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-400 hover:bg-sidebar-hover hover:text-white transition-colors ${
+              collapsed ? 'justify-center px-0' : ''
+            }`}
+            title={collapsed ? '투어 다시 보기' : undefined}
+          >
+            <CirclePlay size={18} className="shrink-0" />
+            {!collapsed && <span>투어 다시 보기</span>}
           </button>
         </div>
       )}

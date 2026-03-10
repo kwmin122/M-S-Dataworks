@@ -1758,7 +1758,7 @@ def clear_company_documents(payload: SessionPayload) -> dict[str, Any]:
 async def analyze_uploaded_document(
     request: Request,
     session_id: str = Form(...),
-    file: UploadFile = File(...),
+    files: list[UploadFile] = File(...),
 ) -> dict[str, Any]:
     from services.web_app.structured_logger import get_structured_logger
     slog = get_structured_logger("web_app.analyze")
@@ -1770,8 +1770,9 @@ async def analyze_uploaded_document(
     slog.info(
         "analysis_started",
         session_id=session_id,
-        filename=file.filename,
-        file_size=file.size if hasattr(file, 'size') else None,
+        filename=files[0].filename,
+        file_count=len(files),
+        file_size=files[0].size if hasattr(files[0], 'size') else None,
         company_chunks=company_chunk_count,
     )
 
@@ -1781,13 +1782,20 @@ async def analyze_uploaded_document(
         action="analyze",
         metadata={
             "path": "/api/analyze/upload",
-            "filename": str(file.filename or ""),
+            "filename": str(files[0].filename or ""),
         },
     )
 
     api_key = _openai_api_key()
     upload_dir = _session_upload_dir(session.session_id, "target")
-    saved_path = await _save_upload_file(file, upload_dir)
+
+    # Save all uploaded files
+    saved_paths: list[Path] = []
+    for f in files:
+        saved_paths.append(await _save_upload_file(f, upload_dir))
+
+    primary_path = saved_paths[0]
+    primary_filename = files[0].filename or primary_path.name
 
     analyzer = RFxAnalyzer(
         api_key=api_key,
@@ -1797,12 +1805,12 @@ async def analyze_uploaded_document(
     try:
         # Increase timeout for large PDFs (58+ pages can take 2-3 minutes)
         analysis = await asyncio.wait_for(
-            asyncio.to_thread(analyzer.analyze, str(saved_path)),
+            asyncio.to_thread(analyzer.analyze, str(primary_path)),
             timeout=240.0  # 4 minutes (프론트엔드 180초보다 여유있게)
         )
-        slog.info("analysis_completed", session_id=session_id, filename=file.filename)
+        slog.info("analysis_completed", session_id=session_id, filename=primary_filename)
     except asyncio.TimeoutError:
-        slog.error("analysis_timeout", session_id=session_id, filename=file.filename, timeout_sec=240)
+        slog.error("analysis_timeout", session_id=session_id, filename=primary_filename, timeout_sec=240)
         raise HTTPException(
             status_code=504,
             detail="문서 분석 시간이 초과되었습니다 (4분). 페이지 수가 너무 많거나 복잡한 문서일 수 있습니다."
@@ -1846,12 +1854,16 @@ async def analyze_uploaded_document(
 
     rfp_summary, matching = await asyncio.gather(_gen_summary(), _run_matching())
 
-    await asyncio.to_thread(
-        _index_rfx_document, session=session, file_path=str(saved_path), original_name=file.filename or "target",
-    )
+    # Index all uploaded files into RAG for Q&A
+    for i, sp in enumerate(saved_paths):
+        original_name = files[i].filename or "target"
+        await asyncio.to_thread(
+            _index_rfx_document, session=session, file_path=str(sp), original_name=original_name,
+        )
+
     session.latest_rfx_analysis = analysis
     session.latest_matching_result = matching
-    session.latest_document_name = file.filename or saved_path.name
+    session.latest_document_name = primary_filename
 
     # Redis에 분석 결과 저장 (Railway 재시작 대비)
     try:
@@ -1859,19 +1871,22 @@ async def analyze_uploaded_document(
     except Exception as exc:
         logger.warning("Failed to save analysis to Redis: %s", exc)
 
-    file_url = f"/api/files/{session.session_id}/target/{saved_path.name}"
+    file_urls = [f"/api/files/{session.session_id}/target/{sp.name}" for sp in saved_paths]
+    filenames = [f.filename or sp.name for f, sp in zip(files, saved_paths)]
 
     serialized = _serialize_rfx_analysis(analysis, rfp_summary=rfp_summary)
 
     return {
         "ok": True,
-        "filename": file.filename,
+        "filename": primary_filename,  # backward compat
+        "filenames": filenames,  # NEW: all filenames
         "session_id": session.session_id,
         "company_chunks": company_chunk_count,
         "quota": quota,
         "analysis": serialized,
         "matching": _serialize_matching_result(matching) if matching else None,
-        "fileUrl": file_url,
+        "fileUrl": file_urls[0],  # backward compat
+        "fileUrls": file_urls,  # NEW: all file URLs
     }
 
 

@@ -2,6 +2,8 @@ import React, { useEffect, useState, useCallback, useRef, Suspense, lazy } from 
 import { FileText, RefreshCw, Download, Pencil, Save, X } from 'lucide-react';
 import { motion } from 'framer-motion';
 import MarkdownViewer from '../../common/MarkdownViewer';
+import { useDocumentHistory } from '../../../hooks/useDocumentHistory';
+import DocumentHistorySelect from '../../common/DocumentHistorySelect';
 
 const MarkdownEditor = lazy(() => import('../../common/MarkdownEditor'));
 import {
@@ -12,11 +14,44 @@ import {
 } from '../../../services/kiraApiService';
 import type { ProposalSectionData } from '../../../types';
 
+function isValidProposalFilename(data: unknown): data is string {
+  return typeof data === 'string' && data.length > 0;
+}
+
 export default function ProposalEditor() {
+  const { entries, selected, selectedId, setSelectedId, push, remove, loading: historyLoading } = useDocumentHistory<string>(
+    'kira_last_proposal',
+    isValidProposalFilename,
+  );
+  const docxFilename = selected?.data ?? '';
+
   const [sections, setSections] = useState<ProposalSectionData[]>([]);
   const [title, setTitle] = useState('');
-  const [docxFilename, setDocxFilename] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [sectionsLoading, setSectionsLoading] = useState(false);
+
+  // Load sections when selected proposal changes
+  useEffect(() => {
+    if (!docxFilename) return;
+    let cancelled = false;
+    setSectionsLoading(true);
+    getProposalSections(docxFilename)
+      .then(data => {
+        if (cancelled) return;
+        setSections(data.sections);
+        setTitle(data.title || '');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSections([]);
+      })
+      .finally(() => {
+        if (!cancelled) setSectionsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [docxFilename]);
+
+  const loading = historyLoading || sectionsLoading;
+
   const [reassembling, setReassembling] = useState(false);
   const [toast, setToast] = useState('');
   const [toastType, setToastType] = useState<'success' | 'error'>('success');
@@ -38,30 +73,6 @@ export default function ProposalEditor() {
     toastTimerRef.current = setTimeout(() => { if (mountedRef.current) setToast(''); }, 3000);
   }, []);
 
-  const loadSections = useCallback(async () => {
-    const fn = localStorage.getItem('kira_last_proposal') || '';
-    if (!fn) {
-      setLoading(false);
-      return;
-    }
-    setDocxFilename(fn);
-    setLoading(true);
-    try {
-      const data = await getProposalSections(fn);
-      if (!mountedRef.current) return;
-      setSections(data.sections);
-      setTitle(data.title || '');
-    } catch {
-      if (!mountedRef.current) return;
-      // 404 = no sections saved yet, that's OK
-      setSections([]);
-    } finally {
-      if (mountedRef.current) setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { loadSections(); }, [loadSections]);
-
   const handleSaveSection = async (sectionName: string, text: string) => {
     try {
       await updateProposalSection(docxFilename, sectionName, text);
@@ -79,8 +90,7 @@ export default function ProposalEditor() {
     try {
       const result = await reassembleProposal(docxFilename);
       if (result.docx_filename) {
-        setDocxFilename(result.docx_filename);
-        try { localStorage.setItem('kira_last_proposal', result.docx_filename); } catch { /* noop */ }
+        push(result.docx_filename, title || result.docx_filename);
       }
       showToast('DOCX가 재생성되었습니다.');
     } catch (e) {
@@ -111,6 +121,12 @@ export default function ProposalEditor() {
           <FileText size={20} className="text-kira-600" />
           <h2 className="text-lg font-semibold text-slate-900">제안서 섹션 편집</h2>
           {title && <span className="text-xs text-slate-400 truncate max-w-xs">{title}</span>}
+          <DocumentHistorySelect
+            entries={entries}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onRemove={remove}
+          />
         </div>
         <div className="flex items-center gap-2">
           <a

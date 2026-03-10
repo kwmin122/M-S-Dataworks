@@ -3,12 +3,22 @@ import { CalendarDays, Download, RefreshCw, Table2, BarChart3, FileText } from '
 import { motion, AnimatePresence } from 'framer-motion';
 import { generateWbs, getFileDownloadUrl } from '../../../services/kiraApiService';
 import type { WbsResponse } from '../../../services/kiraApiService';
+import { useDocumentHistory } from '../../../hooks/useDocumentHistory';
+import DocumentHistorySelect from '../../common/DocumentHistorySelect';
 
-const LS_KEY = 'kira_last_wbs';
+function isValidWbsResponse(data: unknown): data is WbsResponse {
+  if (!data || typeof data !== 'object') return false;
+  const d = data as Record<string, unknown>;
+  return typeof d.tasks_count === 'number' && typeof d.total_months === 'number';
+}
 
 export default function WbsViewer() {
-  const [wbs, setWbs] = useState<WbsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { entries, selected, selectedId, setSelectedId, push, remove, loading } = useDocumentHistory<WbsResponse>(
+    'kira_last_wbs',
+    isValidWbsResponse,
+  );
+  const wbs = selected?.data ?? null;
+
   const [regenerating, setRegenerating] = useState(false);
   const [toast, setToast] = useState('');
   const [toastType, setToastType] = useState<'success' | 'error'>('success');
@@ -30,23 +40,6 @@ export default function WbsViewer() {
     toastTimerRef.current = setTimeout(() => { if (mountedRef.current) setToast(''); }, 3000);
   }, []);
 
-  const loadWbs = useCallback(() => {
-    setLoading(true);
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as WbsResponse;
-        setWbs(parsed);
-      }
-    } catch {
-      if (mountedRef.current) showToast('WBS 데이터 로드 실패', 'error');
-    } finally {
-      if (mountedRef.current) setLoading(false);
-    }
-  }, [showToast]);
-
-  useEffect(() => { loadWbs(); }, [loadWbs]);
-
   const handleRegenerate = async () => {
     const sessionId = localStorage.getItem('kira_session_id') || '';
     if (!sessionId) {
@@ -58,8 +51,7 @@ export default function WbsViewer() {
     try {
       const result = await generateWbs(sessionId);
       if (!mountedRef.current) return;
-      setWbs(result);
-      try { localStorage.setItem(LS_KEY, JSON.stringify(result)); } catch { /* noop */ }
+      push(result, '수행계획서');
       showToast('WBS가 재생성되었습니다.');
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'WBS 재생성 실패', 'error');
@@ -101,7 +93,7 @@ export default function WbsViewer() {
       label: '수행계획서',
       description: '수행계획서 문서 (DOCX)',
     },
-  ].filter(card => card.name);
+  ].filter((card): card is typeof card & { name: string } => Boolean(card.name));
 
   return (
     <div className="space-y-4">
@@ -114,14 +106,23 @@ export default function WbsViewer() {
             생성 완료
           </span>
         </div>
-        <button
-          onClick={handleRegenerate}
-          disabled={regenerating}
-          className="flex items-center gap-1 rounded-lg bg-kira-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-kira-700 disabled:opacity-50"
-        >
-          <RefreshCw size={14} className={regenerating ? 'animate-spin' : ''} />
-          {regenerating ? '재생성 중...' : '재생성'}
-        </button>
+        <div className="flex items-center gap-2">
+          <DocumentHistorySelect
+            entries={entries}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onRemove={remove}
+          />
+          <button
+            type="button"
+            onClick={handleRegenerate}
+            disabled={regenerating}
+            className="flex items-center gap-1 rounded-lg bg-kira-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-kira-700 disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={regenerating ? 'animate-spin' : ''} />
+            {regenerating ? '재생성 중...' : '재생성'}
+          </button>
+        </div>
       </div>
 
       {/* Stats row */}
