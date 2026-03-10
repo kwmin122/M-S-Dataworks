@@ -1,6 +1,7 @@
 import React from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import Sidebar from '../chat/Sidebar';
+import ProductTour from '../onboarding/ProductTour';
 import type { User } from '../../types';
 
 interface AppShellProps {
@@ -23,6 +24,7 @@ const AppShell: React.FC<AppShellProps> = ({ user, onLogout }) => {
       <div className="flex flex-1 min-w-0 h-full overflow-hidden">
         <Outlet />
       </div>
+      <ProductTour />
     </div>
   );
 };

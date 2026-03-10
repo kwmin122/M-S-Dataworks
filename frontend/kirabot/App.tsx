@@ -98,7 +98,7 @@ function AppRoutes() {
   const handleAlertSetup = useCallback(() => {
     setAuthError('');
     if (user) {
-      navigate('/settings/alerts');
+      navigate('/alerts');
       return;
     }
     setIsLoginModalOpen(true);

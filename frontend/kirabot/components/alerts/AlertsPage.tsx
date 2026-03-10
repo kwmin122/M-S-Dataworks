@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, Save, X, AlertCircle } from 'lucide-react';
+import { Bell, Save, X, AlertCircle, Clock, VolumeX } from 'lucide-react';
 import CompanyProfileSection from './CompanyProfileSection';
 import AlertFilterSection from './AlertFilterSection';
 import { getUserAlertConfig, saveUserAlertConfig } from '../../services/kiraApiService';
@@ -14,6 +14,13 @@ export const AlertsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [schedule, setSchedule] = useState<'realtime' | 'daily_1' | 'daily_2' | 'daily_3'>('daily_2');
   const [hours, setHours] = useState<number[]>([9, 18]);
+  const [digestTime, setDigestTime] = useState('09:00');
+  const [digestDays, setDigestDays] = useState<number[]>([1, 2, 3, 4, 5]); // Mon-Fri
+  const [maxPerDay, setMaxPerDay] = useState(50);
+  const [quietEnabled, setQuietEnabled] = useState(false);
+  const [quietStart, setQuietStart] = useState('22:00');
+  const [quietEnd, setQuietEnd] = useState('08:00');
+  const [quietWeekend, setQuietWeekend] = useState(false);
   const [companyProfile, setCompanyProfile] = useState<AlertCompanyProfile>({
     description: '',
   });
@@ -165,7 +172,7 @@ export const AlertsPage: React.FC = () => {
       {/* Content */}
       <div className="flex-1 overflow-auto p-6">
         <div className="mx-auto max-w-3xl space-y-6">
-          {/* Basic Settings Placeholder */}
+          {/* Basic Settings */}
           <div className="rounded-xl border border-slate-200 bg-white p-6">
             <h2 className="text-base font-semibold text-slate-700">기본 설정</h2>
             <div className="mt-4 space-y-4">
@@ -180,6 +187,152 @@ export const AlertsPage: React.FC = () => {
                 />
               </div>
             </div>
+          </div>
+
+          {/* Schedule Settings */}
+          <div className="rounded-xl border border-slate-200 bg-white p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Clock size={18} className="text-primary-600" />
+              <h2 className="text-base font-semibold text-slate-700">발송 스케줄</h2>
+            </div>
+
+            {/* Frequency selector */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">발송 빈도</label>
+                <div className="flex rounded-lg border border-slate-300 overflow-hidden">
+                  {([
+                    { value: 'realtime', label: '실시간' },
+                    { value: 'daily_1', label: '일간 요약' },
+                    { value: 'daily_3', label: '주간 요약' },
+                  ] as const).map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setSchedule(opt.value)}
+                      className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                        schedule === opt.value
+                          ? 'bg-primary-600 text-white'
+                          : 'bg-white text-slate-600 hover:bg-slate-50'
+                      } ${opt.value !== 'realtime' ? 'border-l border-slate-300' : ''}`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-xs text-slate-400">
+                  {schedule === 'realtime' && '매칭 공고 발견 즉시 이메일을 발송합니다.'}
+                  {schedule === 'daily_1' && '하루에 한 번 매칭 공고를 모아서 발송합니다.'}
+                  {schedule === 'daily_3' && '일주일에 한 번 매칭 공고를 모아서 발송합니다.'}
+                </p>
+              </div>
+
+              {/* Digest time (daily/weekly only) */}
+              {schedule !== 'realtime' && (
+                <div className="flex flex-wrap gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">발송 시각</label>
+                    <input
+                      type="time"
+                      value={digestTime}
+                      onChange={(e) => setDigestTime(e.target.value)}
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  {/* Digest days (weekly only) */}
+                  {schedule === 'daily_3' && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">발송 요일</label>
+                      <div className="flex gap-1">
+                        {(['일', '월', '화', '수', '목', '금', '토']).map((day, idx) => (
+                          <button
+                            key={day}
+                            type="button"
+                            onClick={() => setDigestDays(prev =>
+                              prev.includes(idx) ? prev.filter(d => d !== idx) : [...prev, idx].sort()
+                            )}
+                            className={`w-8 h-8 rounded-full text-xs font-medium transition-colors ${
+                              digestDays.includes(idx)
+                                ? 'bg-primary-600 text-white'
+                                : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                            }`}
+                          >
+                            {day}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Max per day (realtime only) */}
+              {schedule === 'realtime' && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">일일 최대 알림 수</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={200}
+                      value={maxPerDay}
+                      onChange={(e) => setMaxPerDay(Math.max(1, Math.min(200, Number(e.target.value) || 1)))}
+                      className="w-20 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    />
+                    <span className="text-sm text-slate-500">건</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-400">하루 최대 {maxPerDay}건까지 알림을 보냅니다.</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Quiet Hours */}
+          <div className="rounded-xl border border-slate-200 bg-white p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <VolumeX size={18} className="text-slate-500" />
+                <h2 className="text-base font-semibold text-slate-700">방해금지 시간</h2>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={quietEnabled}
+                  onChange={(e) => setQuietEnabled(e.target.checked)}
+                  className="rounded border-slate-300"
+                  aria-label="방해금지 활성화"
+                />
+              </label>
+            </div>
+            {quietEnabled && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="time"
+                    value={quietStart}
+                    onChange={(e) => setQuietStart(e.target.value)}
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  />
+                  <span className="text-sm text-slate-500">~</span>
+                  <input
+                    type="time"
+                    value={quietEnd}
+                    onChange={(e) => setQuietEnd(e.target.value)}
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={quietWeekend}
+                    onChange={(e) => setQuietWeekend(e.target.checked)}
+                    className="rounded border-slate-300"
+                  />
+                  <span className="text-sm text-slate-600">주말(토/일) 알림 중지</span>
+                </label>
+                <p className="text-xs text-slate-400">방해금지 시간에는 알림이 대기 후 해제 시 일괄 발송됩니다.</p>
+              </div>
+            )}
           </div>
 
           {/* Company Profile Section */}

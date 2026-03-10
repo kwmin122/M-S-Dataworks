@@ -82,6 +82,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({ user }) => {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Listen for company DB start event (from UserGuide button)
+  useEffect(() => {
+    const handler = () => {
+      onAction({ type: 'welcome_action', value: 'company_onboarding' });
+    };
+    window.addEventListener('kira:start-company-db', handler);
+    return () => window.removeEventListener('kira:start-company-db', handler);
+  }, [handleAction]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!conversation) {
     return (
       <div className="flex h-full flex-col items-center justify-center bg-slate-50">
