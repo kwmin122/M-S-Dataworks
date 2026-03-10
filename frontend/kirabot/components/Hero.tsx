@@ -7,7 +7,7 @@ interface HeroProps {
   onAlertSetup?: () => void;
 }
 
-const SPLINE_URL = 'https://my.spline.design/interactiveaiwebsite-WIBfsJZbIYpUeijSVLawHWPr/';
+const SPLINE_URL = 'https://my.spline.design/r4xbot-fdfsD3tlQuaSgdj7u2YHxxgj/';
 
 const Hero: React.FC<HeroProps> = ({ onStart, onAlertSetup }) => {
   const [splineLoaded, setSplineLoaded] = useState(false);
