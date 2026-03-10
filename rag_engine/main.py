@@ -735,6 +735,14 @@ async def generate_wbs_endpoint(req: GenerateWbsRequest, request: Request):
         logger.error("generate_wbs failed: %s\n%s", exc, traceback.format_exc())
         raise HTTPException(status_code=500, detail="WBS 생성 실패") from exc
 
+    # Detect methodology from the result or input
+    detected_method = ""
+    if methodology:
+        detected_method = methodology.value
+    elif result.tasks:
+        # Infer from task structure: if phases overlap → hybrid/agile, else waterfall
+        detected_method = "waterfall"
+
     return {
         "xlsx_filename": os.path.basename(result.xlsx_path) if result.xlsx_path else "",
         "gantt_filename": os.path.basename(result.gantt_path) if result.gantt_path else "",
@@ -742,6 +750,17 @@ async def generate_wbs_endpoint(req: GenerateWbsRequest, request: Request):
         "tasks_count": len(result.tasks),
         "total_months": result.total_months,
         "generation_time_sec": result.generation_time_sec,
+        "methodology": detected_method,
+        "tasks": [
+            {
+                "phase": t.phase,
+                "task_name": t.task_name,
+                "start_month": t.start_month,
+                "duration_months": t.duration_months,
+                "responsible_role": t.responsible_role,
+            }
+            for t in result.tasks
+        ],
     }
 
 

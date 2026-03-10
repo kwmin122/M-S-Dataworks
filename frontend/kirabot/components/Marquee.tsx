@@ -4,17 +4,21 @@ interface MarqueeProps {
   text: string;
   bg?: string;
   textColor?: string;
+  duration?: number;
 }
 
 const Marquee: React.FC<MarqueeProps> = ({
   text,
   bg = 'bg-white',
   textColor = 'text-black',
+  duration = 20,
 }) => {
+  const animStyle = { animationDuration: `${duration}s` };
+
   return (
     <div className={`${bg} overflow-hidden py-2.5 border-y border-black/5`} aria-hidden="true">
       <div className="flex">
-        <div className="animate-marquee whitespace-nowrap flex gap-8">
+        <div className="animate-marquee whitespace-nowrap flex gap-8" style={animStyle}>
           {Array.from({ length: 10 }).map((_, i) => (
             <span
               key={i}
@@ -24,7 +28,7 @@ const Marquee: React.FC<MarqueeProps> = ({
             </span>
           ))}
         </div>
-        <div className="animate-marquee whitespace-nowrap flex gap-8">
+        <div className="animate-marquee whitespace-nowrap flex gap-8" style={animStyle}>
           {Array.from({ length: 10 }).map((_, i) => (
             <span
               key={`dup-${i}`}

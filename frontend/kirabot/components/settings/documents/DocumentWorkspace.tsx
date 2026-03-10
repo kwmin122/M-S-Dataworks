@@ -3,8 +3,12 @@ import { useSearchParams } from 'react-router-dom';
 import DocumentTabNav, { type DocumentTab } from './DocumentTabNav';
 import ProfileEditor from './ProfileEditor';
 import ProposalEditor from './ProposalEditor';
+import RfpViewer from './RfpViewer';
+import WbsViewer from './WbsViewer';
+import PptViewer from './PptViewer';
+import TrackRecordViewer from './TrackRecordViewer';
 
-const VALID_TABS: Set<string> = new Set(['profile', 'rfp', 'proposal', 'wbs', 'ppt']);
+const VALID_TABS: Set<string> = new Set(['profile', 'rfp', 'proposal', 'wbs', 'ppt', 'track_record']);
 
 export default function DocumentWorkspace() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -21,20 +25,13 @@ export default function DocumentWorkspace() {
       <div className="flex-1 overflow-y-auto p-6 lg:p-8">
         <div className="max-w-4xl mx-auto">
           {activeTab === 'profile' && <ProfileEditor />}
-          {activeTab === 'rfp' && <PlaceholderTab name="RFP 분석결과" />}
+          {activeTab === 'rfp' && <RfpViewer />}
           {activeTab === 'proposal' && <ProposalEditor />}
-          {activeTab === 'wbs' && <PlaceholderTab name="WBS" />}
-          {activeTab === 'ppt' && <PlaceholderTab name="PPT" />}
+          {activeTab === 'wbs' && <WbsViewer />}
+          {activeTab === 'ppt' && <PptViewer />}
+          {activeTab === 'track_record' && <TrackRecordViewer />}
         </div>
       </div>
-    </div>
-  );
-}
-
-function PlaceholderTab({ name }: { name: string }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-400">
-      {name} 편집 (준비 중)
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { usePersistedConversations } from '../../hooks/usePersistedConversations
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import ChatArea from './ChatArea';
 import ContextPanel from './ContextPanel';
+import UserGuide from './UserGuide';
 import type { User } from '../../types';
 
 interface ChatPageProps {
@@ -14,7 +15,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ user }) => {
   useDocumentTitle('채팅');
   usePersistedConversations();
 
-  const { state } = useChatContext();
+  const { state, dispatch } = useChatContext();
   const hasPanelContent = state.contextPanel.type !== 'none';
 
   // Panel ratio (0~1, default 0.5 = 50/50)
@@ -55,12 +56,16 @@ const ChatPage: React.FC<ChatPageProps> = ({ user }) => {
 
   return (
     <>
-      {/* Chat area */}
+      {/* Chat area or User Guide */}
       <div
         style={hasPanelContent ? { flex: `${1 - panelRatio}` } : undefined}
         className={hasPanelContent ? 'min-w-0 h-full overflow-hidden' : 'flex-1 min-w-0 h-full overflow-hidden'}
       >
-        <ChatArea user={user} />
+        {state.currentView === 'guide' ? (
+          <UserGuide onClose={() => dispatch({ type: 'SET_CURRENT_VIEW', view: 'chat' })} />
+        ) : (
+          <ChatArea user={user} />
+        )}
       </div>
       {/* Context panel */}
       {hasPanelContent && (

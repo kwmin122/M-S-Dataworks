@@ -1,7 +1,7 @@
 import React from 'react';
-import { Settings, FileText, ClipboardList, CalendarDays, Presentation } from 'lucide-react';
+import { Settings, FileText, ClipboardList, CalendarDays, Presentation, Award } from 'lucide-react';
 
-export type DocumentTab = 'profile' | 'rfp' | 'proposal' | 'wbs' | 'ppt';
+export type DocumentTab = 'profile' | 'rfp' | 'proposal' | 'wbs' | 'ppt' | 'track_record';
 
 interface Props {
   activeTab: DocumentTab;
@@ -14,6 +14,7 @@ const TABS: Array<{ id: DocumentTab; label: string; icon: React.ElementType }> =
   { id: 'proposal', label: '제안서', icon: FileText },
   { id: 'wbs', label: 'WBS', icon: CalendarDays },
   { id: 'ppt', label: 'PPT', icon: Presentation },
+  { id: 'track_record', label: '실적기술서', icon: Award },
 ];
 
 export default function DocumentTabNav({ activeTab, onTabChange }: Props) {

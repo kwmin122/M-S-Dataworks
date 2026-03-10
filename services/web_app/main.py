@@ -757,7 +757,7 @@ async def _save_upload_file(upload_file: UploadFile, target_dir: Path) -> Path:
     return dest
 
 
-def _serialize_rfx_analysis(analysis: RFxAnalysisResult) -> dict[str, Any]:
+def _serialize_rfx_analysis(analysis: RFxAnalysisResult, rfp_summary: str = "") -> dict[str, Any]:
     return {
         "title": analysis.title,
         "issuing_org": analysis.issuing_org,
@@ -789,6 +789,7 @@ def _serialize_rfx_analysis(analysis: RFxAnalysisResult) -> dict[str, Any]:
         ],
         "required_documents": analysis.required_documents,
         "special_notes": analysis.special_notes,
+        "rfp_summary": rfp_summary,
     }
 
 
@@ -1851,8 +1852,7 @@ async def analyze_uploaded_document(
 
     file_url = f"/api/files/{session.session_id}/target/{saved_path.name}"
 
-    serialized = _serialize_rfx_analysis(analysis)
-    serialized["rfp_summary"] = rfp_summary
+    serialized = _serialize_rfx_analysis(analysis, rfp_summary=rfp_summary)
 
     return {
         "ok": True,
@@ -2322,8 +2322,7 @@ async def analyze_bid_from_nara(payload: BidAnalyzePayload, request: Request) ->
     local_filename = Path(local_path).name
     file_url = f"/api/files/{session.session_id}/target/{local_filename}"
 
-    serialized = _serialize_rfx_analysis(analysis)
-    serialized["rfp_summary"] = rfp_summary
+    serialized = _serialize_rfx_analysis(analysis, rfp_summary=rfp_summary)
 
     return {
         "ok": True,

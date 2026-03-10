@@ -179,7 +179,7 @@ function AppRoutes() {
         <HowItWorks />
         <Marquee text="/ 검색 / 분석 / 판단 / 생성 / 학습 /" />
         <Solutions />
-        <Marquee text="FULL LIFECYCLE / FULL LIFECYCLE / FULL LIFECYCLE / FULL LIFECYCLE /" bg="bg-gray-100" />
+        <Marquee text="FULL LIFECYCLE / FULL LIFECYCLE / FULL LIFECYCLE / FULL LIFECYCLE /" bg="bg-gray-100" duration={60} />
         <PackageSection />
         <Marquee text="/ 생성 / 학습 / 진화 / 반복 /" bg="bg-[#0000FF]" textColor="text-white" />
         <Features />

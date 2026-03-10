@@ -742,6 +742,16 @@ export function useConversationFlow() {
                 opinionMode: conversation.opinionMode,
               } as AnalysisResultMessage);
 
+              // Save analysis to localStorage for DocumentWorkspace RFP tab
+              try {
+                localStorage.setItem('kira_last_analysis', JSON.stringify(result.analysis));
+                // Only store server-generated URLs, not blob URLs (blob: URLs expire on reload)
+                if (analysisUrl && !analysisUrl.startsWith('blob:')) {
+                  localStorage.setItem('kira_last_analysis_file_url', analysisUrl);
+                }
+                if (sid) localStorage.setItem('kira_session_id', sid);
+              } catch { /* noop */ }
+
               trackEvent('document_analyzed', { doc_type: 'analysis', analysis_type: result.analysis?.document_type });
               if (conversation.companyProfile?.companyName) {
                 pushText(`🏢 ${conversation.companyProfile.companyName} 정보와 함께 비교 분석이 완료되었습니다! 결과에 대해 자유롭게 질문해주세요.`);
@@ -1089,6 +1099,15 @@ export function useConversationFlow() {
               opinionMode: conversation.opinionMode,
             } as AnalysisResultMessage);
 
+            // Save analysis to localStorage for DocumentWorkspace RFP tab
+            try {
+              localStorage.setItem('kira_last_analysis', JSON.stringify(result.analysis));
+              if (result.fileUrl) {
+                localStorage.setItem('kira_last_analysis_file_url', `${api.getApiBaseUrl()}${result.fileUrl}`);
+              }
+              if (sid) localStorage.setItem('kira_session_id', sid);
+            } catch { /* noop */ }
+
             trackEvent('bid_evaluation_completed', {
               bid_id: bid.id,
               result: result.matching?.recommendation || 'N/A',
@@ -1426,6 +1445,8 @@ export function useConversationFlow() {
               msg += `[📄 수행계획서 DOCX 다운로드](${url})`;
             }
             pushText(msg);
+            // Save WBS result to localStorage for DocumentWorkspace WBS tab
+            try { localStorage.setItem('kira_last_wbs', JSON.stringify(result)); } catch { /* noop */ }
             trackEvent('wbs_generated', { time: result.generation_time_sec });
           } catch (error) {
             removeLastStatus();
@@ -1464,6 +1485,8 @@ export function useConversationFlow() {
               });
             }
             pushText(msg);
+            // Save PPT result to localStorage for DocumentWorkspace PPT tab
+            try { localStorage.setItem('kira_last_ppt', JSON.stringify(result)); } catch { /* noop */ }
             trackEvent('ppt_generated', { time: result.generation_time_sec });
           } catch (error) {
             removeLastStatus();
@@ -1487,6 +1510,9 @@ export function useConversationFlow() {
           try {
             const result = await api.generateTrackRecord(conversation.sessionId);
             removeLastStatus();
+
+            // Save to localStorage for DocumentWorkspace track_record tab
+            try { localStorage.setItem('kira_last_track_record', JSON.stringify(result)); } catch { /* noop */ }
 
             let msg = `실적/경력 기술서가 생성되었습니다! (${result.generation_time_sec}초)\n\n`;
             msg += `**실적 ${result.track_record_count}건, 인력 ${result.personnel_count}명**\n\n`;

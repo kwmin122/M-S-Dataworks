@@ -304,6 +304,14 @@ export async function getChecklist(sessionId: string): Promise<ChecklistResponse
 
 // ── Phase 2: WBS / PPT / 실적기술서 API ──
 
+export interface WbsTaskItem {
+  phase: string;
+  task_name: string;
+  start_month: number;
+  duration_months: number;
+  responsible_role: string;
+}
+
 export interface WbsResponse {
   xlsx_filename: string;
   gantt_filename: string;
@@ -311,6 +319,8 @@ export interface WbsResponse {
   tasks_count: number;
   total_months: number;
   generation_time_sec: number;
+  methodology?: string;
+  tasks?: WbsTaskItem[];
 }
 
 export async function generateWbs(
