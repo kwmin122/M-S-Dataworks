@@ -1,9 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: 'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Roboto, sans-serif;
-  --font-body: 'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Roboto, sans-serif;
-  --font-title: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --font-sans: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Roboto, sans-serif;
 
   /* Primary — 기존 랜딩페이지 호환 */
   --color-primary-50: #f2f6ff;
@@ -51,7 +49,7 @@
 }
 
 body {
-  font-family: 'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   background-color: #f8fafc;
   color: #0f172a;
 }
@@ -80,7 +78,7 @@ body {
 
 /* MDXEditor 스타일 조정 */
 .mdx-editor-wrapper .mdxeditor {
-  font-family: 'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   font-size: 0.875rem;
   line-height: 1.625;
 }
@@ -97,7 +95,7 @@ body {
 .driver-popover.kira-tour-popover {
   border-radius: 1rem;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-  font-family: 'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 }
 .driver-popover-title {
   font-size: 1rem;
