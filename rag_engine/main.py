@@ -739,9 +739,7 @@ async def generate_wbs_endpoint(req: GenerateWbsRequest, request: Request):
     detected_method = ""
     if methodology:
         detected_method = methodology.value
-    elif result.tasks:
-        # Infer from task structure: if phases overlap → hybrid/agile, else waterfall
-        detected_method = "waterfall"
+    # methodology가 감지되지 않으면 빈 문자열 유지 (프론트에서 배지 미표시)
 
     return {
         "xlsx_filename": os.path.basename(result.xlsx_path) if result.xlsx_path else "",

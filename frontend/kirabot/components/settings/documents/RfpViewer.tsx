@@ -1,8 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { ClipboardList, Download, FileSearch } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import MarkdownViewer from '../../common/MarkdownViewer';
-import { getFileDownloadUrl } from '../../../services/kiraApiService';
 import type { AnalysisPayload } from '../../../types';
 
 const LS_KEY = 'kira_last_analysis';
@@ -186,19 +185,22 @@ export default function RfpViewer() {
       )}
 
       {/* Toast */}
-      {toast && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-xl border shadow-lg px-5 py-3 text-sm ${
-            toastType === 'error'
-              ? 'border-red-200 bg-red-50 text-red-700'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-          }`}
-        >
-          {toast}
-        </motion.div>
-      )}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-xl border shadow-lg px-5 py-3 text-sm ${
+              toastType === 'error'
+                ? 'border-red-200 bg-red-50 text-red-700'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            }`}
+          >
+            {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

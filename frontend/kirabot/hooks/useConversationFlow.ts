@@ -484,6 +484,7 @@ export function useConversationFlow() {
         navigate('/alerts');
       } else if (value === 'company_onboarding') {
         trackEvent('chat_started', { mode: 'company_onboarding' });
+        setPhase('doc_chat');
         pushText('회사 역량 DB를 구축합니다. 먼저 기본 정보를 입력해주세요.');
         push({
           id: msgId(),

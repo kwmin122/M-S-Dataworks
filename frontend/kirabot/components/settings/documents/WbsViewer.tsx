@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { CalendarDays, Download, RefreshCw, Table2, BarChart3, FileText } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { generateWbs, getFileDownloadUrl } from '../../../services/kiraApiService';
 import type { WbsResponse } from '../../../services/kiraApiService';
 
@@ -57,6 +57,7 @@ export default function WbsViewer() {
     setRegenerating(true);
     try {
       const result = await generateWbs(sessionId);
+      if (!mountedRef.current) return;
       setWbs(result);
       try { localStorage.setItem(LS_KEY, JSON.stringify(result)); } catch { /* noop */ }
       showToast('WBS가 재생성되었습니다.');
@@ -175,7 +176,9 @@ export default function WbsViewer() {
                     <td className="px-3 py-2.5 text-xs text-slate-400">{i + 1}</td>
                     <td className="px-3 py-2.5 text-xs text-slate-800">{task.task_name}</td>
                     <td className="px-3 py-2.5 text-center text-xs text-slate-600">
-                      M{task.start_month}~M{task.start_month + task.duration_months - 1}
+                      {(task.start_month != null && task.duration_months != null)
+                        ? `M${task.start_month}~M${task.start_month + Math.max(1, task.duration_months) - 1}`
+                        : '-'}
                     </td>
                     <td className="px-3 py-2.5 text-xs text-slate-600">{task.responsible_role || '-'}</td>
                   </tr>
@@ -226,19 +229,22 @@ export default function WbsViewer() {
       </div>
 
       {/* Toast */}
-      {toast && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-xl border shadow-lg px-5 py-3 text-sm ${
-            toastType === 'error'
-              ? 'border-red-200 bg-red-50 text-red-700'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-          }`}
-        >
-          {toast}
-        </motion.div>
-      )}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-xl border shadow-lg px-5 py-3 text-sm ${
+              toastType === 'error'
+                ? 'border-red-200 bg-red-50 text-red-700'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            }`}
+          >
+            {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

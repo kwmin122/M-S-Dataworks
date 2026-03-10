@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Presentation, Download, RefreshCw } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { generatePpt, getFileDownloadUrl } from '../../../services/kiraApiService';
 import type { PptResponse } from '../../../services/kiraApiService';
 
@@ -57,6 +57,7 @@ export default function PptViewer() {
     setRegenerating(true);
     try {
       const result = await generatePpt(sessionId);
+      if (!mountedRef.current) return;
       setPpt(result);
       try { localStorage.setItem(LS_KEY, JSON.stringify(result)); } catch { /* noop */ }
       showToast('PPT가 재생성되었습니다.');
@@ -80,6 +81,8 @@ export default function PptViewer() {
       </div>
     );
   }
+
+  const qnaPairs = ppt.qna_pairs ?? [];
 
   return (
     <div className="space-y-4">
@@ -113,7 +116,7 @@ export default function PptViewer() {
           <div className="text-xs text-slate-500 mt-1">발표시간</div>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-4 text-center">
-          <div className="text-2xl font-bold text-kira-600">{ppt.qna_pairs.length}</div>
+          <div className="text-2xl font-bold text-kira-600">{qnaPairs.length}</div>
           <div className="text-xs text-slate-500 mt-1">예상질문</div>
         </div>
       </div>
@@ -145,13 +148,13 @@ export default function PptViewer() {
       )}
 
       {/* QnA section */}
-      {ppt.qna_pairs.length > 0 && (
+      {qnaPairs.length > 0 && (
         <div className="rounded-xl border border-slate-200 bg-white p-5">
           <h3 className="text-base font-semibold text-slate-800 mb-4">
-            예상질문 &amp; 모범답변 ({ppt.qna_pairs.length}개)
+            예상질문 &amp; 모범답변 ({qnaPairs.length}개)
           </h3>
           <div className="space-y-4">
-            {ppt.qna_pairs.map((pair, i) => (
+            {qnaPairs.map((pair, i) => (
               <div key={i} className="rounded-lg border border-slate-100 bg-slate-50/30 p-4">
                 {/* Question */}
                 <div className="flex items-start gap-2 mb-3">
@@ -179,19 +182,22 @@ export default function PptViewer() {
       )}
 
       {/* Toast */}
-      {toast && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-xl border shadow-lg px-5 py-3 text-sm ${
-            toastType === 'error'
-              ? 'border-red-200 bg-red-50 text-red-700'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-          }`}
-        >
-          {toast}
-        </motion.div>
-      )}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-xl border shadow-lg px-5 py-3 text-sm ${
+              toastType === 'error'
+                ? 'border-red-200 bg-red-50 text-red-700'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            }`}
+          >
+            {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -280,9 +280,7 @@ export async function generateProposalV2(
   return parseJson<ProposalV2Response>(res);
 }
 
-export function getProposalDownloadUrl(filename: string): string {
-  return `${API_BASE_URL}/api/proposal/download/${encodeURIComponent(filename)}`;
-}
+export const getProposalDownloadUrl = getFileDownloadUrl;
 
 // ── 체크리스트 API ──
 
