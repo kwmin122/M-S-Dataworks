@@ -49,7 +49,8 @@ export default function WbsViewer() {
 
     setRegenerating(true);
     try {
-      const result = await generateWbs(sessionId);
+      const usePack = localStorage.getItem('kira_use_pack') === 'true';
+      const result = await generateWbs(sessionId, undefined, usePack);
       if (!mountedRef.current) return;
       push(result, '수행계획서');
       showToast('WBS가 재생성되었습니다.');

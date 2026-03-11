@@ -343,11 +343,12 @@ export interface WbsResponse {
 export async function generateWbs(
   sessionId: string,
   methodology?: string,
+  usePack?: boolean,
 ): Promise<WbsResponse> {
   const res = await fetchWithError(`${API_BASE_URL}/api/proposal/generate-wbs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, methodology: methodology || '' }),
+    body: JSON.stringify({ session_id: sessionId, methodology: methodology || '', use_pack: usePack || false }),
     timeoutMs: 300_000,
   });
   return parseJson<WbsResponse>(res);
@@ -564,6 +565,16 @@ export interface AlertConfig {
   hours: number[];
   rules: AlertRule[];
   companyProfile?: AlertCompanyProfile; // 🆕 회사 프로필
+  // Schedule details
+  digestTime?: string;        // "HH:MM" format
+  digestDays?: number[];      // 0=Sun..6=Sat (weekly schedule only)
+  maxPerDay?: number;         // Max alerts per day (realtime only)
+  quietHours?: {
+    enabled: boolean;
+    start: string;            // "HH:MM"
+    end: string;              // "HH:MM"
+    weekendOff: boolean;
+  };
   createdAt?: string;                   // ISO 8601, 백엔드에서 자동 설정
   updatedAt?: string;                   // ISO 8601, 백엔드에서 자동 갱신
 }
@@ -598,6 +609,35 @@ export async function saveUserAlertConfig(config: AlertConfig): Promise<{ succes
     body: JSON.stringify(config),
   });
   return parseJson<{ success: boolean; message: string }>(response);
+}
+
+export interface AlertPreviewResult {
+  count: number;
+  bids: Array<{
+    id: string;
+    title: string;
+    organization: string;
+    deadline: string;
+    amount?: number;
+  }>;
+}
+
+export async function previewAlertMatches(rules: AlertRule[]): Promise<AlertPreviewResult> {
+  const response = await fetchWithError(`${API_BASE_URL}/api/alerts/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rules }),
+  });
+  return parseJson<AlertPreviewResult>(response);
+}
+
+export async function testSendAlert(email: string, rules: AlertRule[]): Promise<{ ok: boolean; sent: boolean; count: number }> {
+  const response = await fetchWithError(`${API_BASE_URL}/api/alerts/test-send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, rules }),
+  });
+  return parseJson<{ ok: boolean; sent: boolean; count: number }>(response);
 }
 
 // ── Forecast APIs ──

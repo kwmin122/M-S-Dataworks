@@ -2741,6 +2741,7 @@ async def checklist_proxy(payload: ChecklistProxyPayload) -> dict[str, Any]:
 class GenerateWbsProxyPayload(BaseModel):
     session_id: str
     methodology: str = ""
+    use_pack: bool = False
 
 
 @app.post("/api/proposal/generate-wbs")
@@ -2754,7 +2755,7 @@ async def generate_wbs_proxy(payload: GenerateWbsProxyPayload) -> dict[str, Any]
 
     return await _proxy_to_rag(
         "POST", "/api/generate-wbs",
-        {"rfx_result": rfx_dict, "methodology": payload.methodology},
+        {"rfx_result": rfx_dict, "methodology": payload.methodology, "use_pack": payload.use_pack},
         timeout=300,
     )
 
@@ -3188,13 +3189,13 @@ def _send_confirmation_email(to_email: str, config: dict, is_update: bool = Fals
     for rule in config.get("rules", []):
         if not rule.get("enabled", True):
             continue
-        kws = ", ".join(rule.get("keywords", [])) or "(전체)"
+        kws = _html_escape(", ".join(rule.get("keywords", [])) or "(전체)")
         amt_parts = []
         if rule.get("minAmt"):
             amt_parts.append(f'{int(rule["minAmt"]):,}원 이상')
         if rule.get("maxAmt"):
             amt_parts.append(f'{int(rule["maxAmt"]):,}원 이하')
-        amt_str = " / ".join(amt_parts) if amt_parts else "제한 없음"
+        amt_str = _html_escape(" / ".join(amt_parts) if amt_parts else "제한 없음")
         rule_items += f'<li>키워드: <strong>{kws}</strong> / 금액: {amt_str}</li>'
 
     title = "키라봇 공고 알림 설정이 변경되었습니다" if is_update else "키라봇 공고 알림 등록 완료"
@@ -3292,6 +3293,11 @@ async def save_alert_config_endpoint(request: Request, payload: dict) -> dict[st
                     raise ValueError(f"규칙 #{i+1}: 최소 1개의 키워드가 필요합니다.")
                 if len(keywords) > 50:
                     raise ValueError(f"규칙 #{i+1}: 키워드는 최대 50개까지 가능합니다.")
+                for j, kw in enumerate(keywords):
+                    if not isinstance(kw, str):
+                        raise ValueError(f"규칙 #{i+1}: 키워드 #{j+1}은 문자열이어야 합니다.")
+                    if len(kw) > 100:
+                        raise ValueError(f"규칙 #{i+1}: 개별 키워드는 100자를 초과할 수 없습니다.")
 
             # Validate schedule
             schedule = payload.get("schedule", "daily_1")
@@ -3301,6 +3307,39 @@ async def save_alert_config_endpoint(request: Request, payload: dict) -> dict[st
             # Validate hours
             if "hours" in payload and not isinstance(payload["hours"], list):
                 raise ValueError("hours 필드가 배열이어야 합니다.")
+
+            # Validate digestTime (HH:MM format)
+            digest_time = payload.get("digestTime")
+            if digest_time is not None:
+                if not isinstance(digest_time, str) or not re.match(r'^([01]\d|2[0-3]):[0-5]\d$', digest_time):
+                    raise ValueError("digestTime은 HH:MM 형식이어야 합니다 (00:00~23:59).")
+
+            # Validate digestDays (array of 0-6)
+            digest_days = payload.get("digestDays")
+            if digest_days is not None:
+                if not isinstance(digest_days, list) or len(digest_days) > 7:
+                    raise ValueError("digestDays는 최대 7개의 요일(0~6) 배열이어야 합니다.")
+                if any(not isinstance(d, int) or d < 0 or d > 6 for d in digest_days):
+                    raise ValueError("digestDays 값은 0(일)~6(토) 정수여야 합니다.")
+
+            # Validate maxPerDay (1-200)
+            max_per_day = payload.get("maxPerDay")
+            if max_per_day is not None:
+                if not isinstance(max_per_day, (int, float)) or int(max_per_day) < 1 or int(max_per_day) > 200:
+                    raise ValueError("maxPerDay는 1~200 사이 정수여야 합니다.")
+
+            # Validate quietHours
+            quiet_hours = payload.get("quietHours")
+            if quiet_hours is not None:
+                if not isinstance(quiet_hours, dict):
+                    raise ValueError("quietHours 필드가 객체여야 합니다.")
+                time_re = r'^([01]\d|2[0-3]):[0-5]\d$'
+                qh_start = quiet_hours.get("start", "")
+                qh_end = quiet_hours.get("end", "")
+                if qh_start and not re.match(time_re, qh_start):
+                    raise ValueError("quietHours.start는 HH:MM 형식이어야 합니다.")
+                if qh_end and not re.match(time_re, qh_end):
+                    raise ValueError("quietHours.end는 HH:MM 형식이어야 합니다.")
 
             try:
                 save_alert_config(payload)
@@ -3361,6 +3400,64 @@ async def save_alert_config_endpoint(request: Request, payload: dict) -> dict[st
                 _set_alert_state(session_id, state)
 
     return {"ok": True, "confirmationSent": confirmation_sent, "cancellationSent": cancellation_sent, "isNew": is_new}
+
+
+@app.post("/api/alerts/preview")
+@limiter.limit("10/minute")
+async def preview_alert_matches(request: Request, payload: dict) -> dict[str, Any]:
+    """규칙 기반 매칭 공고 미리보기 (이메일 발송 없음)."""
+    rules = payload.get("rules", [])
+    if not isinstance(rules, list) or not rules:
+        return {"count": 0, "bids": []}
+
+    all_bids: list[dict] = []
+    for rule in rules:
+        if not rule.get("enabled", True):
+            continue
+        regions = rule.get("regions", [])
+        raw_categories = rule.get("categories", [])
+        cat_codes = [NARA_CATEGORY_CODE.get(c, c) for c in raw_categories] if raw_categories else ["all"]
+        region_list = regions if regions else [""]
+        for kw in rule.get("keywords", [""]):
+            for rgn in region_list:
+                for cat in cat_codes:
+                    try:
+                        _min = rule.get("minAmt")
+                        _max = rule.get("maxAmt")
+                        results = await nara_search_bids(
+                            keywords=kw, category=cat, region=rgn,
+                            min_amt=float(_min) if _min else None,
+                            max_amt=float(_max) if _max else None,
+                            period="1w", exclude_expired=True, page=1, page_size=20,
+                        )
+                        all_bids.extend(results.get("notices", []))
+                    except Exception as e:
+                        logger.warning("[preview] search failed kw='%s': %s", kw, e)
+
+    # Deduplicate
+    seen: set[str] = set()
+    unique: list[dict] = []
+    for b in all_bids:
+        bid_id = b.get("id", "")
+        if bid_id and bid_id not in seen:
+            seen.add(bid_id)
+            unique.append(b)
+
+    # Return top 5 samples + total count
+    samples = unique[:5]
+    return {
+        "count": len(unique),
+        "bids": [
+            {
+                "id": b.get("id", ""),
+                "title": b.get("title", ""),
+                "organization": b.get("organization", ""),
+                "deadline": b.get("deadline", ""),
+                "amount": b.get("amount"),
+            }
+            for b in samples
+        ],
+    }
 
 
 @app.get("/api/alerts/config")
@@ -4328,7 +4425,15 @@ async def _execute_alert_send(config: dict, label: str = "alert",
     if not new_bids:
         return {"sent": False, "reason": "새로운 공고가 없습니다.", "count": 0, "summaryCount": 0}
 
+    # Apply maxPerDay cap
+    max_per_day = config.get("maxPerDay", 50)
+    if isinstance(max_per_day, (int, float)):
+        max_per_day = max(1, min(200, int(max_per_day)))
+    else:
+        max_per_day = 50
+
     total_found = len(new_bids)
+    new_bids = new_bids[:max_per_day]
     new_bids = new_bids[:10]
 
     # Step 3: 순차 RFP 요약 (메모리 절약: 1건씩 처리)
@@ -4417,6 +4522,23 @@ async def send_alert_now(request: Request, payload: dict) -> dict[str, Any]:
     return {"ok": True, **result}
 
 
+@app.post("/api/alerts/test-send")
+@limiter.limit("3/hour")
+async def test_send_alert(request: Request, payload: dict) -> dict[str, Any]:
+    """알림 테스트 발송 (이메일 기반, 인증 불필요). 규칙 기반 검색 + 1건만 발송."""
+    email = payload.get("email", "").strip()
+    if not email or not re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', email):
+        raise HTTPException(status_code=400, detail="유효한 이메일 주소가 필요합니다.")
+
+    rules = payload.get("rules", [])
+    if not rules:
+        raise HTTPException(status_code=400, detail="규칙이 필요합니다.")
+
+    config = {"email": email, "rules": rules, "maxPerDay": 1}
+    result = await _execute_alert_send(config, label="test-send")
+    return {"ok": True, **result}
+
+
 # ── 알림 스케줄러 ──
 
 _KST = timezone(timedelta(hours=9))
@@ -4466,7 +4588,52 @@ async def _check_and_send_scheduled_alerts():
         schedule = config.get("schedule", "daily_1")
         hours = config.get("hours", [])
 
-        if schedule == "realtime":
+        # Check quiet hours
+        quiet_hours = config.get("quietHours")
+        if quiet_hours and quiet_hours.get("enabled"):
+            # Check weekend suppression
+            if quiet_hours.get("weekendOff") and now_kst.weekday() >= 5:  # 5=Sat, 6=Sun
+                continue
+            # Check quiet time range
+            qh_start = quiet_hours.get("start", "")
+            qh_end = quiet_hours.get("end", "")
+            if qh_start and qh_end:
+                try:
+                    start_h, start_m = map(int, qh_start.split(":"))
+                    end_h, end_m = map(int, qh_end.split(":"))
+                    now_minutes = now_kst.hour * 60 + now_kst.minute
+                    start_minutes = start_h * 60 + start_m
+                    end_minutes = end_h * 60 + end_m
+                    if start_minutes <= end_minutes:
+                        if start_minutes <= now_minutes < end_minutes:
+                            continue
+                    else:  # wraps midnight (e.g., 22:00 ~ 08:00)
+                        if now_minutes >= start_minutes or now_minutes < end_minutes:
+                            continue
+                except (ValueError, TypeError):
+                    pass  # invalid format, skip quiet check
+
+        # Use digestTime for determining send hour
+        send_hours: list[int] = [9]  # default fallback
+        digest_time = config.get("digestTime", "09:00")
+        if schedule in ("daily_1", "daily_3") and digest_time:
+            try:
+                digest_hour = int(digest_time.split(":")[0])
+                # For daily_1: send at digest hour only
+                if schedule == "daily_1":
+                    send_hours = [digest_hour]
+                # For daily_3 (weekly): check digestDays too
+                elif schedule == "daily_3":
+                    digest_days = config.get("digestDays", [1, 2, 3, 4, 5])
+                    # Python weekday: Mon=0..Sun=6; our format: Sun=0..Sat=6
+                    py_weekday = now_kst.weekday()  # Mon=0..Sun=6
+                    our_day = (py_weekday + 1) % 7  # Sun=0..Sat=6
+                    if our_day not in digest_days:
+                        continue
+                    send_hours = [digest_hour]
+            except (ValueError, TypeError):
+                pass  # fall through to default send_hours=[9]
+        elif schedule == "realtime":
             send_hours = list(range(0, 24))
         elif schedule == "hourly":
             send_hours = list(range(8, 20))
@@ -4474,10 +4641,6 @@ async def _check_and_send_scheduled_alerts():
             send_hours = [int(h) for h in hours]
         elif schedule == "daily_2":
             send_hours = [9, 18]
-        elif schedule == "daily_3":
-            send_hours = [9, 13, 18]
-        else:
-            send_hours = [9]
 
         if current_hour not in send_hours:
             continue
