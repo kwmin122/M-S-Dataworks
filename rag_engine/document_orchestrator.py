@@ -80,7 +80,9 @@ def _write_section_with_pack(
     if replace_texts:
         return replace_texts[0]  # replace mode: skip LLM entirely
 
-    generated = call_llm_for_pack_section(prompt, api_key, middleware=middleware)
+    generated = call_llm_for_pack_section(
+        prompt, system_prompt=domain_system_prompt, api_key=api_key, middleware=middleware,
+    )
 
     parts = []
     if prepend_texts:
@@ -139,6 +141,7 @@ def generate_document(
         "duration_months": rfx_result.get("duration_months", 0),
         "domain_type": domain_type.value,
         "tasks": rfx_result.get("tasks", []),
+        "full_text": rfx_result.get("full_text", rfx_result.get("raw_text", "")),
     }
     resolved = resolve_sections(pack.sections.sections, rfp_context_dict)
     active_sections = [r for r in resolved if r.status != SectionStatus.OMITTED]
@@ -149,7 +152,11 @@ def generate_document(
         kb = KnowledgeDB(persist_directory=knowledge_db_path)
         title = rfx_result.get("title", "")
         query = f"수행계획서 작성 {title} {domain_type.value}"
-        units = kb.search(query, top_k=10, document_types=[DocumentType.WBS, DocumentType.COMMON])
+        units = kb.search(
+            query, top_k=10,
+            document_types=[DocumentType.WBS, DocumentType.COMMON],
+            domain_type=domain_type.value,
+        )
         knowledge_texts = [u.rule for u in units if u.rule]
     except Exception as exc:
         logger.warning("KnowledgeDB search failed: %s", exc)

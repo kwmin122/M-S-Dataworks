@@ -46,6 +46,35 @@ class TestResolveSections:
         assert result[0].status == SectionStatus.ACTIVE
         assert len(result[0].dynamic_subsections) == 2
 
+    def test_keyword_in_rfp_activates_section(self):
+        """keyword_in_rfp condition should activate section when keyword found in RFP text."""
+        sections = [_make_section("s08", "연구윤리 및 IRB", required=False,
+                                   conditions={"any_of": [
+                                       {"keyword_in_rfp": ["IRB", "생명윤리", "연구윤리"]},
+                                       {"keyword_in_rfp": ["설문조사", "FGI"]},
+                                   ]})]
+        result = resolve_sections(sections, rfp_context={"full_text": "본 연구는 IRB 심의를 거쳐 수행"})
+        assert result[0].status == SectionStatus.ACTIVE
+
+    def test_keyword_in_rfp_omits_when_no_match(self):
+        """keyword_in_rfp condition should omit section when no keywords found."""
+        sections = [_make_section("s08", "연구윤리 및 IRB", required=False,
+                                   conditions={"any_of": [
+                                       {"keyword_in_rfp": ["IRB", "생명윤리"]},
+                                   ]})]
+        result = resolve_sections(sections, rfp_context={"full_text": "일반 사업 내용"})
+        assert result[0].status == SectionStatus.OMITTED
+
+    def test_keyword_in_rfp_second_group_match(self):
+        """any_of with multiple keyword groups — second group matches."""
+        sections = [_make_section("s08", "연구윤리", required=False,
+                                   conditions={"any_of": [
+                                       {"keyword_in_rfp": ["IRB"]},
+                                       {"keyword_in_rfp": ["설문조사", "FGI"]},
+                                   ]})]
+        result = resolve_sections(sections, rfp_context={"full_text": "FGI 참여자 대상 연구"})
+        assert result[0].status == SectionStatus.ACTIVE
+
     def test_omitted_section_not_in_active_list(self):
         sections = [
             _make_section("s01", "사업 이해"),

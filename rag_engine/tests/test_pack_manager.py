@@ -128,3 +128,36 @@ class TestPackManagerResolve:
         assert s01.weight == 0.6
         s02 = next((s for s in resolved.sections.sections if s.id == "s02"), None)
         assert s02 is not None  # inherited
+
+    def test_company_without_domain_dict_inherits_default(self, pack_dir):
+        """Company pack with sections only should inherit _default domain_dict, not get empty."""
+        company = pack_dir / "comp_no_dd"
+        company.mkdir()
+        (company / "pack.json").write_text(json.dumps({
+            "pack_id": "comp_no_dd_exec_research",
+            "company_id": "comp_no_dd",
+            "version": 1,
+            "status": "active",
+            "base_pack_ref": None,
+        }, ensure_ascii=False))
+
+        research = company / "execution_plan" / "research"
+        research.mkdir(parents=True)
+        # Only sections.json — no domain_dict.json, no boilerplate.json
+        (research / "sections.json").write_text(json.dumps({
+            "document_type": "execution_plan",
+            "domain_type": "research",
+            "sections": [
+                {"id": "s01", "name": "커스텀 사업 이해", "level": 1, "weight": 0.5, "max_score": 15},
+            ],
+        }, ensure_ascii=False))
+
+        pm = PackManager(pack_dir)
+        resolved = pm.resolve("comp_no_dd", "execution_plan", "research")
+
+        # domain_dict should be inherited from _default, not empty
+        assert len(resolved.domain_dict.roles) > 0, "domain_dict.roles should not be empty"
+        assert resolved.domain_dict.roles[0].id == "pi"
+
+        # boilerplate should also be inherited from _default
+        assert len(resolved.boilerplate.boilerplates) > 0, "boilerplate should not be empty"

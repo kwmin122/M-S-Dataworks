@@ -49,6 +49,12 @@ def _evaluate_condition(condition: dict[str, Any], rfp_context: dict[str, Any]) 
         if domain in condition["domain_types"]:
             return True
 
+    if "keyword_in_rfp" in condition:
+        rfp_text = rfp_context.get("full_text", "") or rfp_context.get("raw_text", "")
+        keywords = condition["keyword_in_rfp"]
+        if any(kw in rfp_text for kw in keywords):
+            return True
+
     return False
 
 

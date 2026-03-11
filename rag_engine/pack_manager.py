@@ -159,17 +159,19 @@ class PackManager:
         except FileNotFoundError:
             merged_sections = base_sections
 
-        try:
-            company_dd = self.load_domain_dict(company_id, doc_type, domain_type)
-            # For domain_dict: company replaces entirely if present
-            merged_dd = company_dd
-        except Exception:
+        # For domain_dict: company replaces entirely only if file exists
+        company_dd_path = self._find_path(company_id, doc_type, domain_type, "domain_dict.json")
+        if company_dd_path is not None:
+            merged_dd = DomainDict.model_validate(self._load_json(company_dd_path))
+        else:
             merged_dd = base_dd
 
-        try:
-            company_bp = self.load_boilerplate(company_id, doc_type, domain_type)
+        # For boilerplate: merge (concat, override on duplicate id)
+        company_bp_path = self._find_path(company_id, doc_type, domain_type, "boilerplate.json")
+        if company_bp_path is not None:
+            company_bp = BoilerplateConfig.model_validate(self._load_json(company_bp_path))
             merged_bp = self._merge_boilerplate(base_bp, company_bp)
-        except Exception:
+        else:
             merged_bp = base_bp
 
         return ResolvedPack(
