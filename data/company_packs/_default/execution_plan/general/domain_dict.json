@@ -1,0 +1,22 @@
+{
+  "domain_type": "general",
+  "roles": [
+    {"id": "pm", "name": "PM", "grade": "특급", "aliases": ["프로젝트관리자", "총괄PM", "사업PM"]},
+    {"id": "principal", "name": "수석전문가", "grade": "특급", "aliases": ["수석", "선임파트너", "책임전문가"]},
+    {"id": "specialist", "name": "전문가", "grade": "고급", "aliases": ["중급전문가", "담당전문가"]},
+    {"id": "researcher", "name": "연구원", "grade": "초급", "aliases": ["보조연구원", "실무담당자"]}
+  ],
+  "phases": [
+    {"id": "kickoff", "name": "착수", "aliases": ["사업착수", "시작"]},
+    {"id": "execution", "name": "실행", "aliases": ["수행", "진행", "본사업"]},
+    {"id": "closing", "name": "마무리", "aliases": ["종료", "완료", "최종보고"]}
+  ],
+  "methodologies": [],
+  "deliverables_common": ["착수보고서", "중간보고서", "최종보고서"],
+  "organization_terms": {},
+  "common_risks": [
+    {"risk": "일정 지연", "mitigation": "마일스톤 관리, 조기 경보 체계 운영"},
+    {"risk": "산출물 품질 미흡", "mitigation": "내부 검토 체계 운영, 발주기관과 사전 품질 기준 협의"}
+  ],
+  "quality_frameworks": ["PMBOK"]
+}

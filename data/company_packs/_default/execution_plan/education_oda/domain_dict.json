@@ -1,0 +1,39 @@
+{
+  "domain_type": "education_oda",
+  "roles": [
+    {"id": "pm", "name": "PM", "grade": "특급", "aliases": ["프로젝트관리자", "사업총괄PM"]},
+    {"id": "education_specialist", "name": "교육전문가", "grade": "고급", "aliases": ["교육과정전문가", "수석교육전문가", "교수설계자"]},
+    {"id": "content_developer", "name": "콘텐츠개발자", "grade": "중급", "aliases": ["교재개발자", "e러닝개발자", "교육콘텐츠전문가"]},
+    {"id": "local_expert", "name": "현지전문가", "grade": "고급", "aliases": ["현지자문", "로컬파트너", "현지전문가"]},
+    {"id": "interpreter", "name": "통번역사", "grade": "중급", "aliases": ["통역사", "번역사", "현지통역"]}
+  ],
+  "phases": [
+    {"id": "pre_survey", "name": "사전조사", "aliases": ["현지조사", "니즈분석", "기초조사"]},
+    {"id": "design", "name": "설계", "aliases": ["교육과정설계", "커리큘럼설계"]},
+    {"id": "develop", "name": "개발", "aliases": ["콘텐츠개발", "교재개발", "자료개발"]},
+    {"id": "pilot", "name": "시범운영", "aliases": ["파일럿", "시범교육", "pilot"]},
+    {"id": "full_operation", "name": "본운영", "aliases": ["본사업운영", "정규교육운영"]},
+    {"id": "evaluation", "name": "평가", "aliases": ["성과평가", "M&E", "모니터링"]},
+    {"id": "transfer", "name": "이관", "aliases": ["현지이관", "종료", "지속가능성확보"]}
+  ],
+  "methodologies": [
+    {"id": "addie", "name": "ADDIE", "aliases": ["분석설계개발실행평가", "Analyze Design Develop Implement Evaluate"]},
+    {"id": "sam", "name": "SAM", "aliases": ["Successive Approximation Model", "반복적교수설계"]},
+    {"id": "cbt", "name": "역량기반교육(CBT)", "aliases": ["Competency Based Training", "역량기반훈련"]},
+    {"id": "blended", "name": "블렌디드러닝", "aliases": ["혼합교육", "Blended Learning", "하이브리드교육"]}
+  ],
+  "deliverables_common": ["사전조사보고서", "교육과정설계서", "교재/교수학습자료", "시범운영결과보고서", "성과평가보고서", "최종보고서", "현지이관계획서"],
+  "organization_terms": {
+    "recipient": ["수원국", "수혜국", "협력국"],
+    "beneficiary": ["교육대상", "수혜자", "최종수혜자"],
+    "partner": ["현지파트너", "현지기관", "협력기관"]
+  },
+  "common_risks": [
+    {"risk": "현지 치안 불안 및 자연재해", "mitigation": "비상대응계획 수립, 현지 안전관리 매뉴얼 준수"},
+    {"risk": "현지 파트너 협조 미흡", "mitigation": "사전 MOU 체결, 현지 담당자 상시 소통 채널 구축"},
+    {"risk": "교육대상자 참여율 저조", "mitigation": "인센티브 제공, 현지 기관 통한 참여 독려"},
+    {"risk": "언어·문화 장벽으로 교육 효과 저하", "mitigation": "현지 전문가 협업, 교육 내용 현지화, 통번역 품질 관리"},
+    {"risk": "현지 ICT 인프라 부족", "mitigation": "오프라인 교육 대안 마련, 저사양 환경 최적화 콘텐츠 개발"}
+  ],
+  "quality_frameworks": ["KOICA 사업관리지침", "OECD DAC 평가기준", "Kirkpatrick 4단계 평가모델", "ADDIE 품질기준"]
+}

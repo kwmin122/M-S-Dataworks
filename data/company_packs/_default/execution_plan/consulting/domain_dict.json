@@ -1,0 +1,39 @@
+{
+  "domain_type": "consulting",
+  "roles": [
+    {"id": "pm", "name": "PM", "grade": "특급", "aliases": ["프로젝트관리자", "컨설팅PM", "총괄PM"]},
+    {"id": "principal_consultant", "name": "수석컨설턴트", "grade": "특급", "aliases": ["수석전문가", "선임파트너"]},
+    {"id": "senior_consultant", "name": "책임컨설턴트", "grade": "고급", "aliases": ["책임전문가", "시니어컨설턴트"]},
+    {"id": "consultant", "name": "선임컨설턴트", "grade": "중급", "aliases": ["컨설턴트", "전문컨설턴트"]},
+    {"id": "field_researcher", "name": "현장조사원", "grade": "초급", "aliases": ["현장조사전문가", "인터뷰어"]},
+    {"id": "isp_specialist", "name": "ISP전문가", "grade": "고급", "aliases": ["정보화전략전문가", "ICT전략전문가"]}
+  ],
+  "phases": [
+    {"id": "kickoff", "name": "착수", "aliases": ["사업착수", "킥오프"]},
+    {"id": "diagnosis", "name": "현황진단", "aliases": ["AS-IS분석", "현황조사", "진단"]},
+    {"id": "goal_setting", "name": "목표수립", "aliases": ["TO-BE수립", "목표모델설계"]},
+    {"id": "improvement_design", "name": "개선설계", "aliases": ["개선방안수립", "실행계획수립"]},
+    {"id": "implementation_support", "name": "실행지원", "aliases": ["이행지원", "실행지원"]},
+    {"id": "closing", "name": "종료", "aliases": ["사업종료", "최종보고", "종결"]}
+  ],
+  "methodologies": [
+    {"id": "isp", "name": "ISP", "aliases": ["정보화전략계획", "Information Strategy Planning"]},
+    {"id": "bpr", "name": "BPR", "aliases": ["업무프로세스재설계", "Business Process Reengineering"]},
+    {"id": "pi", "name": "PI", "aliases": ["프로세스혁신", "Process Innovation"]},
+    {"id": "strategy", "name": "전략수립", "aliases": ["중장기계획수립", "경영전략"]},
+    {"id": "change_mgmt", "name": "변화관리", "aliases": ["Change Management", "조직변화관리"]}
+  ],
+  "deliverables_common": ["착수보고서", "현황진단보고서", "GAP분석보고서", "개선방안보고서", "ISP보고서", "최종보고서"],
+  "organization_terms": {
+    "client": ["발주기관", "의뢰기관", "고객사"],
+    "stakeholder": ["이해관계자", "주요부서", "담당자"],
+    "committee": ["추진위원회", "협의체", "검수위원회"]
+  },
+  "common_risks": [
+    {"risk": "이해관계자 협조 미흡", "mitigation": "고위급 스폰서십 확보, 정기 협의체 운영"},
+    {"risk": "현황 데이터 수집 한계", "mitigation": "다중 수집 경로 확보, 삼각검증 적용"},
+    {"risk": "컨설팅 결과 수용성 저하", "mitigation": "조기 참여 유도, 변화관리 프로그램 병행"},
+    {"risk": "일정 지연 (의사결정 지연)", "mitigation": "의사결정 주체 명확화, 에스컬레이션 프로세스"}
+  ],
+  "quality_frameworks": ["PMBOK", "컨설팅품질관리기준", "ISO9001", "CMMI"]
+}
