@@ -78,17 +78,26 @@ class KnowledgeDB:
         top_k: int = 10,
         category: Optional[KnowledgeCategory] = None,
         document_types: Optional[list[DocumentType]] = None,
+        domain_type: Optional[str] = None,
     ) -> list[KnowledgeUnit]:
-        where = {}
+        where_conditions = []
         if category:
-            where["category"] = category.value
+            where_conditions.append({"category": category.value})
         if document_types:
-            where["document_type"] = {"$in": [dt.value for dt in document_types]}
+            where_conditions.append({"document_type": {"$in": [dt.value for dt in document_types]}})
+        if domain_type:
+            where_conditions.append({"domain_type": domain_type})
+
+        where = None
+        if len(where_conditions) == 1:
+            where = where_conditions[0]
+        elif len(where_conditions) > 1:
+            where = {"$and": where_conditions}
 
         results = self._collection.query(
             query_texts=[query],
             n_results=top_k,
-            where=where if where else None,
+            where=where,
         )
         units = []
         for meta in (results.get("metadatas") or [[]])[0]:
