@@ -1,0 +1,35 @@
+{
+  "domain_type": "research",
+  "roles": [
+    {"id": "pi", "name": "연구책임자", "grade": "특급", "aliases": ["PI", "책임연구원"]},
+    {"id": "co_pi", "name": "공동연구자", "grade": "고급", "aliases": ["co-PI", "공동연구원"]},
+    {"id": "ra", "name": "연구보조원", "grade": "초급", "aliases": ["RA", "연구원"]},
+    {"id": "advisor", "name": "자문위원", "grade": "특급", "aliases": ["자문교수"]},
+    {"id": "surveyor", "name": "조사원", "grade": "중급", "aliases": ["현장조사원"]},
+    {"id": "statistician", "name": "통계분석가", "grade": "고급", "aliases": ["분석전문가"]}
+  ],
+  "phases": [
+    {"id": "design", "name": "연구설계", "aliases": ["연구계획"]},
+    {"id": "review", "name": "선행연구검토", "aliases": ["문헌검토"]},
+    {"id": "collect", "name": "자료수집", "aliases": ["데이터수집", "현장조사"]},
+    {"id": "analyze", "name": "분석/해석", "aliases": ["통계분석", "질적분석"]},
+    {"id": "recommend", "name": "정책제언", "aliases": ["시사점도출"]},
+    {"id": "disseminate", "name": "결과확산", "aliases": ["보고서작성"]},
+    {"id": "closing", "name": "사업종료", "aliases": ["최종보고"]}
+  ],
+  "methodologies": [
+    {"id": "mixed", "name": "혼합연구방법", "aliases": ["mixed methods"]},
+    {"id": "qualitative", "name": "질적연구", "aliases": ["정성적연구"]},
+    {"id": "quantitative", "name": "양적연구", "aliases": ["정량적연구"]},
+    {"id": "action", "name": "실행연구", "aliases": ["action research"]},
+    {"id": "delphi", "name": "델파이조사", "aliases": ["전문가패널"]}
+  ],
+  "deliverables_common": ["연구계획서", "중간보고서", "최종연구보고서", "정책제언서", "요약보고서"],
+  "common_risks": [
+    {"risk": "설문/조사 응답률 저조", "mitigation": "사전홍보, 인센티브, 대체표본 확보"},
+    {"risk": "연구윤리 이슈 (개인정보)", "mitigation": "IRB 사전 승인, 비식별화 프로세스"},
+    {"risk": "일정 지연 (분석 복잡도)", "mitigation": "병렬 분석 체계, 마일스톤 관리"},
+    {"risk": "전문가 섭외 난항", "mitigation": "다중 후보 풀, 사전 의향 확인"}
+  ],
+  "quality_frameworks": ["연구윤리 가이드라인", "통계품질관리기준", "IRB 심의기준"]
+}

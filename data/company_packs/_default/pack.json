@@ -1,0 +1,11 @@
+{
+  "pack_id": "_default",
+  "company_id": "_default",
+  "version": 1,
+  "status": "active",
+  "base_pack_ref": null,
+  "source_documents": [],
+  "active_render_targets": ["docx"],
+  "created_at": "2026-03-11",
+  "updated_at": "2026-03-11"
+}

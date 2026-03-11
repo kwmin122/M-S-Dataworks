@@ -1,0 +1,122 @@
+{
+  "document_type": "execution_plan",
+  "domain_type": "research",
+  "sections": [
+    {
+      "id": "s01", "name": "연구배경 및 목적", "level": 1, "required": true,
+      "weight": 0.10, "max_score": 10,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 2000, "max_chars": 5000, "token_budget": 2500},
+      "block_types": ["narrative"],
+      "must_include_facts": ["발주기관명", "사업명", "연구목적"],
+      "forbidden_patterns": ["~할 것임$", "~인 것으로 사료됨$", "~라고 판단됨$"],
+      "evidence_policy": "required",
+      "subsections": [
+        {"id": "s01_1", "name": "연구 배경", "block_types": ["narrative"], "instructions": "발주기관의 정책적 배경, 현재 문제점, 연구 필요성을 RFP에서 추출하여 서술"},
+        {"id": "s01_2", "name": "연구 목적 및 범위", "block_types": ["narrative"], "instructions": "연구의 최종 목표, 기대 산출물, 연구 범위(포함/제외)를 구체적으로 정의"}
+      ]
+    },
+    {
+      "id": "s02", "name": "선행연구 검토", "level": 1, "required": true,
+      "weight": 0.10, "max_score": 10,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 2000, "max_chars": 5000, "token_budget": 2500},
+      "block_types": ["narrative", "table"],
+      "must_include_facts": ["선행연구 현황", "기존연구 한계"],
+      "evidence_policy": "required",
+      "subsections": [
+        {"id": "s02_1", "name": "국내외 선행연구 현황", "instructions": "관련 분야 주요 선행연구 문헌 검토, 연구 동향 정리"},
+        {"id": "s02_2", "name": "기존연구 한계 및 시사점", "instructions": "기존 연구의 한계점 분석, 본 연구의 차별성 도출"}
+      ]
+    },
+    {
+      "id": "s03", "name": "연구방법론", "level": 1, "required": true,
+      "weight": 0.15, "max_score": 20,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 2500, "max_chars": 6000, "token_budget": 3000},
+      "block_types": ["narrative", "chart"],
+      "must_include_facts": ["연구방법", "분석방법"],
+      "evidence_policy": "required",
+      "subsections": [
+        {"id": "s03_1", "name": "연구 설계", "instructions": "연구 유형(혼합연구/질적/양적/실행연구/델파이 등), 연구 프레임워크 제시"},
+        {"id": "s03_2", "name": "자료 수집 방법", "instructions": "조사 대상, 표본 설계, 수집 도구(설문/면접/FGI 등) 상세 기술"},
+        {"id": "s03_3", "name": "분석 방법", "instructions": "통계분석/질적분석 방법, 분석 도구, 신뢰도/타당도 확보 방안"}
+      ]
+    },
+    {
+      "id": "s04", "name": "연구내용", "level": 1, "required": true,
+      "weight": 0.25, "max_score": 30,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 5000, "max_chars": 15000, "token_budget": 5000},
+      "block_types": ["narrative", "table", "chart"],
+      "must_include_facts": ["과업별 목표", "수행방법", "산출물"],
+      "evidence_policy": "required",
+      "fallback_text_policy": "generate_from_rfp",
+      "priority": 1,
+      "subsections": [
+        {"id": "s04_auto", "name": "(RFP 과업에서 자동 생성)", "dynamic": true, "instructions": "RFP의 각 과업을 세부 섹션으로 분해. 과업별 연구목표/방법/산출물/기대효과를 서술"}
+      ]
+    },
+    {
+      "id": "s05", "name": "추진일정", "level": 1, "required": true,
+      "weight": 0.10, "max_score": 10,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 1500, "max_chars": 4000, "token_budget": 2000},
+      "block_types": ["narrative", "table", "chart"],
+      "subsections": [
+        {"id": "s05_1", "name": "연구 추진 일정", "block_types": ["narrative", "chart"], "instructions": "연구 단계별 마일스톤 중심 일정 서술 + 간트차트"},
+        {"id": "s05_2", "name": "WBS 상세", "block_types": ["table"], "render_mode": "data_table", "instructions": "WBS 표 (schedule_planner가 데이터 생성)"}
+      ]
+    },
+    {
+      "id": "s06", "name": "연구진 구성", "level": 1, "required": true,
+      "weight": 0.10, "max_score": 10,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 1500, "max_chars": 4000, "token_budget": 2000},
+      "block_types": ["narrative", "table"],
+      "subsections": [
+        {"id": "s06_1", "name": "연구진 구성", "block_types": ["table"], "render_mode": "data_table", "instructions": "연구책임자(PI), 공동연구자, 연구보조원, 자문위원, 조사원, 통계분석가 등"},
+        {"id": "s06_2", "name": "핵심연구인력 역량", "block_types": ["narrative"], "instructions": "PI, co-PI 등 핵심 연구인력의 전문분야/경력/자격을 서술"}
+      ]
+    },
+    {
+      "id": "s07", "name": "품질관리", "level": 1, "required": true,
+      "weight": 0.08, "max_score": 5,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 1000, "max_chars": 3000, "token_budget": 1500},
+      "block_types": ["narrative", "table"],
+      "subsections": [
+        {"id": "s07_1", "name": "연구 품질 관리 체계", "instructions": "연구 데이터 품질, 산출물 검증, 중간보고 등 품질관리 절차"},
+        {"id": "s07_2", "name": "산출물 검증 절차"}
+      ]
+    },
+    {
+      "id": "s08", "name": "연구윤리 및 IRB", "level": 1, "required": false,
+      "weight": 0.05, "max_score": 5,
+      "conditions": {
+        "any_of": [
+          {"keyword_in_rfp": ["IRB", "생명윤리", "연구윤리", "인체유래물", "개인정보"]},
+          {"keyword_in_rfp": ["설문조사", "면접조사", "FGI", "인터뷰"]}
+        ]
+      },
+      "fallback_text_policy": "use_boilerplate",
+      "generation_target": {"min_chars": 800, "max_chars": 2500, "token_budget": 1200},
+      "block_types": ["narrative"],
+      "subsections": [
+        {"id": "s08_1", "name": "연구윤리 준수 계획", "instructions": "IRB 심의, 개인정보 보호, 연구 윤리 준수 방안"},
+        {"id": "s08_2", "name": "데이터 관리 계획", "instructions": "연구데이터 수집/보관/폐기 절차, 비식별화 방안"}
+      ]
+    },
+    {
+      "id": "s09", "name": "연구결과 활용 및 확산", "level": 1, "required": true,
+      "weight": 0.07, "max_score": 5,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 800, "max_chars": 2000, "token_budget": 1000},
+      "block_types": ["narrative"],
+      "subsections": [
+        {"id": "s09_1", "name": "정책 활용 방안", "instructions": "연구결과의 정책 반영 경로, 제도 개선 기여 방안"},
+        {"id": "s09_2", "name": "확산 및 후속 연구", "instructions": "학술발표, 보고서 배포, 후속 연구 연계 방안"}
+      ]
+    }
+  ]
+}
