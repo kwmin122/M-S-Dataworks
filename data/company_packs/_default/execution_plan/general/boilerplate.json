@@ -1,3 +1,11 @@
 {
-  "boilerplates": []
+  "boilerplates": [
+    {
+      "id": "bp_general_quality",
+      "section_id": "s04",
+      "mode": "append",
+      "text": "본 사업팀은 단계별 마일스톤 관리와 주간 진척 점검을 통해 일정 준수율을 관리하며, 발주기관과의 정기 협의를 통해 사업 진행 상황을 투명하게 공유합니다.",
+      "tags": ["품질관리", "일정관리"]
+    }
+  ]
 }

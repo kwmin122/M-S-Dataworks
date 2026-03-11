@@ -3,64 +3,66 @@
   "domain_type": "general",
   "sections": [
     {
-      "id": "s01", "name": "사업이해 및 추진배경", "level": 1, "required": true,
-      "weight": 0.20, "max_score": 20,
+      "id": "s01", "name": "사업이해", "level": 1, "required": true,
+      "weight": 0.15, "max_score": 15,
       "conditions": {"always": true},
-      "generation_target": {"min_chars": 1500, "max_chars": 4000, "token_budget": 2000},
+      "generation_target": {"min_chars": 2000, "max_chars": 5000, "token_budget": 2500},
       "block_types": ["narrative"],
       "must_include_facts": ["발주기관명", "사업명", "사업목적"],
-      "evidence_policy": "recommended",
+      "forbidden_patterns": ["~할 것임$", "~인 것으로 사료됨$"],
+      "evidence_policy": "required",
       "subsections": [
-        {"id": "s01_1", "name": "사업 추진 배경 및 목적", "block_types": ["narrative"], "instructions": "발주기관의 사업 추진 배경, 목적, 필요성을 RFP에서 추출하여 서술"},
-        {"id": "s01_2", "name": "사업 범위 및 주요 과업", "block_types": ["narrative"], "instructions": "사업 범위, 주요 과업 내용, 기대 산출물 요약"}
+        {"id": "s01_1", "name": "사업 추진 배경", "block_types": ["narrative"], "instructions": "발주기관의 현재 상황, 문제점, 사업 필요성을 RFP에서 추출하여 서술"},
+        {"id": "s01_2", "name": "사업 목적 및 범위", "block_types": ["narrative"], "instructions": "사업의 최종 목표, 과업 범위, 기대 산출물을 구체적으로 정의"}
       ]
     },
     {
       "id": "s02", "name": "수행전략", "level": 1, "required": true,
       "weight": 0.20, "max_score": 20,
       "conditions": {"always": true},
-      "generation_target": {"min_chars": 1500, "max_chars": 4000, "token_budget": 2000},
+      "generation_target": {"min_chars": 2500, "max_chars": 6000, "token_budget": 3000},
       "block_types": ["narrative", "chart"],
-      "must_include_facts": ["수행전략", "핵심접근방법"],
-      "evidence_policy": "recommended",
+      "must_include_facts": ["수행방법론", "접근전략"],
+      "evidence_policy": "required",
+      "priority": 1,
       "subsections": [
-        {"id": "s02_1", "name": "수행 전략 및 방법론", "block_types": ["narrative", "chart"], "instructions": "사업 수행을 위한 핵심 전략, 방법론, 접근 방식 제시"},
-        {"id": "s02_2", "name": "추진 체계", "block_types": ["narrative"], "instructions": "사업팀 구성, 역할 분담, 의사소통 체계"}
+        {"id": "s02_1", "name": "수행 방법론", "block_types": ["narrative", "chart"], "instructions": "사업 수행에 적용할 방법론, 접근 전략, 핵심 프레임워크 제시"},
+        {"id": "s02_2", "name": "추진 체계", "block_types": ["narrative"], "instructions": "발주기관과의 협업 체계, 의사결정 구조, 보고 체계"}
       ]
     },
     {
       "id": "s03", "name": "세부수행방안", "level": 1, "required": true,
-      "weight": 0.30, "max_score": 30,
+      "weight": 0.25, "max_score": 25,
       "conditions": {"always": true},
       "generation_target": {"min_chars": 3000, "max_chars": 8000, "token_budget": 4000},
       "block_types": ["narrative", "table"],
-      "must_include_facts": ["과업별목표", "수행방법", "산출물"],
+      "must_include_facts": ["과업별수행방안", "산출물"],
       "evidence_policy": "required",
-      "fallback_text_policy": "generate_from_rfp",
       "priority": 1,
       "subsections": [
-        {"id": "s03_auto", "name": "(RFP 과업에서 자동 생성)", "dynamic": true, "instructions": "RFP의 각 과업을 세부 섹션으로 분해. 과업별 목표/수행방법/산출물을 서술"}
+        {"id": "s03_auto", "name": "(RFP 과업에서 자동 생성)", "dynamic": true, "instructions": "RFP의 각 과업을 세부 섹션으로 분해. 과업별 수행 방법, 산출물, 일정을 서술"}
       ]
     },
     {
       "id": "s04", "name": "추진일정", "level": 1, "required": true,
       "weight": 0.15, "max_score": 15,
       "conditions": {"always": true},
-      "generation_target": {"min_chars": 1000, "max_chars": 3000, "token_budget": 1500},
+      "generation_target": {"min_chars": 1500, "max_chars": 4000, "token_budget": 2000},
       "block_types": ["narrative", "table", "chart"],
       "subsections": [
-        {"id": "s04_1", "name": "추진 일정", "block_types": ["narrative", "chart"], "instructions": "단계별 마일스톤 중심 일정 서술 + 간트차트"},
+        {"id": "s04_1", "name": "단계별 추진 일정", "block_types": ["narrative", "chart"], "instructions": "주요 마일스톤 중심 단계별 일정 서술 + 간트차트"},
         {"id": "s04_2", "name": "WBS 상세", "block_types": ["table"], "render_mode": "data_table", "instructions": "WBS 표 (schedule_planner가 데이터 생성)"}
       ]
     },
     {
-      "id": "s05", "name": "기대효과", "level": 1, "required": true,
-      "weight": 0.15, "max_score": 15,
+      "id": "s05", "name": "기대효과", "level": 1, "required": false,
+      "weight": 0.10, "max_score": 10,
       "conditions": {"always": true},
       "generation_target": {"min_chars": 800, "max_chars": 2500, "token_budget": 1200},
-      "block_types": ["narrative"],
+      "block_types": ["narrative", "table"],
       "subsections": [
-        {"id": "s05_1", "name": "기대효과 및 활용방안", "block_types": ["narrative"], "instructions": "사업 수행으로 인한 정량적/정성적 기대효과, 결과물 활용 방안"}
+        {"id": "s05_1", "name": "정량적/정성적 기대효과", "instructions": "사업 수행으로 인한 기대효과 및 파급효과"},
+        {"id": "s05_2", "name": "활용 방안", "instructions": "산출물의 향후 활용 계획 및 확산 방안"}
       ]
     }
   ]
