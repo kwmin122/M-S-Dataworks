@@ -5,7 +5,7 @@ Provides request_id tracking and structured event logging.
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -23,7 +23,7 @@ class StructuredLogger:
     def _log(self, level: str, event: str, **kwargs):
         """Log structured event as JSON."""
         payload = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "level": level,
             "event": event,
             "request_id": self.request_id,
