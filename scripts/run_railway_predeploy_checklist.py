@@ -1,16 +1,19 @@
 """
 Railway 배포 전 E2E 체크리스트 실행기.
 
+대상 스택: services/web_app (FastAPI) + rag_engine (FastAPI) + frontend/kirabot (React)
+레거시 Streamlit UI (app.py)는 검사 대상 아님.
+
 기본 동작:
-1) 정적 검증(py_compile)
-2) 핵심 회귀 테스트(pytest subset)
-3) 선택: 실서버 URL HTTP 점검(소셜 로그인 URL + /tool)
-4) PDF viewer 의존성 import 점검
+1) 정적 검증(py_compile) — 프로덕션 핵심 파일
+2) 핵심 회귀 테스트(pytest subset) — API, 검색, 매칭, 라우터
+3) 핵심 의존성 import (fastapi, uvicorn, chromadb, pydantic)
+4) 선택: 실서버 URL HTTP 점검
 5) 결과를 Markdown 리포트로 저장
 
 예시:
-    python scripts/run_railway_predeploy_checklist.py \
-      --base-url https://your-railway-app.up.railway.app \
+    python scripts/run_railway_predeploy_checklist.py \\
+      --base-url https://your-railway-app.up.railway.app \\
       --out reports/railway_predeploy_checklist.md
 """
 
@@ -59,13 +62,15 @@ def _http_get(url: str, timeout: int = 15) -> tuple[int, str]:
 def run_checks(base_url: str | None) -> list[CheckResult]:
     results: list[CheckResult] = []
 
+    # Production stack: services/web_app + rag_engine (NOT legacy app.py/Streamlit)
     py_files = [
-        "app.py",
+        "services/web_app/main.py",
         "matcher.py",
         "chat_router.py",
         "rfx_analyzer.py",
         "document_parser.py",
-        "services/auth_gateway/main.py",
+        "engine.py",
+        "rag_engine/main.py",
     ]
     code, output = _run_command(["python", "-m", "py_compile", *py_files], ROOT_DIR)
     if code == 0:
@@ -74,10 +79,10 @@ def run_checks(base_url: str | None) -> list[CheckResult]:
         results.append(CheckResult("Python 문법 검사", "FAIL", output[-1200:]))
 
     pytest_targets = [
-        "tests/test_chat_policy_integration.py",
-        "tests/test_opinion_ui_integration.py",
-        "tests/test_admin_dashboard_ui.py",
-        "tests/test_matcher_opinion.py",
+        "tests/test_web_runtime_api.py",
+        "tests/test_hybrid_search.py",
+        "tests/test_constraint_evaluator.py",
+        "tests/test_chat_router.py",
     ]
     code, output = _run_command(["pytest", "-q", *pytest_targets], ROOT_DIR)
     if code == 0:
@@ -85,28 +90,25 @@ def run_checks(base_url: str | None) -> list[CheckResult]:
     else:
         results.append(CheckResult("핵심 회귀 테스트", "FAIL", output[-1200:]))
 
-    code, output = _run_command(
-        ["python", "-c", "import streamlit_pdf_viewer; print('ok')"],
-        ROOT_DIR,
-    )
+    # Production core imports: FastAPI stack + RAG engine (NOT legacy Streamlit)
+    core_imports = "import fastapi, uvicorn, chromadb, pydantic; print('ok')"
+    code, output = _run_command(["python", "-c", core_imports], ROOT_DIR)
     if code == 0:
-        results.append(CheckResult("PDF viewer import", "PASS", "streamlit_pdf_viewer import 성공"))
+        results.append(CheckResult("핵심 의존성 import", "PASS", "fastapi, uvicorn, chromadb, pydantic import 성공"))
     else:
-        results.append(CheckResult("PDF viewer import", "FAIL", output[-800:]))
+        results.append(CheckResult("핵심 의존성 import", "FAIL", output[-800:]))
 
     if not base_url:
         results.append(CheckResult("실서버 URL 점검", "SKIP", "--base-url 미지정"))
         return results
 
     normalized_base = base_url.rstrip("/")
-    google_url = os.getenv("SOCIAL_LOGIN_GOOGLE_URL", "").strip() or f"{normalized_base}/auth/google/login"
-    kakao_url = os.getenv("SOCIAL_LOGIN_KAKAO_URL", "").strip() or f"{normalized_base}/auth/kakao/login"
     url_cases = [
-        ("메인 페이지", normalized_base, {200}),
-        ("Auth Gateway health", f"{normalized_base}/auth/healthz", {200}),
-        ("Google 로그인 URL", google_url, {200, 301, 302, 303, 307, 308}),
-        ("Kakao 로그인 URL", kakao_url, {200, 301, 302, 303, 307, 308}),
-        ("/tool 접속", f"{normalized_base}/tool", {200, 301, 302, 303, 307, 308}),
+        ("메인 페이지 (프론트엔드)", normalized_base, {200}),
+        ("web_app health", f"{normalized_base}/api/health", {200}),
+        ("web_app healthz", f"{normalized_base}/healthz", {200}),
+        ("rag_engine 상태", f"{normalized_base}/api/debug/env", {200}),
+        ("세션 생성", f"{normalized_base}/api/session", {200, 405}),  # GET→405, POST→200
     ]
 
     for name, url, expected_status_set in url_cases:

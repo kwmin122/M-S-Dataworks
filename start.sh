@@ -6,6 +6,16 @@ echo "Working directory: $(pwd)"
 echo "User: $(whoami)"
 echo "PORT: ${PORT:-8000}"
 
+# OPENAI_API_KEY is required for all AI features (proposal, analysis, chat).
+# Without it the service starts but every generation API returns 503.
+# Fail fast here so Railway restart policy catches the misconfiguration
+# instead of running a half-alive service that passes health checks.
+if [ -z "${OPENAI_API_KEY:-}" ]; then
+  echo "FATAL: OPENAI_API_KEY is not set. All AI features will fail."
+  echo "Set the variable in Railway dashboard and redeploy."
+  exit 1
+fi
+
 # Graceful shutdown handler
 cleanup() {
   echo "Shutting down services..."

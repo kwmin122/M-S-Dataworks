@@ -7,18 +7,37 @@
 frontend/kirabot/node_modules/
 frontend/kirabot/dist/
 
-# Runtime data (mounted as volume in production)
+# Runtime data (mounted as volume or created at runtime)
 data/web_uploads/
 data/vectordb/
 data/vectordb_web/
 data/user_store/
 data/alert_configs/
 data/company_profiles/
+data/company_db/
+data/company_docs/
+data/eval_reports/
+data/subscriptions/
+data/alert_states/
+data/user_alerts/
+data/layer1/
 services/web_app/data/
+# KEEP in image: data/knowledge_db/ (Layer 1, 495 units)
+# KEEP in image: data/company_packs/ (default domain packs)
+# KEEP in image: data/templates/ (PPT design guide)
 
-# Dev/docs
+# Separate deployment stacks (not part of this Dockerfile)
+web_saas/
+n8n/
+
+# Dev/test only
 docs/
 reports/
+dogfood-output/
+scripts/
+tests/
+testdata/
+docs/dummy/
 .claude/
 *.md
 *.png
@@ -28,3 +47,7 @@ __pycache__/
 .vscode/
 .env
 .env.local
+.env.example
+requirements-dummy.txt
+pytest.ini
+full_pipeline_results_*.json

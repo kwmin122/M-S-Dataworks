@@ -40,8 +40,8 @@ EXPOSE 8000
 COPY --chown=app:app start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
-# Set FASTAPI_URL for web_app → rag_engine proxy (allow override)
-ENV FASTAPI_URL=${FASTAPI_URL:-http://localhost:8001}
+# Set FASTAPI_URL for web_app → rag_engine proxy (Railway can override)
+ENV FASTAPI_URL=http://localhost:8001
 
 # Create writable directories for non-root user
 RUN mkdir -p /app/data /app/frontend/kirabot/dist \
