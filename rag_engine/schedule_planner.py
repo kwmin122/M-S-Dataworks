@@ -101,7 +101,15 @@ def _call_llm_schedule(
     # Handle both {"tasks": [...]} and [...] formats
     if isinstance(parsed, list):
         return parsed
-    return parsed.get("tasks", [])
+    # Try common key variations LLMs may use
+    for key in ("tasks", "task_list", "wbs_tasks", "wbs", "data", "items"):
+        if key in parsed and isinstance(parsed[key], list):
+            return parsed[key]
+    # Last resort: find the first list value in the dict
+    for v in parsed.values():
+        if isinstance(v, list):
+            return v
+    return []
 
 
 def _allocate_personnel(

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, CheckCircle, XCircle } from 'lucide-react';
+import { Bell, CheckCircle, XCircle, Sparkles } from 'lucide-react';
 import { getApiBaseUrl } from '../../services/kiraApiService';
 import { useUser } from '../../context/UserContext';
 import { getAlertSessionId } from '../../utils/alertSessionId';
@@ -28,6 +28,12 @@ const SettingsGeneral: React.FC<SettingsGeneralProps> = ({ user }) => {
   const ctxUser = useUser();
   const [alert, setAlert] = useState<AlertSummary | null>(null);
   const [loadingAlert, setLoadingAlert] = useState(true);
+  const [usePack, setUsePack] = useState(() => localStorage.getItem('kira_use_pack') === 'true');
+
+  const handleTogglePack = (enabled: boolean) => {
+    localStorage.setItem('kira_use_pack', enabled ? 'true' : 'false');
+    setUsePack(enabled);
+  };
 
   useEffect(() => {
     const uid = ctxUser?.id;
@@ -155,6 +161,41 @@ const SettingsGeneral: React.FC<SettingsGeneralProps> = ({ user }) => {
             </button>
           </div>
         )}
+      </div>
+
+      {/* AI 생성 엔진 */}
+      <div>
+        <h2 className="text-lg font-semibold text-slate-900 mb-4">AI 생성 엔진</h2>
+        <div className="rounded-xl border border-slate-200 p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Sparkles size={18} className={usePack ? 'text-kira-600' : 'text-slate-400'} />
+              <div>
+                <p className="text-sm font-medium text-slate-700">도메인별 Pack 엔진 사용</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {usePack
+                    ? 'IT/연구/컨설팅/교육 도메인 자동 감지 + 전문 템플릿으로 생성'
+                    : '범용 엔진으로 생성 (기본)'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleTogglePack(!usePack)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                usePack ? 'bg-kira-600' : 'bg-slate-300'
+              }`}
+              role="switch"
+              aria-checked={usePack}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  usePack ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+        </div>
       </div>
 
       <div>
