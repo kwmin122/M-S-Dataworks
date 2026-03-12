@@ -149,31 +149,38 @@ def test_generate_ppt_duration_out_of_range(client):
 # Company DB analyze-style endpoint
 # ---------------------------------------------------------------------------
 
-@patch("company_db.CompanyDB")
-def test_analyze_style_endpoint(mock_db_cls, client):
+def test_analyze_style_endpoint(client):
     """Test /api/company-db/analyze-style saves writing style to profile."""
     mock_db = MagicMock()
     mock_db.load_profile.return_value = None
-    mock_db_cls.return_value = mock_db
 
-    docs = [
-        "본 사업은 클라우드 전환을 위한 프로젝트이다. 시스템 구조를 개선함.",
-        "보안 체계를 강화함. 모니터링 시스템을 구축함.",
-    ]
-    resp = client.post(
-        "/api/company-db/analyze-style",
-        json={"documents": docs},
-    )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["ok"] is True
-    ws = data["writing_style"]
-    assert "tone" in ws
-    assert "avg_sentence_length" in ws
-    assert "strength_keywords" in ws
-    assert ws["tone"] in ("격식체", "경어체", "혼합")
-    # Profile should be saved
-    mock_db.save_profile.assert_called_once()
+    # Patch the cache dict directly — patching the class constructor doesn't work
+    # because _get_company_db() caches the instance from earlier tests.
+    import main as _main
+    original_cache = _main._company_db_cache.copy()
+    _main._company_db_cache["_default"] = mock_db
+    try:
+        docs = [
+            "본 사업은 클라우드 전환을 위한 프로젝트이다. 시스템 구조를 개선함.",
+            "보안 체계를 강화함. 모니터링 시스템을 구축함.",
+        ]
+        resp = client.post(
+            "/api/company-db/analyze-style",
+            json={"documents": docs},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        ws = data["writing_style"]
+        assert "tone" in ws
+        assert "avg_sentence_length" in ws
+        assert "strength_keywords" in ws
+        assert ws["tone"] in ("격식체", "경어체", "혼합")
+        # Profile should be saved
+        mock_db.save_profile.assert_called_once()
+    finally:
+        _main._company_db_cache.clear()
+        _main._company_db_cache.update(original_cache)
 
 
 def test_analyze_style_empty_documents(client):

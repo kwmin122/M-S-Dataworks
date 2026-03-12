@@ -509,3 +509,25 @@ export interface CompanyOnboardingData {
   trackRecord: TrackRecordInput | null;
   personnel: PersonnelInput | null;
 }
+
+// ── Company DB List Items ──
+export interface TrackRecordListItem {
+  doc_id: string;
+  project_name: string;
+  client: string;
+  period: string;
+  amount: number;
+  description: string;
+  technologies: string[];
+  outcome: string;
+}
+
+export interface PersonnelListItem {
+  doc_id: string;
+  name: string;
+  role: string;
+  experience_years: number;
+  certifications: string[];
+  key_projects: string[];
+  specialties: string[];
+}

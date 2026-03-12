@@ -1,13 +1,19 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Upload, Trash2, RefreshCw, Sparkles, FileText, CheckCircle, AlertTriangle, Info } from 'lucide-react';
+import { Upload, Trash2, RefreshCw, Sparkles, FileText, CheckCircle, AlertTriangle, Info, Briefcase, Users, Plus, ChevronDown, ChevronUp } from 'lucide-react';
 import ChipInput from '../shared/ChipInput';
-import type { CompanyProfile } from '../../types';
+import type { CompanyProfile, TrackRecordListItem, PersonnelListItem } from '../../types';
 import {
   getCompanyProfile,
   uploadCompanyProfileDocs,
   updateCompanyProfile,
   deleteCompanyDocument,
   reanalyzeCompanyProfile,
+  listTrackRecords,
+  listPersonnel,
+  addTrackRecord,
+  addPersonnel,
+  deleteCompanyDbItem,
+  getCompanyDbStats,
 } from '../../services/kiraApiService';
 
 function formatBytes(bytes: number): string {
@@ -38,6 +44,93 @@ const SettingsCompany: React.FC = () => {
   const [keyExperience, setKeyExperience] = useState<string[]>([]);
   const [specializations, setSpecializations] = useState<string[]>([]);
 
+  // ── Company DB (실적/인력) state ──
+  const [trackRecords, setTrackRecords] = useState<TrackRecordListItem[]>([]);
+  const [personnelList, setPersonnelList] = useState<PersonnelListItem[]>([]);
+  const [dbStats, setDbStats] = useState<{ track_record_count: number; personnel_count: number; total_knowledge_units: number } | null>(null);
+  const [showAddTrackRecord, setShowAddTrackRecord] = useState(false);
+  const [showAddPersonnel, setShowAddPersonnel] = useState(false);
+  const [addingTr, setAddingTr] = useState(false);
+  const [addingPs, setAddingPs] = useState(false);
+  const [dbSection, setDbSection] = useState(true);
+
+  // Track record form
+  const [trProjectName, setTrProjectName] = useState('');
+  const [trClient, setTrClient] = useState('');
+  const [trPeriod, setTrPeriod] = useState('');
+  const [trAmount, setTrAmount] = useState('');
+  const [trDescription, setTrDescription] = useState('');
+  const [trTechnologies, setTrTechnologies] = useState<string[]>([]);
+
+  // Personnel form
+  const [psName, setPsName] = useState('');
+  const [psRole, setPsRole] = useState('');
+  const [psExperience, setPsExperience] = useState('');
+  const [psCertifications, setPsCertifications] = useState<string[]>([]);
+
+  const loadCompanyDb = useCallback(async () => {
+    try {
+      const cid = localStorage.getItem('kira_company_id') || '_default';
+      const [trRes, psRes, statsRes] = await Promise.all([
+        listTrackRecords(cid),
+        listPersonnel(cid),
+        getCompanyDbStats(cid),
+      ]);
+      setTrackRecords(trRes.records);
+      setPersonnelList(psRes.personnel);
+      setDbStats(statsRes);
+    } catch { /* ignore */ }
+  }, []);
+
+  const handleAddTrackRecord = async () => {
+    if (!trProjectName.trim() || !trClient.trim()) return;
+    setAddingTr(true);
+    try {
+      const cid = localStorage.getItem('kira_company_id') || '_default';
+      await addTrackRecord({
+        project_name: trProjectName,
+        client: trClient,
+        period: trPeriod,
+        contract_amount: trAmount,
+        description: trDescription,
+        technologies: trTechnologies,
+      }, cid);
+      setTrProjectName(''); setTrClient(''); setTrPeriod('');
+      setTrAmount(''); setTrDescription(''); setTrTechnologies([]);
+      setShowAddTrackRecord(false);
+      await loadCompanyDb();
+    } catch { /* ignore */ }
+    setAddingTr(false);
+  };
+
+  const handleAddPersonnel = async () => {
+    if (!psName.trim() || !psRole.trim()) return;
+    setAddingPs(true);
+    try {
+      const cid = localStorage.getItem('kira_company_id') || '_default';
+      await addPersonnel({
+        name: psName,
+        role: psRole,
+        experience_years: parseInt(psExperience) || 0,
+        certifications: psCertifications,
+        description: '',
+      }, cid);
+      setPsName(''); setPsRole(''); setPsExperience(''); setPsCertifications([]);
+      setShowAddPersonnel(false);
+      await loadCompanyDb();
+    } catch { /* ignore */ }
+    setAddingPs(false);
+  };
+
+  const handleDeleteDbItem = async (docId: string) => {
+    try {
+      const cid = localStorage.getItem('kira_company_id') || '_default';
+      await deleteCompanyDbItem(docId, cid);
+      setTrackRecords(prev => prev.filter(r => r.doc_id !== docId));
+      setPersonnelList(prev => prev.filter(p => p.doc_id !== docId));
+    } catch { /* ignore */ }
+  };
+
   const fillForm = useCallback((p: CompanyProfile) => {
     setCompanyName(p.companyName || '');
     setBusinessType(p.businessType || '');
@@ -52,16 +145,18 @@ const SettingsCompany: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
-    getCompanyProfile()
-      .then((p) => {
-        if (cancelled) return;
-        setProfile(p);
-        if (p) fillForm(p);
-      })
+    Promise.all([
+      getCompanyProfile(),
+      loadCompanyDb(),
+    ]).then(([p]) => {
+      if (cancelled) return;
+      setProfile(p);
+      if (p) fillForm(p);
+    })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [fillForm]);
+  }, [fillForm, loadCompanyDb]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -366,6 +461,217 @@ const SettingsCompany: React.FC = () => {
             {saveMsg && <span className="text-sm text-emerald-600">{saveMsg}</span>}
           </div>
         </div>
+      </div>
+
+      {/* ─── 회사 역량 DB (실적/인력) ─── */}
+      <div className="rounded-xl border border-slate-200 p-5 space-y-4">
+        <button
+          type="button"
+          onClick={() => setDbSection(!dbSection)}
+          className="flex items-center justify-between w-full"
+        >
+          <div className="flex items-center gap-2">
+            <Briefcase size={18} className="text-kira-600" />
+            <h3 className="text-base font-semibold text-slate-800">회사 역량 DB (실적/인력)</h3>
+            {dbStats && (
+              <span className="text-xs text-slate-500">
+                실적 {dbStats.track_record_count}건 | 인력 {dbStats.personnel_count}명
+              </span>
+            )}
+          </div>
+          {dbSection ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
+        </button>
+
+        {dbSection && (
+          <>
+            <p className="text-sm text-slate-500">
+              등록된 실적과 인력은 제안서, PPT, WBS 생성 시 자동으로 활용됩니다.
+            </p>
+
+            {/* ── 수행실적 ── */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Briefcase size={16} className="text-slate-600" />
+                  <h4 className="text-sm font-semibold text-slate-700">수행실적</h4>
+                  <span className="text-xs text-slate-400">{trackRecords.length}건</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddTrackRecord(!showAddTrackRecord)}
+                  className="flex items-center gap-1 rounded-lg border border-kira-300 px-2.5 py-1 text-xs font-medium text-kira-600 hover:bg-kira-50"
+                >
+                  <Plus size={14} /> 실적 추가
+                </button>
+              </div>
+
+              {/* Add Track Record Form */}
+              {showAddTrackRecord && (
+                <div className="rounded-lg border border-kira-200 bg-kira-50/30 p-4 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">프로젝트명 <span className="text-red-500">*</span></label>
+                      <input value={trProjectName} onChange={e => setTrProjectName(e.target.value)}
+                        placeholder="예: 교육청 통합 플랫폼 구축"
+                        className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-kira-500 outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">발주처 <span className="text-red-500">*</span></label>
+                      <input value={trClient} onChange={e => setTrClient(e.target.value)}
+                        placeholder="예: 서울특별시교육청"
+                        className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-kira-500 outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">수행기간</label>
+                      <input value={trPeriod} onChange={e => setTrPeriod(e.target.value)}
+                        placeholder="예: 2024.03 ~ 2024.12"
+                        className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-kira-500 outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">계약금액</label>
+                      <input value={trAmount} onChange={e => setTrAmount(e.target.value)}
+                        placeholder="예: 5억"
+                        className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-kira-500 outline-none" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">설명</label>
+                    <textarea value={trDescription} onChange={e => setTrDescription(e.target.value)}
+                      rows={2} placeholder="프로젝트 개요, 주요 성과 등"
+                      className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-kira-500 outline-none resize-none" />
+                  </div>
+                  <ChipInput label="기술 스택" chips={trTechnologies} onChange={setTrTechnologies} placeholder="기술명 입력 후 Enter" />
+                  <div className="flex gap-2">
+                    <button type="button" onClick={handleAddTrackRecord} disabled={addingTr || !trProjectName.trim() || !trClient.trim()}
+                      className="rounded-md bg-kira-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-kira-700 disabled:opacity-50">
+                      {addingTr ? '추가 중...' : '추가'}
+                    </button>
+                    <button type="button" onClick={() => setShowAddTrackRecord(false)}
+                      className="rounded-md border border-slate-300 px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50">
+                      취소
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Track Records List */}
+              {trackRecords.length > 0 ? (
+                <div className="space-y-2">
+                  {trackRecords.map((tr) => (
+                    <div key={tr.doc_id} className="flex items-start justify-between rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-800 truncate">{tr.project_name}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {tr.client}{tr.period ? ` | ${tr.period}` : ''}{tr.amount > 0 ? ` | ${(tr.amount / 1e8).toFixed(1)}억원` : ''}
+                        </p>
+                        {tr.technologies.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {tr.technologies.map((t, i) => (
+                              <span key={i} className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-600">{t}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <button type="button" onClick={() => handleDeleteDbItem(tr.doc_id)}
+                        className="text-slate-400 hover:text-red-500 shrink-0 ml-2 mt-0.5">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400 text-center py-3">등록된 실적이 없습니다.</p>
+              )}
+            </div>
+
+            {/* ── 핵심 인력 ── */}
+            <div className="space-y-3 pt-2 border-t border-slate-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users size={16} className="text-slate-600" />
+                  <h4 className="text-sm font-semibold text-slate-700">핵심 인력</h4>
+                  <span className="text-xs text-slate-400">{personnelList.length}명</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddPersonnel(!showAddPersonnel)}
+                  className="flex items-center gap-1 rounded-lg border border-kira-300 px-2.5 py-1 text-xs font-medium text-kira-600 hover:bg-kira-50"
+                >
+                  <Plus size={14} /> 인력 추가
+                </button>
+              </div>
+
+              {/* Add Personnel Form */}
+              {showAddPersonnel && (
+                <div className="rounded-lg border border-kira-200 bg-kira-50/30 p-4 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">이름 <span className="text-red-500">*</span></label>
+                      <input value={psName} onChange={e => setPsName(e.target.value)}
+                        placeholder="예: 홍길동"
+                        className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-kira-500 outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">역할 <span className="text-red-500">*</span></label>
+                      <select value={psRole} onChange={e => setPsRole(e.target.value)}
+                        className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-kira-500 outline-none">
+                        <option value="">선택</option>
+                        <option value="PM">PM</option>
+                        <option value="PL">PL</option>
+                        <option value="개발자">개발자</option>
+                        <option value="시스템 엔지니어">시스템 엔지니어</option>
+                        <option value="데이터베이스 관리자">DBA</option>
+                        <option value="UI/UX 디자이너">UI/UX 디자이너</option>
+                        <option value="QA">QA</option>
+                        <option value="컨설턴트">컨설턴트</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">경력 (년)</label>
+                      <input type="number" min="0" value={psExperience} onChange={e => setPsExperience(e.target.value)}
+                        placeholder="예: 10"
+                        className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-kira-500 outline-none" />
+                    </div>
+                  </div>
+                  <ChipInput label="자격증" chips={psCertifications} onChange={setPsCertifications} placeholder="자격증 입력 후 Enter" />
+                  <div className="flex gap-2">
+                    <button type="button" onClick={handleAddPersonnel} disabled={addingPs || !psName.trim() || !psRole.trim()}
+                      className="rounded-md bg-kira-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-kira-700 disabled:opacity-50">
+                      {addingPs ? '추가 중...' : '추가'}
+                    </button>
+                    <button type="button" onClick={() => setShowAddPersonnel(false)}
+                      className="rounded-md border border-slate-300 px-4 py-1.5 text-xs text-slate-600 hover:bg-slate-50">
+                      취소
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Personnel List */}
+              {personnelList.length > 0 ? (
+                <div className="space-y-2">
+                  {personnelList.map((ps) => (
+                    <div key={ps.doc_id} className="flex items-start justify-between rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-800">{ps.name} <span className="text-xs text-slate-500 font-normal">({ps.role})</span></p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          경력 {ps.experience_years}년
+                          {ps.certifications.length > 0 && ` | ${ps.certifications.join(', ')}`}
+                        </p>
+                      </div>
+                      <button type="button" onClick={() => handleDeleteDbItem(ps.doc_id)}
+                        className="text-slate-400 hover:text-red-500 shrink-0 ml-2 mt-0.5">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400 text-center py-3">등록된 인력이 없습니다.</p>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

@@ -24,23 +24,30 @@ def build_company_context(
     company_db_path: str = "./data/company_db",
     max_projects: int = 5,
     max_personnel: int = 5,
+    company_db: Optional[Any] = None,
 ) -> str:
     """CompanyDB에서 RFP 맞춤 회사 컨텍스트 문자열 빌드.
+
+    Args:
+        company_db: Pre-initialized CompanyDB instance (preferred).
+                    If provided, company_db_path is ignored.
 
     Returns:
         company_context 문자열. DB 없거나 데이터 없으면 빈 문자열.
     """
-    try:
-        from company_db import CompanyDB
-    except ImportError:
-        logger.warning("company_db module not available")
-        return ""
+    db = company_db
+    if db is None:
+        try:
+            from company_db import CompanyDB
+        except ImportError:
+            logger.warning("company_db module not available")
+            return ""
 
-    try:
-        db = CompanyDB(persist_directory=company_db_path)
-    except Exception as exc:
-        logger.warning("CompanyDB init failed: %s", exc)
-        return ""
+        try:
+            db = CompanyDB(persist_directory=company_db_path)
+        except Exception as exc:
+            logger.warning("CompanyDB init failed: %s", exc)
+            return ""
 
     parts: list[str] = []
 

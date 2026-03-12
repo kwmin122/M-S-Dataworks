@@ -1382,12 +1382,13 @@ export function useConversationFlow() {
 
           const format = action.format || 'docx';
           const formatName = format === 'hwpx' ? 'HWPX' : 'DOCX';
+          const companyId = localStorage.getItem('kira_company_id') || '_default';
 
           setProcessing(true);
           pushStatus('loading', `A-lite 제안서(${formatName})를 생성하고 있어요... (약 3~5분 소요)`);
 
           try {
-            const result = await api.generateProposalV2(conversation.sessionId, 50, format);
+            const result = await api.generateProposalV2(conversation.sessionId, 50, format, companyId);
             removeLastStatus();
 
             const sectionList = result.sections.map((s, i) => `${i + 1}. ${s.name}`).join('\n');
@@ -1501,9 +1502,10 @@ export function useConversationFlow() {
 
           setProcessing(true);
           pushStatus('loading', 'PPT 발표자료를 생성하고 있어요... (약 3~5분 소요)');
+          const companyId = localStorage.getItem('kira_company_id') || '_default';
 
           try {
-            const result = await api.generatePpt(conversation.sessionId);
+            const result = await api.generatePpt(conversation.sessionId, 30, 10, companyId);
             removeLastStatus();
 
             let msg = `PPT 발표자료가 생성되었습니다! (${result.generation_time_sec}초)\n\n`;
@@ -1541,9 +1543,10 @@ export function useConversationFlow() {
 
           setProcessing(true);
           pushStatus('loading', '실적/경력 기술서를 생성하고 있어요... (약 2~3분 소요)');
+          const companyId = localStorage.getItem('kira_company_id') || '_default';
 
           try {
-            const result = await api.generateTrackRecord(conversation.sessionId);
+            const result = await api.generateTrackRecord(conversation.sessionId, companyId);
             removeLastStatus();
 
             // Save to localStorage for DocumentWorkspace track_record tab

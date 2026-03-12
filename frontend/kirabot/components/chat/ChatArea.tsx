@@ -9,6 +9,8 @@ import PendingKnowledgeModal from './PendingKnowledgeModal';
 import { useActiveConversation } from '../../hooks/useActiveConversation';
 import { useConversationFlow } from '../../hooks/useConversationFlow';
 import { useChatContext } from '../../context/ChatContext';
+import * as kiraApi from '../../services/kiraApiService';
+import { sanitizeCompanyId } from '../../services/kiraApiService';
 import type { MessageAction, User } from '../../types';
 
 interface ChatAreaProps {
@@ -36,6 +38,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({ user }) => {
   };
 
   const handleOnboardingComplete = (companyName: string) => {
+    localStorage.setItem('kira_company_id', sanitizeCompanyId(companyName));
     // Update conversation with company name
     if (conversation) {
       dispatch({
@@ -90,6 +93,31 @@ const ChatArea: React.FC<ChatAreaProps> = ({ user }) => {
     window.addEventListener('kira:start-company-db', handler);
     return () => window.removeEventListener('kira:start-company-db', handler);
   }, [handleAction]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-trigger onboarding when no company DB data exists
+  useEffect(() => {
+    if (isOnboardingModalOpen) return;
+    if (conversation?.phase !== 'greeting') return;
+    const companyId = localStorage.getItem('kira_company_id');
+    if (companyId) return;
+    const dismissed = localStorage.getItem('kira_onboarding_dismissed');
+    if (dismissed) return;
+
+    let cancelled = false;
+    kiraApi.getCompanyDbProfile().then(profile => {
+      if (cancelled) return;
+      if (profile && (profile.track_record_count > 0 || profile.personnel_count > 0)) {
+        localStorage.setItem('kira_company_id', sanitizeCompanyId(profile.company_name || '_default'));
+        return;
+      }
+      // No company data — show onboarding after brief delay
+      setTimeout(() => {
+        if (!cancelled) setIsOnboardingModalOpen(true);
+      }, 1500);
+    }).catch(() => {});
+
+    return () => { cancelled = true; };
+  }, [conversation?.phase, conversation?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!conversation) {
     return (

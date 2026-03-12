@@ -36,6 +36,7 @@ def generate_ppt(
     knowledge_db_path: str = "./data/knowledge_db",
     company_db_path: str = "./data/company_db",
     company_skills_dir: str = "",
+    company_db: Optional[Any] = None,
 ) -> PptResult:
     """PPT 발표자료 생성.
 
@@ -64,7 +65,9 @@ def generate_ppt(
     company_context = ""
     try:
         from company_context_builder import build_company_context
-        company_context = build_company_context(rfx_result, company_db_path=company_db_path)
+        company_context = build_company_context(
+            rfx_result, company_db_path=company_db_path, company_db=company_db,
+        )
     except Exception as exc:
         logger.warning("Company context build skipped: %s", exc)
 

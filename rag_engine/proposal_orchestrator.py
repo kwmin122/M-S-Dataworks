@@ -186,6 +186,7 @@ def generate_proposal(
     max_workers: int = 3,
     output_format: str = "docx",
     template_mode: bool = False,
+    company_db: Optional[Any] = None,
 ) -> ProposalResult:
     """Generate a complete proposal DOCX from RFP analysis result.
 
@@ -206,7 +207,9 @@ def generate_proposal(
     if not company_context and not template_mode:
         try:
             from company_context_builder import build_company_context
-            company_context = build_company_context(rfx_result, company_db_path=company_db_path)
+            company_context = build_company_context(
+                rfx_result, company_db_path=company_db_path, company_db=company_db,
+            )
         except Exception as exc:
             _logger.warning("Company context build skipped: %s", exc)
 

@@ -402,6 +402,7 @@ class GenerateProposalV2Request(BaseModel):
     company_name: str | None = None
     total_pages: int = Field(default=50, ge=10, le=200)
     output_format: str = Field(default="docx", pattern="^(docx|hwpx)$")
+    company_id: str = "_default"
 
 
 @app.post("/api/generate-proposal-v2")
@@ -409,18 +410,44 @@ class GenerateProposalV2Request(BaseModel):
 async def generate_proposal_v2(req: GenerateProposalV2Request, request: Request):
     """Generate a full proposal DOCX using Layer 1 knowledge + RFP analysis."""
     from proposal_orchestrator import generate_proposal as _generate
+    from company_context_builder import build_company_context
+
+    # Build company context if not provided
+    _company_db_path = os.path.join(_COMPANY_DB_BASE, req.company_id)
+    _cached_db = _get_company_db(req.company_id)
+    company_context = req.company_context
+    if not company_context:
+        try:
+            company_context = build_company_context(
+                req.rfx_result.model_dump(),
+                company_db_path=_company_db_path,
+                company_db=_cached_db,
+            )
+        except Exception:
+            company_context = ""
+
+    # Resolve company_name from CompanyDB if not provided
+    company_name = req.company_name
+    if not company_name:
+        try:
+            _prof = _cached_db.load_profile()
+            if _prof and _prof.name and _prof.name != "미설정":
+                company_name = _prof.name
+        except Exception:
+            pass
 
     try:
         result = await asyncio.to_thread(
             _generate,
             rfx_result=req.rfx_result.model_dump(),
-            company_context=req.company_context,
-            company_name=req.company_name,
-            company_db_path=_COMPANY_DB_DIR,
+            company_context=company_context,
+            company_name=company_name,
+            company_db_path=_company_db_path,
             knowledge_db_path=_KNOWLEDGE_DB_DIR,
-            company_skills_dir=_get_company_skills_dir(),
+            company_skills_dir=_get_company_skills_dir(req.company_id),
             total_pages=req.total_pages,
             output_format=req.output_format,
+            company_db=_cached_db,
         )
     except Exception as exc:
         logger.error("generate_proposal_v2 failed: %s\n%s", exc, traceback.format_exc())
@@ -719,13 +746,16 @@ async def generate_wbs_endpoint(req: GenerateWbsRequest, request: Request):
         from company_context_builder import build_company_context
 
         rfx_dict = req.rfx_result.model_dump()
-        company_context = build_company_context(rfx_dict, company_db_path=_COMPANY_DB_DIR)
+        _company_db_path = os.path.join(_COMPANY_DB_BASE, req.company_id)
+        _cached_db = _get_company_db(req.company_id)
+        company_context = build_company_context(
+            rfx_dict, company_db_path=_company_db_path, company_db=_cached_db,
+        )
 
         # Resolve company_name from CompanyDB profile
         _company_name = ""
         try:
-            _db = _get_company_db()
-            _prof = _db.load_profile()
+            _prof = _cached_db.load_profile()
             if _prof and _prof.name and _prof.name != "미설정":
                 _company_name = _prof.name
         except Exception:
@@ -816,8 +846,9 @@ async def generate_wbs_endpoint(req: GenerateWbsRequest, request: Request):
             output_dir=_PROPOSALS_DIR,
             methodology=methodology,
             knowledge_db_path=_KNOWLEDGE_DB_DIR,
-            company_db_path=_COMPANY_DB_DIR,
-            company_skills_dir=_get_company_skills_dir(),
+            company_db_path=os.path.join(_COMPANY_DB_BASE, req.company_id),
+            company_skills_dir=_get_company_skills_dir(req.company_id),
+            company_db=_get_company_db(req.company_id),
         )
     except Exception as exc:
         logger.error("generate_wbs failed: %s\n%s", exc, traceback.format_exc())
@@ -865,6 +896,7 @@ class GeneratePptRequest(BaseModel):
     duration_min: int = Field(default=30, ge=10, le=60)
     qna_count: int = Field(default=10, ge=0, le=20)
     company_name: str = ""
+    company_id: str = "_default"
 
 
 @app.post("/api/generate-ppt")
@@ -872,6 +904,30 @@ class GeneratePptRequest(BaseModel):
 async def generate_ppt_endpoint(req: GeneratePptRequest, request: Request):
     """Generate PPT presentation (PPTX + QnA) from RFP analysis."""
     from ppt_orchestrator import generate_ppt as _generate_ppt
+    from company_context_builder import build_company_context
+
+    # Build company context
+    _company_db_path = os.path.join(_COMPANY_DB_BASE, req.company_id)
+    _cached_db = _get_company_db(req.company_id)
+    company_context = ""
+    try:
+        company_context = build_company_context(
+            req.rfx_result.model_dump(),
+            company_db_path=_company_db_path,
+            company_db=_cached_db,
+        )
+    except Exception:
+        pass
+
+    # Resolve company_name from CompanyDB if not provided
+    company_name = req.company_name
+    if not company_name:
+        try:
+            _prof = _cached_db.load_profile()
+            if _prof and _prof.name and _prof.name != "미설정":
+                company_name = _prof.name
+        except Exception:
+            pass
 
     sections = None
     if req.proposal_sections:
@@ -885,10 +941,11 @@ async def generate_ppt_endpoint(req: GeneratePptRequest, request: Request):
             proposal_sections=sections,
             duration_min=req.duration_min,
             qna_count=req.qna_count,
-            company_name=req.company_name,
+            company_name=company_name,
             knowledge_db_path=_KNOWLEDGE_DB_DIR,
-            company_db_path=_COMPANY_DB_DIR,
-            company_skills_dir=_get_company_skills_dir(),
+            company_db_path=_company_db_path,
+            company_skills_dir=_get_company_skills_dir(req.company_id),
+            company_db=_cached_db,
         )
     except Exception as exc:
         logger.error("generate_ppt failed: %s\n%s", exc, traceback.format_exc())
@@ -915,6 +972,7 @@ class GenerateTrackRecordRequest(BaseModel):
     max_records: int = Field(default=10, ge=1, le=20)
     max_personnel: int = Field(default=10, ge=1, le=20)
     company_name: str = ""
+    company_id: str = "_default"
 
 
 @app.post("/api/generate-track-record")
@@ -923,17 +981,30 @@ async def generate_track_record_endpoint(req: GenerateTrackRecordRequest, reques
     """Generate track record / personnel document (DOCX)."""
     from track_record_orchestrator import generate_track_record_doc as _generate
 
+    # Resolve company_name from CompanyDB if not provided
+    _company_db_path = os.path.join(_COMPANY_DB_BASE, req.company_id)
+    _cached_db = _get_company_db(req.company_id)
+    company_name = req.company_name
+    if not company_name:
+        try:
+            _prof = _cached_db.load_profile()
+            if _prof and _prof.name and _prof.name != "미설정":
+                company_name = _prof.name
+        except Exception:
+            pass
+
     try:
         result = await asyncio.to_thread(
             _generate,
             rfx_result=req.rfx_result.model_dump(),
             output_dir=_PROPOSALS_DIR,
-            company_db_path=_COMPANY_DB_DIR,
+            company_db_path=_company_db_path,
             knowledge_db_path=_KNOWLEDGE_DB_DIR,
             max_records=req.max_records,
             max_personnel=req.max_personnel,
-            company_name=req.company_name or None,
-            company_skills_dir=_get_company_skills_dir(),
+            company_name=company_name or None,
+            company_skills_dir=_get_company_skills_dir(req.company_id),
+            company_db=_cached_db,
         )
     except Exception as exc:
         logger.error("generate_track_record failed: %s\n%s", exc, traceback.format_exc())
@@ -1083,9 +1154,19 @@ async def reject_knowledge_endpoint(req: RejectKnowledgeRequest):
 # Company DB CRUD
 # ---------------------------------------------------------------------------
 
-_company_db_instance = None
+_company_db_cache: dict[str, "CompanyDB"] = {}  # type: ignore[name-defined]
 _company_db_init_lock = threading.Lock()
 _company_db_profile_lock: asyncio.Lock | None = None
+
+_SAFE_COMPANY_ID_RE = _re.compile(r"^[a-zA-Z0-9가-힣._\-]+$")
+_COMPANY_DB_BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "company_db")
+
+
+def _sanitize_company_id(raw: str) -> str:
+    """Canonical company_id from raw name. Same logic as frontend sanitizeCompanyId."""
+    sanitized = _re.sub(r"[^a-zA-Z0-9가-힣._\-]", "_", raw)
+    sanitized = _re.sub(r"_+", "_", sanitized).strip("_")
+    return sanitized[:100] or "_default"
 
 
 def _get_profile_lock() -> asyncio.Lock:
@@ -1096,15 +1177,18 @@ def _get_profile_lock() -> asyncio.Lock:
     return _company_db_profile_lock
 
 
-def _get_company_db():
-    global _company_db_instance
-    if _company_db_instance is None:
+def _get_company_db(company_id: str = "_default"):
+    """Get or create CompanyDB for a specific company_id."""
+    if not _SAFE_COMPANY_ID_RE.match(company_id):
+        raise HTTPException(status_code=400, detail="Invalid company_id")
+    if company_id not in _company_db_cache:
         with _company_db_init_lock:
-            if _company_db_instance is None:
+            if company_id not in _company_db_cache:
                 from company_db import CompanyDB
-                db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "company_db")
-                _company_db_instance = CompanyDB(persist_directory=db_path)
-    return _company_db_instance
+                db_path = os.path.join(_COMPANY_DB_BASE, company_id)
+                os.makedirs(db_path, exist_ok=True)
+                _company_db_cache[company_id] = CompanyDB(persist_directory=db_path)
+    return _company_db_cache[company_id]
 
 
 class TrackRecordRequest(BaseModel):
@@ -1114,6 +1198,7 @@ class TrackRecordRequest(BaseModel):
     period: str = ""
     description: str = ""
     technologies: list[str] = Field(default_factory=list)
+    company_id: str = "_default"
 
 
 class PersonnelRequest(BaseModel):
@@ -1122,6 +1207,7 @@ class PersonnelRequest(BaseModel):
     experience_years: int = Field(default=0, ge=0)
     certifications: list[str] = Field(default_factory=list)
     description: str = ""
+    company_id: str = "_default"
 
 
 class CompanyProfileUpdateRequest(BaseModel):
@@ -1131,6 +1217,7 @@ class CompanyProfileUpdateRequest(BaseModel):
     certifications: list[str] = Field(default_factory=list)
     employee_count: int = 0
     capital: float = 0.0
+    company_id: str = "_default"
 
 
 @app.post("/api/company-db/track-records")
@@ -1138,7 +1225,7 @@ async def add_track_record_endpoint(req: TrackRecordRequest):
     """Add a track record to the company DB."""
     from company_db import TrackRecord as TR
 
-    db = _get_company_db()
+    db = _get_company_db(req.company_id)
     amount = 0.0
     if req.contract_amount:
         try:
@@ -1175,7 +1262,7 @@ async def add_personnel_endpoint(req: PersonnelRequest):
     """Add personnel info to the company DB."""
     from company_db import Personnel as PS
 
-    db = _get_company_db()
+    db = _get_company_db(req.company_id)
     person = PS(
         name=req.name,
         role=req.role,
@@ -1197,14 +1284,15 @@ async def add_personnel_endpoint(req: PersonnelRequest):
 
 
 @app.get("/api/company-db/profile")
-async def get_company_db_profile():
+async def get_company_db_profile(company_id: str = "_default"):
     """Get company capability profile."""
-    db = _get_company_db()
+    db = _get_company_db(company_id)
     profile = db.load_profile()
     if profile is None:
         return {"profile": None}
     return {
         "profile": {
+            "company_id": company_id,
             "company_name": profile.name,
             "business_type": "",
             "specializations": profile.certifications,
@@ -1219,7 +1307,7 @@ async def update_company_db_profile(req: CompanyProfileUpdateRequest):
     """Update or create company capability profile."""
     from company_db import CompanyCapabilityProfile
 
-    db = _get_company_db()
+    db = _get_company_db(req.company_id)
     profile = db.load_profile()
     if profile is None:
         profile = CompanyCapabilityProfile(name=req.company_name or "미설정")
@@ -1236,6 +1324,7 @@ async def update_company_db_profile(req: CompanyProfileUpdateRequest):
     db.save_profile(profile)
     return {
         "profile": {
+            "company_id": req.company_id,
             "company_name": profile.name,
             "business_type": "",
             "specializations": profile.certifications,
@@ -1246,9 +1335,9 @@ async def update_company_db_profile(req: CompanyProfileUpdateRequest):
 
 
 @app.get("/api/company-db/stats")
-async def get_company_db_stats():
+async def get_company_db_stats(company_id: str = "_default"):
     """Get company DB statistics."""
-    db = _get_company_db()
+    db = _get_company_db(company_id)
     profile = db.load_profile()
     return {
         "track_record_count": len(profile.track_records) if profile else 0,
@@ -1257,12 +1346,41 @@ async def get_company_db_stats():
     }
 
 
+@app.get("/api/company-db/track-records")
+async def list_track_records_endpoint(company_id: str = "_default"):
+    """List all track records."""
+    db = _get_company_db(company_id)
+    return {"records": db.list_track_records()}
+
+
+@app.get("/api/company-db/personnel")
+async def list_personnel_endpoint(company_id: str = "_default"):
+    """List all personnel."""
+    db = _get_company_db(company_id)
+    return {"personnel": db.list_personnel()}
+
+
+@app.delete("/api/company-db/items/{doc_id}")
+async def delete_company_db_item(doc_id: str, company_id: str = "_default"):
+    """Delete a track record or personnel by doc_id."""
+    import re
+    if not re.match(r'^(tr|ps)_[a-f0-9]{8}$', doc_id):
+        raise HTTPException(status_code=400, detail="잘못된 doc_id 형식입니다.")
+    db = _get_company_db(company_id)
+    async with _get_profile_lock():
+        deleted = db.delete_item(doc_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="항목을 찾을 수 없습니다.")
+    return {"success": True}
+
+
 class AnalyzeStyleRequest(BaseModel):
     documents: list[str] = Field(
         min_length=1,
         max_length=20,
         description="과거 제안서 텍스트 목록 (최대 20개, 각 100,000자 이내)",
     )
+    company_id: str = "_default"
 
 
 _MAX_DOC_CHARS = 100_000
@@ -1280,7 +1398,7 @@ async def analyze_company_style_endpoint(req: AnalyzeStyleRequest):
     style_dict = asdict(style)
 
     # Save to CompanyDB profile
-    db = _get_company_db()
+    db = _get_company_db(req.company_id)
     async with _get_profile_lock():
         from company_db import CompanyCapabilityProfile
         profile = db.load_profile()
@@ -1293,10 +1411,20 @@ async def analyze_company_style_endpoint(req: AnalyzeStyleRequest):
 
 
 # ---------------------------------------------------------------------------
-# Company profile.md CRUD
+# Canonical company_id endpoint
 # ---------------------------------------------------------------------------
 
-_SAFE_COMPANY_ID_RE = _re.compile(r"^[a-zA-Z0-9가-힣._\-]+$")
+@app.get("/api/company-db/canonical-id")
+async def get_canonical_company_id(company_name: str = ""):
+    """Return canonical company_id for a raw company name."""
+    if not company_name.strip():
+        return {"company_id": "_default"}
+    return {"company_id": _sanitize_company_id(company_name)}
+
+
+# ---------------------------------------------------------------------------
+# Company profile.md CRUD
+# ---------------------------------------------------------------------------
 
 
 def _get_company_skills_dir(company_id: str = "default") -> str:

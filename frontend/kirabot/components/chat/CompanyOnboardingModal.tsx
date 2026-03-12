@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Building2, Briefcase, Users, Check } from 'lucide-react';
 import { TrackRecordInput, PersonnelInput } from '../../types';
 import * as kiraApi from '../../services/kiraApiService';
+import { sanitizeCompanyId } from '../../services/kiraApiService';
 
 interface CompanyOnboardingModalProps {
   isOpen: boolean;
@@ -62,8 +63,16 @@ const CompanyOnboardingModal: React.FC<CompanyOnboardingModalProps> = ({
     setError(null);
 
     try {
+      // Get canonical company_id first
+      let companyId: string;
+      try {
+        companyId = await kiraApi.getCanonicalCompanyId(companyName);
+      } catch {
+        companyId = sanitizeCompanyId(companyName);
+      }
+
       // 1. 회사명 업데이트
-      await kiraApi.updateCompanyDBProfile({ company_name: companyName });
+      await kiraApi.updateCompanyDBProfile({ company_name: companyName }, companyId);
 
       // 2. 실적 추가
       const trackRecord: TrackRecordInput = {
@@ -73,7 +82,7 @@ const CompanyOnboardingModal: React.FC<CompanyOnboardingModalProps> = ({
         description: '',
         technologies: [],
       };
-      await kiraApi.addTrackRecord(trackRecord);
+      await kiraApi.addTrackRecord(trackRecord, companyId);
 
       // 3. 인력 추가
       const personnel: PersonnelInput = {
@@ -83,7 +92,9 @@ const CompanyOnboardingModal: React.FC<CompanyOnboardingModalProps> = ({
         certifications: [],
         description: '',
       };
-      await kiraApi.addPersonnel(personnel);
+      await kiraApi.addPersonnel(personnel, companyId);
+
+      localStorage.setItem('kira_company_id', companyId);
 
       // 완료
       onComplete(companyName);
@@ -96,6 +107,7 @@ const CompanyOnboardingModal: React.FC<CompanyOnboardingModalProps> = ({
   };
 
   const handleSkip = () => {
+    localStorage.setItem('kira_onboarding_dismissed', 'true');
     onClose();
   };
 

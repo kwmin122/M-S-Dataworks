@@ -137,6 +137,78 @@ class CompanyDB:
             items.append({"text": doc, "metadata": meta, "distance": dist})
         return items
 
+    def list_track_records(self) -> list[dict]:
+        """List all track records from profile."""
+        profile = self.load_profile()
+        if not profile:
+            return []
+        result = []
+        for r in profile.track_records:
+            doc_id = f"tr_{hashlib.sha256((r.project_name + r.client).encode()).hexdigest()[:8]}"
+            result.append({
+                "doc_id": doc_id,
+                "project_name": r.project_name,
+                "client": r.client,
+                "period": r.period,
+                "amount": r.amount,
+                "description": r.description,
+                "technologies": r.technologies,
+                "outcome": r.outcome,
+            })
+        return result
+
+    def list_personnel(self) -> list[dict]:
+        """List all personnel from profile."""
+        profile = self.load_profile()
+        if not profile:
+            return []
+        result = []
+        for p in profile.personnel:
+            doc_id = f"ps_{hashlib.sha256((p.name + p.role).encode()).hexdigest()[:8]}"
+            result.append({
+                "doc_id": doc_id,
+                "name": p.name,
+                "role": p.role,
+                "experience_years": p.experience_years,
+                "certifications": p.certifications,
+                "key_projects": p.key_projects,
+                "specialties": p.specialties,
+            })
+        return result
+
+    def delete_item(self, doc_id: str) -> bool:
+        """Delete a track record or personnel by doc_id from both ChromaDB and profile."""
+        # Delete from ChromaDB
+        try:
+            self._collection.delete(ids=[doc_id])
+        except Exception:
+            pass
+
+        # Delete from profile
+        profile = self.load_profile()
+        if not profile:
+            return False
+
+        if doc_id.startswith("tr_"):
+            original_len = len(profile.track_records)
+            profile.track_records = [
+                r for r in profile.track_records
+                if f"tr_{hashlib.sha256((r.project_name + r.client).encode()).hexdigest()[:8]}" != doc_id
+            ]
+            if len(profile.track_records) < original_len:
+                self.save_profile(profile)
+                return True
+        elif doc_id.startswith("ps_"):
+            original_len = len(profile.personnel)
+            profile.personnel = [
+                p for p in profile.personnel
+                if f"ps_{hashlib.sha256((p.name + p.role).encode()).hexdigest()[:8]}" != doc_id
+            ]
+            if len(profile.personnel) < original_len:
+                self.save_profile(profile)
+                return True
+        return False
+
     def save_profile(self, profile: CompanyCapabilityProfile) -> None:
         """Save full company profile to JSON (atomic write)."""
         if not self._profile_path:

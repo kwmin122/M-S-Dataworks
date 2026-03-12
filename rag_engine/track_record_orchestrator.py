@@ -38,6 +38,7 @@ def generate_track_record_doc(
     max_workers: int = 3,
     company_name: Optional[str] = None,
     company_skills_dir: str = "",
+    company_db: Optional["CompanyDB"] = None,
 ) -> TrackRecordDocResult:
     """실적/경력 기술서 DOCX 생성.
 
@@ -70,8 +71,8 @@ def generate_track_record_doc(
         except Exception as exc:
             logger.debug("Profile load skipped: %s", exc)
 
-    # Initialize company DB
-    db = CompanyDB(persist_directory=company_db_path)
+    # Initialize company DB (prefer pre-initialized instance)
+    db = company_db if company_db is not None else CompanyDB(persist_directory=company_db_path)
 
     rfp_context = build_rfp_context(rfx_result)
 

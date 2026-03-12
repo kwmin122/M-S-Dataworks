@@ -2620,6 +2620,7 @@ class ProposalGenerateV2Payload(BaseModel):
     session_id: str
     total_pages: int = Field(default=50, ge=10, le=200)
     output_format: str = Field(default="docx", pattern="^(docx|hwpx)$")
+    company_id: str = "_default"
 
 
 def _build_rfx_dict(analysis: Any) -> dict[str, Any]:
@@ -2654,7 +2655,7 @@ async def generate_proposal_v2(payload: ProposalGenerateV2Payload) -> dict[str, 
     try:
         return await _proxy_to_rag(
             "POST", "/api/generate-proposal-v2",
-            {"rfx_result": rfx_dict, "total_pages": payload.total_pages, "output_format": payload.output_format},
+            {"rfx_result": rfx_dict, "total_pages": payload.total_pages, "output_format": payload.output_format, "company_id": payload.company_id},
             timeout=300,
         )
     except HTTPException:
@@ -2771,6 +2772,7 @@ class GeneratePptProxyPayload(BaseModel):
     session_id: str
     duration_min: int = 30
     qna_count: int = 10
+    company_id: str = "_default"
 
 
 @app.post("/api/proposal/generate-ppt")
@@ -2784,13 +2786,14 @@ async def generate_ppt_proxy(payload: GeneratePptProxyPayload) -> dict[str, Any]
 
     return await _proxy_to_rag(
         "POST", "/api/generate-ppt",
-        {"rfx_result": rfx_dict, "duration_min": payload.duration_min, "qna_count": payload.qna_count},
+        {"rfx_result": rfx_dict, "duration_min": payload.duration_min, "qna_count": payload.qna_count, "company_id": payload.company_id},
         timeout=300,
     )
 
 
 class GenerateTrackRecordProxyPayload(BaseModel):
     session_id: str
+    company_id: str = "_default"
 
 
 @app.post("/api/proposal/generate-track-record")
@@ -2802,7 +2805,7 @@ async def generate_track_record_proxy(payload: GenerateTrackRecordProxyPayload) 
 
     rfx_dict = _build_rfx_dict(session.latest_rfx_analysis)
 
-    return await _proxy_to_rag("POST", "/api/generate-track-record", {"rfx_result": rfx_dict}, timeout=300)
+    return await _proxy_to_rag("POST", "/api/generate-track-record", {"rfx_result": rfx_dict, "company_id": payload.company_id}, timeout=300)
 
 
 # ── 회사 DB 온보딩 프록시 ──
@@ -2817,6 +2820,8 @@ async def _proxy_to_rag(method: str, path: str, json_body: dict | None = None, t
                 resp = await client.get(f"{fastapi_url}{path}")
             elif method == "PUT":
                 resp = await client.put(f"{fastapi_url}{path}", json=json_body)
+            elif method == "DELETE":
+                resp = await client.delete(f"{fastapi_url}{path}")
             else:
                 resp = await client.post(f"{fastapi_url}{path}", json=json_body)
         if 200 <= resp.status_code < 300:
@@ -2845,9 +2850,9 @@ async def proxy_add_personnel(payload: dict) -> dict[str, Any]:
 
 
 @app.get("/api/company-db/profile")
-async def proxy_get_company_db_profile() -> dict[str, Any]:
+async def proxy_get_company_db_profile(company_id: str = "_default") -> dict[str, Any]:
     """Proxy: get company DB profile from rag_engine."""
-    return await _proxy_to_rag("GET", "/api/company-db/profile")
+    return await _proxy_to_rag("GET", f"/api/company-db/profile?company_id={company_id}")
 
 
 @app.put("/api/company-db/profile")
@@ -2857,9 +2862,34 @@ async def proxy_update_company_db_profile(payload: dict) -> dict[str, Any]:
 
 
 @app.get("/api/company-db/stats")
-async def proxy_get_company_db_stats() -> dict[str, Any]:
+async def proxy_get_company_db_stats(company_id: str = "_default") -> dict[str, Any]:
     """Proxy: get company DB stats from rag_engine."""
-    return await _proxy_to_rag("GET", "/api/company-db/stats")
+    return await _proxy_to_rag("GET", f"/api/company-db/stats?company_id={company_id}")
+
+
+@app.get("/api/company-db/canonical-id")
+async def proxy_get_canonical_company_id(company_name: str = "") -> dict[str, Any]:
+    """Proxy: get canonical company_id from rag_engine."""
+    from urllib.parse import quote
+    return await _proxy_to_rag("GET", f"/api/company-db/canonical-id?company_name={quote(company_name)}")
+
+
+@app.get("/api/company-db/track-records")
+async def proxy_list_track_records(company_id: str = "_default") -> dict[str, Any]:
+    """Proxy: list track records from rag_engine company DB."""
+    return await _proxy_to_rag("GET", f"/api/company-db/track-records?company_id={company_id}")
+
+
+@app.get("/api/company-db/personnel")
+async def proxy_list_personnel(company_id: str = "_default") -> dict[str, Any]:
+    """Proxy: list personnel from rag_engine company DB."""
+    return await _proxy_to_rag("GET", f"/api/company-db/personnel?company_id={company_id}")
+
+
+@app.delete("/api/company-db/items/{doc_id}")
+async def proxy_delete_company_db_item(doc_id: str, company_id: str = "_default") -> dict[str, Any]:
+    """Proxy: delete company DB item in rag_engine."""
+    return await _proxy_to_rag("DELETE", f"/api/company-db/items/{doc_id}?company_id={company_id}")
 
 
 # ── Profile.md 편집 프록시 ──
@@ -4080,13 +4110,20 @@ async def upload_company_profile_docs(
         # Auto-generate profile.md so PPT/WBS orchestrators can use it
         company_name = profile.get("companyName") or "미설정"
         try:
+            # Use server canonical-id endpoint for consistent company_id
+            _encoded_name = urllib.parse.quote(company_name, safe="")
+            canonical_resp = await _proxy_to_rag("GET", f"/api/company-db/canonical-id?company_name={_encoded_name}", timeout=5)
+            canonical_id = canonical_resp.get("company_id", "_default") if isinstance(canonical_resp, dict) else "_default"
+        except Exception:
+            canonical_id = "_default"
+        try:
             documents = [d.strip() for d in all_text.split("\n--- ") if len(d.strip()) >= 50]
             if not documents:
                 documents = [all_text.strip()]
             await _proxy_to_rag(
                 "POST",
                 "/api/company-profile/generate",
-                {"company_name": company_name, "documents": documents},
+                {"company_name": company_name, "documents": documents, "company_id": canonical_id},
                 timeout=30,
             )
             profile_md_generated = True

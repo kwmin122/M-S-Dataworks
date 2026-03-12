@@ -60,6 +60,15 @@ async function parseJson<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+/**
+ * Sanitize a company name into a safe company_id.
+ * Backend allows only [a-zA-Z0-9가-힣._-], so strip everything else.
+ */
+export function sanitizeCompanyId(name: string): string {
+  const sanitized = name.replace(/[^a-zA-Z0-9가-힣._\-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+  return sanitized || '_default';
+}
+
 export async function createSession(): Promise<string> {
   const response = await fetchWithError(`${API_BASE_URL}/api/session`, {
     method: 'POST',
@@ -289,11 +298,12 @@ export async function generateProposalV2(
   sessionId: string,
   totalPages: number = 50,
   outputFormat: 'docx' | 'hwpx' = 'docx',
+  companyId?: string,
 ): Promise<ProposalV2Response> {
   const res = await fetchWithError(`${API_BASE_URL}/api/proposal/generate-v2`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, total_pages: totalPages, output_format: outputFormat }),
+    body: JSON.stringify({ session_id: sessionId, total_pages: totalPages, output_format: outputFormat, company_id: companyId || '_default' }),
     timeoutMs: 300_000, // 5분 — DOCX/HWPX 생성 시간 소요
   });
   return parseJson<ProposalV2Response>(res);
@@ -378,11 +388,12 @@ export async function generatePpt(
   sessionId: string,
   durationMin: number = 30,
   qnaCount: number = 10,
+  companyId?: string,
 ): Promise<PptResponse> {
   const res = await fetchWithError(`${API_BASE_URL}/api/proposal/generate-ppt`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, duration_min: durationMin, qna_count: qnaCount }),
+    body: JSON.stringify({ session_id: sessionId, duration_min: durationMin, qna_count: qnaCount, company_id: companyId || '_default' }),
     timeoutMs: 300_000,
   });
   return parseJson<PptResponse>(res);
@@ -397,11 +408,12 @@ export interface TrackRecordDocResponse {
 
 export async function generateTrackRecord(
   sessionId: string,
+  companyId?: string,
 ): Promise<TrackRecordDocResponse> {
   const res = await fetchWithError(`${API_BASE_URL}/api/proposal/generate-track-record`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId }),
+    body: JSON.stringify({ session_id: sessionId, company_id: companyId || '_default' }),
     timeoutMs: 300_000,
   });
   return parseJson<TrackRecordDocResponse>(res);
@@ -449,43 +461,66 @@ export interface CompanyDbStats {
   total_knowledge_units: number;
 }
 
-export async function addTrackRecord(record: TrackRecordInput): Promise<{ id: string; total: number }> {
+export async function addTrackRecord(record: TrackRecordInput, companyId: string = '_default'): Promise<{ id: string; total: number }> {
   const res = await fetchWithError(`${API_BASE_URL}/api/company-db/track-records`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(record),
+    body: JSON.stringify({ ...record, company_id: companyId }),
   });
   return parseJson<{ id: string; total: number }>(res);
 }
 
-export async function addPersonnel(person: PersonnelInput): Promise<{ id: string; total: number }> {
+export async function addPersonnel(person: PersonnelInput, companyId: string = '_default'): Promise<{ id: string; total: number }> {
   const res = await fetchWithError(`${API_BASE_URL}/api/company-db/personnel`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(person),
+    body: JSON.stringify({ ...person, company_id: companyId }),
   });
   return parseJson<{ id: string; total: number }>(res);
 }
 
-export async function getCompanyDbProfile(): Promise<CompanyDbProfile | null> {
-  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/profile`);
+export async function getCompanyDbProfile(companyId: string = '_default'): Promise<CompanyDbProfile | null> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/profile?company_id=${encodeURIComponent(companyId)}`);
   const data = await parseJson<{ profile: CompanyDbProfile | null }>(res);
   return data.profile;
 }
 
-export async function updateCompanyDbProfile(updates: Partial<CompanyDbProfile>): Promise<CompanyDbProfile> {
+export async function updateCompanyDbProfile(updates: Partial<CompanyDbProfile>, companyId: string = '_default'): Promise<CompanyDbProfile> {
   const res = await fetchWithError(`${API_BASE_URL}/api/company-db/profile`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(updates),
+    body: JSON.stringify({ ...updates, company_id: companyId }),
   });
   const data = await parseJson<{ profile: CompanyDbProfile }>(res);
   return data.profile;
 }
 
-export async function getCompanyDbStats(): Promise<CompanyDbStats> {
-  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/stats`);
+export async function getCompanyDbStats(companyId: string = '_default'): Promise<CompanyDbStats> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/stats?company_id=${encodeURIComponent(companyId)}`);
   return parseJson<CompanyDbStats>(res);
+}
+
+export async function getCanonicalCompanyId(companyName: string): Promise<string> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/canonical-id?company_name=${encodeURIComponent(companyName)}`);
+  const data = await parseJson<{ company_id: string }>(res);
+  return data.company_id;
+}
+
+export async function listTrackRecords(companyId: string = '_default'): Promise<{ records: import('../types').TrackRecordListItem[] }> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/track-records?company_id=${encodeURIComponent(companyId)}`);
+  return parseJson<{ records: import('../types').TrackRecordListItem[] }>(res);
+}
+
+export async function listPersonnel(companyId: string = '_default'): Promise<{ personnel: import('../types').PersonnelListItem[] }> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/personnel?company_id=${encodeURIComponent(companyId)}`);
+  return parseJson<{ personnel: import('../types').PersonnelListItem[] }>(res);
+}
+
+export async function deleteCompanyDbItem(docId: string, companyId: string = '_default'): Promise<{ success: boolean }> {
+  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/items/${encodeURIComponent(docId)}?company_id=${encodeURIComponent(companyId)}`, {
+    method: 'DELETE',
+  });
+  return parseJson<{ success: boolean }>(res);
 }
 
 export async function getStrengthCard(bidNoticeId: string): Promise<unknown> {
@@ -980,14 +1015,14 @@ export async function reassembleProposal(
   return parseJson<{ success: boolean; docx_filename: string }>(res);
 }
 
-export async function getCompanyDBProfile(): Promise<{
+export async function getCompanyDBProfile(companyId: string = '_default'): Promise<{
   profile: {
     company_name: string;
     track_record_count: number;
     personnel_count: number;
   } | null;
 }> {
-  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/profile`);
+  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/profile?company_id=${encodeURIComponent(companyId)}`);
   return parseJson<{
     profile: {
       company_name: string;
@@ -999,11 +1034,12 @@ export async function getCompanyDBProfile(): Promise<{
 
 export async function updateCompanyDBProfile(
   data: { company_name: string },
+  companyId: string = '_default',
 ): Promise<{ success: boolean }> {
   const res = await fetchWithError(`${API_BASE_URL}/api/company-db/profile`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+    body: JSON.stringify({ ...data, company_id: companyId }),
   });
   return parseJson<{ success: boolean }>(res);
 }
