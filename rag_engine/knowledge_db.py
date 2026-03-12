@@ -85,8 +85,10 @@ class KnowledgeDB:
             where_conditions.append({"category": category.value})
         if document_types:
             where_conditions.append({"document_type": {"$in": [dt.value for dt in document_types]}})
-        if domain_type:
-            where_conditions.append({"domain_type": domain_type})
+        # domain_type filter deferred — existing 495 KnowledgeUnits lack this
+        # metadata field. Enable after re-indexing with domain_type in _make_metadata().
+        # if domain_type:
+        #     where_conditions.append({"domain_type": domain_type})
 
         where = None
         if len(where_conditions) == 1:

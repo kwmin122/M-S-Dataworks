@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -33,11 +34,22 @@ class ResolvedPack:
     domain_type: str
 
 
+_SAFE_PACK_ID = re.compile(r'^[a-zA-Z0-9가-힣._\-]+$')
+
+
 class PackManager:
     """Loads and resolves Company Document Packs from filesystem."""
 
     def __init__(self, packs_dir: str | Path):
         self.packs_dir = Path(packs_dir)
+
+    @staticmethod
+    def _validate_path_component(value: str, name: str = "component") -> None:
+        """Reject path traversal attempts in pack path components."""
+        if not value or '..' in value or '/' in value or '\\' in value:
+            raise ValueError(f"Invalid pack {name}: {value!r}")
+        if not _SAFE_PACK_ID.match(value):
+            raise ValueError(f"Invalid pack {name}: {value!r}")
 
     def _find_path(
         self, company_id: str, doc_type: str, domain_type: str, filename: str,
@@ -47,6 +59,9 @@ class PackManager:
         Searches: company/doc_type/domain_type → company/doc_type/general
         Cross-company fallback (_default) is handled by resolve() explicitly.
         """
+        self._validate_path_component(company_id, "company_id")
+        self._validate_path_component(doc_type, "doc_type")
+        self._validate_path_component(domain_type, "domain_type")
         candidates = [
             self.packs_dir / company_id / doc_type / domain_type / filename,
             self.packs_dir / company_id / doc_type / "general" / filename,
@@ -57,9 +72,13 @@ class PackManager:
         return None
 
     def _load_json(self, path: Path) -> dict:
-        return json.loads(path.read_text(encoding="utf-8"))
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            raise ValueError(f"Invalid JSON in pack file {path}: {e}") from e
 
     def load_pack_config(self, company_id: str) -> PackConfig:
+        self._validate_path_component(company_id, "company_id")
         path = self.packs_dir / company_id / "pack.json"
         if not path.is_file():
             if company_id == "_default":
@@ -104,16 +123,15 @@ class PackManager:
             else:
                 base_map[s.id] = s  # override entirely by section ID
         # Preserve order: keep base order, insert overrides at their base position
-        override_ids = {s.id for s in override.sections}
         seen = set()
         ordered = []
         for s in base.sections:
             if s.id in base_map:
                 ordered.append(base_map[s.id])
-            seen.add(s.id)
+                seen.add(s.id)
         # Append any new sections from override not in base
         for s in override.sections:
-            if s.id not in seen:
+            if s.id not in seen and not s.disabled:
                 ordered.append(s)
         return SectionsConfig(
             document_type=override.document_type or base.document_type,

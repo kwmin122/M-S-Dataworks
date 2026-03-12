@@ -161,3 +161,30 @@ class TestPackManagerResolve:
 
         # boilerplate should also be inherited from _default
         assert len(resolved.boilerplate.boilerplates) > 0, "boilerplate should not be empty"
+
+
+class TestPackManagerSecurity:
+    def test_path_traversal_company_id(self, pack_dir):
+        pm = PackManager(pack_dir)
+        with pytest.raises(ValueError, match="Invalid pack company_id"):
+            pm.load_sections("../../etc", "execution_plan", "research")
+
+    def test_path_traversal_doc_type(self, pack_dir):
+        pm = PackManager(pack_dir)
+        with pytest.raises(ValueError, match="Invalid pack doc_type"):
+            pm.load_sections("_default", "../secret", "research")
+
+    def test_path_traversal_domain_type(self, pack_dir):
+        pm = PackManager(pack_dir)
+        with pytest.raises(ValueError, match="Invalid pack domain_type"):
+            pm.load_sections("_default", "execution_plan", "../../etc/passwd")
+
+    def test_slash_in_company_id(self, pack_dir):
+        pm = PackManager(pack_dir)
+        with pytest.raises(ValueError):
+            pm.load_pack_config("company/evil")
+
+    def test_valid_ids_pass(self, pack_dir):
+        pm = PackManager(pack_dir)
+        # Should not raise — these are valid pack IDs
+        pm.load_sections("_default", "execution_plan", "research")

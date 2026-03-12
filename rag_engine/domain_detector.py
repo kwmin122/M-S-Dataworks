@@ -122,7 +122,10 @@ def detect_domain(
     try:
         llm_result = _call_llm_detect(combined, api_key)
         domain_str = llm_result.get("domain_type", "")
-        confidence = float(llm_result.get("confidence", 0))
+        try:
+            confidence = float(llm_result.get("confidence", 0))
+        except (TypeError, ValueError):
+            confidence = 0.0
 
         if confidence >= 0.6:
             try:

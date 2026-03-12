@@ -58,6 +58,12 @@ def _write_section_with_pack(
     middleware=None,
 ) -> str:
     """Write a single section using Pack-based prompt."""
+    # Check replace boilerplate first — skip LLM entirely if present
+    replace_texts = [bp.text for bp in boilerplates
+                     if bp.section_id == section.id and bp.mode == "replace"]
+    if replace_texts:
+        return replace_texts[0]
+
     prompt = assemble_pack_prompt(
         section=section,
         rfp_context=rfp_context,
@@ -69,20 +75,15 @@ def _write_section_with_pack(
         dynamic_subsections=dynamic_subsections,
     )
 
-    # Handle boilerplate modes
+    generated = call_llm_for_pack_section(
+        prompt, system_prompt=domain_system_prompt, api_key=api_key, middleware=middleware,
+    )
+
+    # Handle prepend/append boilerplate modes
     prepend_texts = [bp.text for bp in boilerplates
                      if bp.section_id == section.id and bp.mode == "prepend"]
     append_texts = [bp.text for bp in boilerplates
                     if bp.section_id == section.id and bp.mode == "append"]
-    replace_texts = [bp.text for bp in boilerplates
-                     if bp.section_id == section.id and bp.mode == "replace"]
-
-    if replace_texts:
-        return replace_texts[0]  # replace mode: skip LLM entirely
-
-    generated = call_llm_for_pack_section(
-        prompt, system_prompt=domain_system_prompt, api_key=api_key, middleware=middleware,
-    )
 
     parts = []
     if prepend_texts:
@@ -164,7 +165,10 @@ def generate_document(
     # 5. Plan schedule (execution plans only)
     tasks: list[WbsTask] = []
     personnel: list[PersonnelAllocation] = []
-    total_months = int(rfx_result.get("duration_months", 12)) or 12
+    try:
+        total_months = int(rfx_result.get("duration_months", 12)) or 12
+    except (TypeError, ValueError):
+        total_months = 12
     if doc_type == "execution_plan":
         try:
             tasks, personnel, total_months = plan_schedule(
@@ -220,10 +224,10 @@ def generate_document(
             except Exception as exc:
                 logger.error("Section writing failed: %s", exc)
 
-    # 7. Quality check
+    # 7. Quality check — match by active_sections index (not name) to handle overrides
     all_issues: list[QualityIssue] = []
-    for name, text in sections:
-        sec = next((s for s in pack.sections.sections if s.name == name), None)
+    for i, (name, text) in enumerate(sections):
+        sec = active_sections[i].section if i < len(active_sections) else None
         if sec:
             gt = sec.generation_target
             issues = check_quality_with_pack(

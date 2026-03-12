@@ -5,9 +5,12 @@ without evidence, missing table explanations.
 """
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -110,8 +113,8 @@ def check_quality_with_pack(
                     detail=f"금지 패턴 '{pattern}' 발견",
                     suggestion="해당 표현을 구체적/전문적 표현으로 교체",
                 ))
-        except re.error:
-            pass  # invalid regex in pack config -- skip
+        except re.error as e:
+            logger.warning("Invalid forbidden_pattern regex %r in pack config: %s", pattern, e)
 
     # Length constraints
     text_len = len(text)
