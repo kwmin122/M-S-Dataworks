@@ -1460,7 +1460,8 @@ export function useConversationFlow() {
 
           try {
             const usePack = localStorage.getItem('kira_use_pack') === 'true';
-            const result = await api.generateWbs(conversation.sessionId, undefined, usePack);
+            const companyId = localStorage.getItem('kira_company_id') || '_default';
+            const result = await api.generateWbs(conversation.sessionId, undefined, usePack, companyId);
             removeLastStatus();
 
             let msg = `수행계획서/WBS가 생성되었습니다! (${result.generation_time_sec}초)\n\n`;

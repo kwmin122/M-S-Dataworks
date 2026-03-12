@@ -2743,6 +2743,7 @@ class GenerateWbsProxyPayload(BaseModel):
     session_id: str
     methodology: str = ""
     use_pack: bool = False
+    company_id: str = "_default"
 
 
 @app.post("/api/proposal/generate-wbs")
@@ -2756,7 +2757,12 @@ async def generate_wbs_proxy(payload: GenerateWbsProxyPayload) -> dict[str, Any]
 
     return await _proxy_to_rag(
         "POST", "/api/generate-wbs",
-        {"rfx_result": rfx_dict, "methodology": payload.methodology, "use_pack": payload.use_pack},
+        {
+            "rfx_result": rfx_dict,
+            "methodology": payload.methodology,
+            "use_pack": payload.use_pack,
+            "company_id": payload.company_id,
+        },
         timeout=300,
     )
 
@@ -4061,6 +4067,7 @@ async def upload_company_profile_docs(
 
     # Analyze writing style from uploaded documents via rag_engine
     writing_style = None
+    profile_md_generated = False
     if all_text.strip():
         try:
             writing_style = await _analyze_company_writing_style(all_text)
@@ -4070,6 +4077,22 @@ async def upload_company_profile_docs(
         except Exception as e:
             logger.warning("Company writing style analysis failed: %s", e)
 
+        # Auto-generate profile.md so PPT/WBS orchestrators can use it
+        company_name = profile.get("companyName") or "미설정"
+        try:
+            documents = [d.strip() for d in all_text.split("\n--- ") if len(d.strip()) >= 50]
+            if not documents:
+                documents = [all_text.strip()]
+            await _proxy_to_rag(
+                "POST",
+                "/api/company-profile/generate",
+                {"company_name": company_name, "documents": documents},
+                timeout=30,
+            )
+            profile_md_generated = True
+        except Exception as e:
+            logger.warning("Auto profile.md generation failed: %s", e)
+
     return {
         "ok": True,
         "profile": profile,
@@ -4078,6 +4101,7 @@ async def upload_company_profile_docs(
             "extractionStatus": extraction_status,
             "filledFields": filled_fields,
             "writingStyle": writing_style,
+            "profileMdGenerated": profile_md_generated,
         },
     }
 

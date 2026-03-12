@@ -252,7 +252,7 @@ def generate_document(
             title=f"{rfx_result.get('title', '')} - 수행계획서",
             sections=sections,
             output_path=docx_path,
-            company_name=company_context[:50] if company_context else "",
+            company_name=company_name or "",
         )
     except Exception as exc:
         logger.error("DOCX assembly failed: %s", exc)

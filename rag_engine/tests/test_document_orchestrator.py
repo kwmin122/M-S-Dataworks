@@ -254,3 +254,137 @@ class TestDocumentOrchestrator:
         assert len(blind_violations) == 0, (
             f"blind_violation found: {[(i.detail,) for i in blind_violations]}"
         )
+
+
+class TestCompanyContextPropagation:
+    """Verify company context + company_name flow through to section writer and DOCX."""
+
+    @patch("document_orchestrator.detect_domain")
+    @patch("document_orchestrator._write_section_with_pack")
+    @patch("document_orchestrator.plan_schedule")
+    @patch("document_orchestrator.assemble_docx")
+    def test_company_context_passed_to_section_writer(
+        self, mock_assemble, mock_schedule, mock_write, mock_detect,
+        mock_rfx, pack_dir, tmp_path,
+    ):
+        """company_context string reaches _write_section_with_pack."""
+        from phase2_models import DomainType
+        mock_detect.return_value = DomainType.RESEARCH
+        mock_write.return_value = "텍스트"
+        mock_schedule.return_value = ([], [], 12)
+
+        generate_document(
+            rfx_result=mock_rfx,
+            doc_type="execution_plan",
+            output_dir=str(tmp_path / "output"),
+            packs_dir=str(pack_dir),
+            company_context="## 회사 기본 정보\n회사명: 테스트주식회사",
+        )
+
+        # Every section_writer call should receive the company_context
+        for call in mock_write.call_args_list:
+            assert call.kwargs.get("company_context") == "## 회사 기본 정보\n회사명: 테스트주식회사"
+
+    @patch("document_orchestrator.detect_domain")
+    @patch("document_orchestrator._write_section_with_pack")
+    @patch("document_orchestrator.plan_schedule")
+    @patch("document_orchestrator.assemble_docx")
+    def test_company_name_passed_to_docx_assembler(
+        self, mock_assemble, mock_schedule, mock_write, mock_detect,
+        mock_rfx, pack_dir, tmp_path,
+    ):
+        """company_name (not company_context[:50]) reaches assemble_docx."""
+        from phase2_models import DomainType
+        mock_detect.return_value = DomainType.RESEARCH
+        mock_write.return_value = "텍스트"
+        mock_schedule.return_value = ([], [], 12)
+
+        generate_document(
+            rfx_result=mock_rfx,
+            doc_type="execution_plan",
+            output_dir=str(tmp_path / "output"),
+            packs_dir=str(pack_dir),
+            company_name="테스트주식회사",
+            company_context="## 회사 기본 정보\n회사명: 테스트주식회사\n인력: 50명",
+        )
+
+        mock_assemble.assert_called_once()
+        assert mock_assemble.call_args.kwargs.get("company_name") == "테스트주식회사"
+
+    @patch("document_orchestrator.detect_domain")
+    @patch("document_orchestrator._write_section_with_pack")
+    @patch("document_orchestrator.plan_schedule")
+    @patch("document_orchestrator.assemble_docx")
+    def test_company_context_passed_to_schedule_planner(
+        self, mock_assemble, mock_schedule, mock_write, mock_detect,
+        mock_rfx, pack_dir, tmp_path,
+    ):
+        """company_context reaches plan_schedule for WBS task generation."""
+        from phase2_models import DomainType
+        mock_detect.return_value = DomainType.RESEARCH
+        mock_write.return_value = "텍스트"
+        mock_schedule.return_value = ([], [], 12)
+
+        generate_document(
+            rfx_result=mock_rfx,
+            doc_type="execution_plan",
+            output_dir=str(tmp_path / "output"),
+            packs_dir=str(pack_dir),
+            company_context="특급기술사 5명 보유",
+        )
+
+        mock_schedule.assert_called_once()
+        assert mock_schedule.call_args.kwargs.get("company_context") == "특급기술사 5명 보유"
+
+    @patch("document_orchestrator.detect_domain")
+    @patch("document_orchestrator._write_section_with_pack")
+    @patch("document_orchestrator.plan_schedule")
+    @patch("document_orchestrator.assemble_docx")
+    def test_empty_company_context_does_not_break(
+        self, mock_assemble, mock_schedule, mock_write, mock_detect,
+        mock_rfx, pack_dir, tmp_path,
+    ):
+        """Pipeline works correctly with empty company_context (no CompanyDB data)."""
+        from phase2_models import DomainType
+        mock_detect.return_value = DomainType.RESEARCH
+        mock_write.return_value = "텍스트"
+        mock_schedule.return_value = ([], [], 12)
+
+        result = generate_document(
+            rfx_result=mock_rfx,
+            doc_type="execution_plan",
+            output_dir=str(tmp_path / "output"),
+            packs_dir=str(pack_dir),
+            company_context="",
+            company_name="",
+        )
+
+        assert isinstance(result, DocumentResult)
+        mock_assemble.assert_called_once()
+        assert mock_assemble.call_args.kwargs.get("company_name") == ""
+
+    @patch("document_orchestrator.detect_domain")
+    @patch("document_orchestrator._write_section_with_pack")
+    @patch("document_orchestrator.plan_schedule")
+    @patch("document_orchestrator.assemble_docx")
+    def test_company_id_selects_company_pack(
+        self, mock_assemble, mock_schedule, mock_write, mock_detect,
+        mock_rfx, pack_dir, tmp_path,
+    ):
+        """company_id is passed to PackManager for company-specific Pack selection."""
+        from phase2_models import DomainType
+        mock_detect.return_value = DomainType.RESEARCH
+        mock_write.return_value = "텍스트"
+        mock_schedule.return_value = ([], [], 12)
+
+        # Non-existent company falls back to _default gracefully
+        result = generate_document(
+            rfx_result=mock_rfx,
+            doc_type="execution_plan",
+            output_dir=str(tmp_path / "output"),
+            packs_dir=str(pack_dir),
+            company_id="some_company",
+        )
+        # Should succeed with _default fallback
+        assert isinstance(result, DocumentResult)
+        assert result.domain_type == "research"

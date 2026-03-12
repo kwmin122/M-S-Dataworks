@@ -344,11 +344,17 @@ export async function generateWbs(
   sessionId: string,
   methodology?: string,
   usePack?: boolean,
+  companyId?: string,
 ): Promise<WbsResponse> {
   const res = await fetchWithError(`${API_BASE_URL}/api/proposal/generate-wbs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, methodology: methodology || '', use_pack: usePack || false }),
+    body: JSON.stringify({
+      session_id: sessionId,
+      methodology: methodology || '',
+      use_pack: usePack || false,
+      company_id: companyId || '_default',
+    }),
     timeoutMs: 300_000,
   });
   return parseJson<WbsResponse>(res);

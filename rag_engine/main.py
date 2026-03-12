@@ -704,6 +704,7 @@ class GenerateWbsRequest(BaseModel):
     rfx_result: RfxResultInput
     methodology: str = ""  # "waterfall" | "agile" | "hybrid" or empty for auto
     use_pack: bool = False
+    company_id: str = "_default"
 
 
 @app.post("/api/generate-wbs")
@@ -715,8 +716,21 @@ async def generate_wbs_endpoint(req: GenerateWbsRequest, request: Request):
     if req.use_pack:
         from document_orchestrator import generate_document
         from wbs_generator import generate_wbs_xlsx, generate_gantt_chart
+        from company_context_builder import build_company_context
 
         rfx_dict = req.rfx_result.model_dump()
+        company_context = build_company_context(rfx_dict, company_db_path=_COMPANY_DB_DIR)
+
+        # Resolve company_name from CompanyDB profile
+        _company_name = ""
+        try:
+            _db = _get_company_db()
+            _prof = _db.load_profile()
+            if _prof and _prof.name and _prof.name != "미설정":
+                _company_name = _prof.name
+        except Exception:
+            pass
+
         try:
             result = await asyncio.to_thread(
                 generate_document,
@@ -724,8 +738,10 @@ async def generate_wbs_endpoint(req: GenerateWbsRequest, request: Request):
                 doc_type="execution_plan",
                 output_dir=_PROPOSALS_DIR,
                 packs_dir=os.path.join(os.path.dirname(__file__), "..", "data", "company_packs"),
+                company_id=req.company_id,
                 knowledge_db_path=_KNOWLEDGE_DB_DIR,
-                company_context="",
+                company_context=company_context,
+                company_name=_company_name,
             )
         except Exception as exc:
             logger.error("generate_document failed: %s\n%s", exc, traceback.format_exc())
@@ -1297,10 +1313,12 @@ def _get_company_skills_dir(company_id: str = "default") -> str:
 class GenerateProfileRequest(BaseModel):
     company_name: str = Field(min_length=1, max_length=100)
     documents: list[str] = Field(min_length=1, max_length=20)
+    company_id: str = Field(default="default", min_length=1, max_length=256)
 
 
 class UpdateProfileRequest(BaseModel):
     profile_md: str = Field(min_length=1, max_length=50_000)
+    company_id: str = Field(default="default", min_length=1, max_length=256)
 
 
 @app.post("/api/company-profile/generate")
@@ -1322,7 +1340,7 @@ async def generate_company_profile(req: GenerateProfileRequest):
             company_name=req.company_name,
             style=style,
         )
-        skills_dir = _get_company_skills_dir()
+        skills_dir = _get_company_skills_dir(req.company_id)
         company_profile_builder.save_profile_md(skills_dir, profile_md)
     except Exception as exc:
         logger.error("build/save profile.md failed: %s", exc)
@@ -1332,11 +1350,11 @@ async def generate_company_profile(req: GenerateProfileRequest):
 
 
 @app.get("/api/company-profile")
-async def get_company_profile():
+async def get_company_profile(company_id: str = "default"):
     """Load the current company profile.md content."""
     import company_profile_builder
 
-    skills_dir = _get_company_skills_dir()
+    skills_dir = _get_company_skills_dir(company_id)
     content = company_profile_builder.load_profile_md(skills_dir)
     return {"profile_md": content}
 
@@ -1346,7 +1364,7 @@ async def update_company_profile(req: UpdateProfileRequest):
     """Overwrite company profile.md with user-edited content."""
     import company_profile_builder
 
-    skills_dir = _get_company_skills_dir()
+    skills_dir = _get_company_skills_dir(req.company_id)
     try:
         company_profile_builder.save_profile_md(skills_dir, req.profile_md)
     except Exception as exc:
