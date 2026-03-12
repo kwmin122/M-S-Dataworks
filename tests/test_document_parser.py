@@ -1,10 +1,18 @@
 """PDF 표 파싱 + 마크다운 변환 테스트."""
+import importlib.util
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
-from document_parser import DocumentParser
+
+# Import the ROOT document_parser explicitly by file path to avoid
+# collision with rag_engine/document_parser.py when rag_engine/ is on sys.path.
+_root = Path(__file__).parent.parent
+_spec = importlib.util.spec_from_file_location("document_parser", _root / "document_parser.py")
+_mod = importlib.util.module_from_spec(_spec)
+sys.modules.setdefault("document_parser", _mod)
+_spec.loader.exec_module(_mod)
+DocumentParser = _mod.DocumentParser
 
 
 class TestTableToMarkdown:

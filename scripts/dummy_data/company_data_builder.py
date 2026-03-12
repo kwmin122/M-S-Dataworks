@@ -9,7 +9,7 @@ if rag_engine_path not in sys.path:
 
 from company_db import CompanyDB, TrackRecord, Personnel, CompanyCapabilityProfile
 
-def load_company_to_db(company_id: str, profile: dict, projects: list, personnel: list):
+def load_company_to_db(company_id: str, profile: dict, projects: list, personnel: list, persist_directory: str = "./data/company_db"):
     """
     CompanyDB ChromaDB에 회사 데이터 적재
 
@@ -18,8 +18,9 @@ def load_company_to_db(company_id: str, profile: dict, projects: list, personnel
         profile: 회사 프로필 dict
         projects: 프로젝트 실적 list
         personnel: 인력 정보 list
+        persist_directory: ChromaDB 저장 경로
     """
-    db = CompanyDB()
+    db = CompanyDB(persist_directory=persist_directory)
 
     # TrackRecord 객체로 변환 및 등록
     track_records = []

@@ -4,7 +4,8 @@ Kira Web Runtime API
 Streamlit UI 없이 웹 랜딩(index.html)에서 Kira 분석 엔진을 직접 실행하기 위한 API 서버.
 """
 
-from __future__ import annotations
+# Do NOT add 'from __future__ import annotations' — it breaks FastAPI's
+# runtime introspection of list[UploadFile] parameters (ForwardRef error).
 
 import asyncio
 import base64
