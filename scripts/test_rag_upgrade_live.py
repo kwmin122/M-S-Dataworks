@@ -144,6 +144,9 @@ if os.path.exists(test_db_path):
 
 class _FakeEF:
     """OpenAI API 없이 테스트용 임베딩."""
+    def is_legacy(self) -> bool:
+        return True
+
     def __call__(self, input):
         return self._embed(input)
 

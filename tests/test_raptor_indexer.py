@@ -69,6 +69,9 @@ def test_raptor_integration_with_engine():
     from engine import RAGEngine
 
     class _FakeEF:
+        def is_legacy(self) -> bool:
+            return True
+
         def __call__(self, input):
             return [[0.1] * 256 for _ in input]
         def name(self):

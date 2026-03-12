@@ -12,6 +12,10 @@ from unittest.mock import MagicMock, patch
 
 class _FakeEF:
     """ChromaDB EmbeddingFunction 인터페이스 호환 mock (signature + name 검증 통과)."""
+
+    def is_legacy(self) -> bool:
+        return True
+
     def __call__(self, input):  # noqa: A002
         return [[0.1] * 256 for _ in input]
 

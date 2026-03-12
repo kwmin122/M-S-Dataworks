@@ -1,2 +1,2 @@
-reportlab==4.0.9
+reportlab>=4.4
 Faker==22.6.0
