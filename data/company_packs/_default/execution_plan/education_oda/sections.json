@@ -1,0 +1,134 @@
+{
+  "document_type": "execution_plan",
+  "domain_type": "education_oda",
+  "sections": [
+    {
+      "id": "s01", "name": "사업이해 및 추진배경", "level": 1, "required": true,
+      "weight": 0.10, "max_score": 10,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 2000, "max_chars": 5000, "token_budget": 2500},
+      "block_types": ["narrative"],
+      "must_include_facts": ["발주기관명", "사업명", "대상국가"],
+      "forbidden_patterns": ["~할 것임$", "~인 것으로 사료됨$"],
+      "evidence_policy": "required",
+      "subsections": [
+        {"id": "s01_1", "name": "사업 추진 배경", "block_types": ["narrative"], "instructions": "개발도상국의 교육/ICT 현황, ODA 정책 방향, 사업 필요성을 RFP에서 추출하여 서술"},
+        {"id": "s01_2", "name": "사업 목적 및 범위", "block_types": ["narrative"], "instructions": "최종 목표, 대상 국가/기관, 수혜자, 과업 범위(포함/제외)를 구체적으로 정의"}
+      ]
+    },
+    {
+      "id": "s02", "name": "사전조사 계획", "level": 1, "required": true,
+      "weight": 0.10, "max_score": 10,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 1500, "max_chars": 4500, "token_budget": 2200},
+      "block_types": ["narrative", "table"],
+      "must_include_facts": ["현지조사항목", "조사방법"],
+      "evidence_policy": "required",
+      "subsections": [
+        {"id": "s02_1", "name": "현지 환경 분석", "block_types": ["narrative"], "instructions": "대상국 교육 인프라, ICT 환경, 정책 현황, 문화적 특성 분석"},
+        {"id": "s02_2", "name": "사전조사 항목 및 방법", "block_types": ["table"], "render_mode": "data_table", "instructions": "조사 대상, 항목, 방법(인터뷰/현지방문/설문) 상세"}
+      ]
+    },
+    {
+      "id": "s03", "name": "교육과정 설계", "level": 1, "required": true,
+      "weight": 0.15, "max_score": 15,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 2500, "max_chars": 6000, "token_budget": 3000},
+      "block_types": ["narrative", "table"],
+      "must_include_facts": ["교육목표", "교육과정구성", "학습성과"],
+      "evidence_policy": "required",
+      "priority": 1,
+      "subsections": [
+        {"id": "s03_1", "name": "교육 목표 및 역량 체계", "block_types": ["narrative"], "instructions": "교육 대상별 역량 목표, 학습 성과 지표 설정"},
+        {"id": "s03_2", "name": "교육과정 구성", "block_types": ["table"], "render_mode": "data_table", "instructions": "모듈별 교육 내용, 시수, 교수법, 평가 방법"},
+        {"id": "s03_3", "name": "현지화 전략", "block_types": ["narrative"], "instructions": "현지 언어/문화/수준에 맞춘 교육과정 현지화 방안"}
+      ]
+    },
+    {
+      "id": "s04", "name": "콘텐츠 개발 방안", "level": 1, "required": true,
+      "weight": 0.12, "max_score": 12,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 2000, "max_chars": 5500, "token_budget": 2800},
+      "block_types": ["narrative", "table"],
+      "must_include_facts": ["콘텐츠유형", "개발방법론"],
+      "evidence_policy": "required",
+      "subsections": [
+        {"id": "s04_1", "name": "콘텐츠 개발 전략", "block_types": ["narrative"], "instructions": "교재, e-러닝, 실습 키트 등 콘텐츠 유형별 개발 전략"},
+        {"id": "s04_2", "name": "개발 절차 및 검증", "block_types": ["narrative"], "instructions": "콘텐츠 설계-개발-검수-수정 절차, 현지 전문가 검증 방안"}
+      ]
+    },
+    {
+      "id": "s05", "name": "시범/본운영 계획", "level": 1, "required": true,
+      "weight": 0.12, "max_score": 12,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 2000, "max_chars": 5000, "token_budget": 2500},
+      "block_types": ["narrative", "table"],
+      "must_include_facts": ["운영방법", "교육대상", "일정"],
+      "evidence_policy": "required",
+      "subsections": [
+        {"id": "s05_1", "name": "시범운영 계획", "block_types": ["narrative"], "instructions": "시범교육 대상, 규모, 일정, 운영 방법, 피드백 수집 방안"},
+        {"id": "s05_2", "name": "본운영 확대 방안", "block_types": ["narrative"], "instructions": "시범운영 결과 반영, 본격 확대 운영 전략"}
+      ]
+    },
+    {
+      "id": "s06", "name": "성과평가 방안", "level": 1, "required": true,
+      "weight": 0.10, "max_score": 10,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 1500, "max_chars": 4000, "token_budget": 2000},
+      "block_types": ["narrative", "table"],
+      "must_include_facts": ["성과지표", "평가방법"],
+      "evidence_policy": "required",
+      "subsections": [
+        {"id": "s06_1", "name": "성과 관리 프레임워크", "block_types": ["narrative"], "instructions": "OECD DAC 평가기준(적절성/효과성/효율성/영향력/지속가능성) 적용 방안"},
+        {"id": "s06_2", "name": "평가 지표 및 방법", "block_types": ["table"], "render_mode": "data_table", "instructions": "정량/정성 성과지표, 기초선-중간-최종 평가 시점 및 방법"}
+      ]
+    },
+    {
+      "id": "s07", "name": "현지이관 및 지속가능성", "level": 1, "required": true,
+      "weight": 0.10, "max_score": 10,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 1500, "max_chars": 4000, "token_budget": 2000},
+      "block_types": ["narrative"],
+      "must_include_facts": ["이관계획", "지속가능성방안"],
+      "evidence_policy": "recommended",
+      "subsections": [
+        {"id": "s07_1", "name": "현지 이관 계획", "block_types": ["narrative"], "instructions": "교육 운영 노하우, 시스템, 콘텐츠의 현지 기관 이관 절차"},
+        {"id": "s07_2", "name": "지속가능성 확보 방안", "block_types": ["narrative"], "instructions": "현지 자립 운영 역량 강화, 후속 지원 체계, 확산 전략"}
+      ]
+    },
+    {
+      "id": "s08", "name": "추진일정", "level": 1, "required": true,
+      "weight": 0.08, "max_score": 8,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 1500, "max_chars": 4000, "token_budget": 2000},
+      "block_types": ["narrative", "table", "chart"],
+      "subsections": [
+        {"id": "s08_1", "name": "단계별 추진 일정", "block_types": ["narrative", "chart"], "instructions": "사전조사→설계→개발→시범운영→본운영→평가→이관 단계별 마일스톤"},
+        {"id": "s08_2", "name": "WBS 상세", "block_types": ["table"], "render_mode": "data_table", "instructions": "WBS 표 (schedule_planner가 데이터 생성)"}
+      ]
+    },
+    {
+      "id": "s09", "name": "투입인력 구성", "level": 1, "required": true,
+      "weight": 0.08, "max_score": 8,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 1500, "max_chars": 4000, "token_budget": 2000},
+      "block_types": ["narrative", "table"],
+      "subsections": [
+        {"id": "s09_1", "name": "사업팀 구성", "block_types": ["table"], "render_mode": "data_table", "instructions": "PM, 교육전문가, 콘텐츠개발자, 현지전문가, 통번역사 등 역할별 투입인력"},
+        {"id": "s09_2", "name": "핵심인력 역량", "block_types": ["narrative"], "instructions": "PM, 교육전문가 등 핵심인력의 전문분야/경력/유사사업 수행실적"}
+      ]
+    },
+    {
+      "id": "s10", "name": "리스크 관리", "level": 1, "required": true,
+      "weight": 0.05, "max_score": 5,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 800, "max_chars": 2500, "token_budget": 1200},
+      "block_types": ["narrative", "table"],
+      "fallback_text_policy": "use_boilerplate",
+      "subsections": [
+        {"id": "s10_1", "name": "주요 리스크 식별", "block_types": ["table"], "render_mode": "data_table", "instructions": "현지 정세, 문화 차이, 인프라 부족, 일정 지연 등 리스크 식별"},
+        {"id": "s10_2", "name": "대응 방안", "block_types": ["narrative"], "instructions": "리스크별 사전 예방 및 대응 방안"}
+      ]
+    }
+  ]
+}

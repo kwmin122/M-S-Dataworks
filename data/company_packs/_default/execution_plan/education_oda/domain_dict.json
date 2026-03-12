@@ -1,0 +1,40 @@
+{
+  "domain_type": "education_oda",
+  "roles": [
+    {"id": "pm", "name": "PM", "grade": "특급", "aliases": ["프로젝트관리자", "사업총괄PM"]},
+    {"id": "education_specialist", "name": "교육전문가", "grade": "고급", "aliases": ["교육과정전문가", "교수설계전문가", "교육공학전문가"]},
+    {"id": "content_developer", "name": "콘텐츠개발자", "grade": "중급", "aliases": ["교재개발자", "e-러닝개발자", "학습콘텐츠개발자"]},
+    {"id": "local_specialist", "name": "현지전문가", "grade": "고급", "aliases": ["현지사정전문가", "지역전문가", "국별전문가"]},
+    {"id": "interpreter", "name": "통번역사", "grade": "중급", "aliases": ["통역사", "번역사", "현지어전문가"]},
+    {"id": "ict_specialist", "name": "ICT전문가", "grade": "고급", "aliases": ["정보통신전문가", "디지털전문가"]}
+  ],
+  "phases": [
+    {"id": "needs_assessment", "name": "사전조사", "aliases": ["수요조사", "현지조사", "기초선조사"]},
+    {"id": "design", "name": "설계", "aliases": ["교육과정설계", "프로그램설계"]},
+    {"id": "development", "name": "개발", "aliases": ["콘텐츠개발", "교재개발"]},
+    {"id": "pilot", "name": "시범운영", "aliases": ["시범교육", "파일럿"]},
+    {"id": "implementation", "name": "본운영", "aliases": ["본격운영", "확대운영"]},
+    {"id": "evaluation", "name": "평가", "aliases": ["성과평가", "사업평가"]},
+    {"id": "handover", "name": "이관", "aliases": ["현지이관", "기술이전", "사업종료"]}
+  ],
+  "methodologies": [
+    {"id": "addie", "name": "ADDIE", "aliases": ["교수설계모형", "Analysis-Design-Development-Implementation-Evaluation"]},
+    {"id": "pcm", "name": "PCM", "aliases": ["프로젝트사이클관리", "Project Cycle Management"]},
+    {"id": "lfa", "name": "LFA", "aliases": ["논리모형", "Logical Framework Approach"]},
+    {"id": "participatory", "name": "참여적 방법론", "aliases": ["Participatory Approach", "참여형개발"]}
+  ],
+  "deliverables_common": ["사전조사보고서", "교육과정설계서", "교재/콘텐츠", "시범운영결과보고서", "성과평가보고서", "현지이관보고서", "최종보고서"],
+  "organization_terms": {
+    "client": ["발주기관", "시행기관", "KOICA"],
+    "partner": ["협력기관", "현지파트너", "수원기관"],
+    "beneficiary": ["수혜자", "교육대상자", "현지교원"]
+  },
+  "common_risks": [
+    {"risk": "현지 정세 불안정", "mitigation": "안전관리계획 수립, 대체 운영 시나리오 마련"},
+    {"risk": "현지 인프라 부족 (전력/통신)", "mitigation": "오프라인 대안 콘텐츠 준비, 현지 인프라 사전점검"},
+    {"risk": "문화/언어 장벽", "mitigation": "현지 전문가 조기 투입, 현지어 교재 개발"},
+    {"risk": "수혜자 참여율 저하", "mitigation": "인센티브 설계, 현지 기관 협력 강화"},
+    {"risk": "일정 지연 (현지 사정)", "mitigation": "여유 기간 확보, 현지 코디네이터 상시 배치"}
+  ],
+  "quality_frameworks": ["OECD DAC 평가기준", "KOICA 사업관리 가이드라인", "ISO21001"]
+}

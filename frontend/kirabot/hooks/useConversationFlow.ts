@@ -1459,7 +1459,8 @@ export function useConversationFlow() {
           pushStatus('loading', '수행계획서/WBS를 생성하고 있어요... (약 2~3분 소요)');
 
           try {
-            const result = await api.generateWbs(conversation.sessionId);
+            const usePack = localStorage.getItem('kira_use_pack') === 'true';
+            const result = await api.generateWbs(conversation.sessionId, undefined, usePack);
             removeLastStatus();
 
             let msg = `수행계획서/WBS가 생성되었습니다! (${result.generation_time_sec}초)\n\n`;

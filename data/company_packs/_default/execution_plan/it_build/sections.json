@@ -1,0 +1,128 @@
+{
+  "document_type": "execution_plan",
+  "domain_type": "it_build",
+  "sections": [
+    {
+      "id": "s01", "name": "사업 이해", "level": 1, "required": true,
+      "weight": 0.10, "max_score": 10,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 2000, "max_chars": 5000, "token_budget": 2500},
+      "block_types": ["narrative"],
+      "must_include_facts": ["발주기관명", "사업명", "사업목적"],
+      "forbidden_patterns": ["~할 것임$", "~인 것으로 사료됨$"],
+      "evidence_policy": "required",
+      "subsections": [
+        {"id": "s01_1", "name": "사업 배경 및 목적", "instructions": "발주기관의 의도, 현재 문제점, 기대 변화를 RFP에서 추출"},
+        {"id": "s01_2", "name": "현황 분석", "block_types": ["narrative", "table"], "instructions": "AS-IS 현황과 문제점을 구체적 수치/사례로 기술", "conditions": {"min_budget_krw": 50000000}},
+        {"id": "s01_3", "name": "추진 방향", "instructions": "TO-BE 목표와 핵심 성공 요인을 정의"}
+      ]
+    },
+    {
+      "id": "s02", "name": "수행 전략", "level": 1, "required": true,
+      "weight": 0.12, "max_score": 15,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 2500, "max_chars": 6000, "token_budget": 3000},
+      "block_types": ["narrative"],
+      "must_include_facts": ["방법론명", "차별화포인트"],
+      "subsections": [
+        {"id": "s02_1", "name": "접근 방법론", "instructions": "워터폴/애자일/하이브리드 선택 근거"},
+        {"id": "s02_2", "name": "차별화 전략", "instructions": "기술적 강점, 유사 사업 경험"},
+        {"id": "s02_3", "name": "핵심 성공 요인", "instructions": "CSF 3~5개 도출"}
+      ]
+    },
+    {
+      "id": "s03", "name": "기술적 접근 방안", "level": 1, "required": true,
+      "weight": 0.15, "max_score": 20,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 3000, "max_chars": 8000, "token_budget": 4000},
+      "block_types": ["narrative", "chart"],
+      "must_include_facts": ["시스템 아키텍처", "개발 표준"],
+      "evidence_policy": "required",
+      "subsections": [
+        {"id": "s03_1", "name": "시스템 아키텍처", "instructions": "목표 아키텍처 설계 (MSA/모놀리식/하이브리드)"},
+        {"id": "s03_2", "name": "개발 표준 및 도구", "instructions": "개발 언어, 프레임워크, 코딩 표준"},
+        {"id": "s03_3", "name": "데이터 설계", "instructions": "DB 구조, 데이터 이관 전략"}
+      ]
+    },
+    {
+      "id": "s04", "name": "세부 수행 방안", "level": 1, "required": true,
+      "weight": 0.20, "max_score": 25,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 5000, "max_chars": 15000, "token_budget": 5000},
+      "block_types": ["narrative", "table", "chart"],
+      "must_include_facts": ["과업별 목표", "수행방법", "산출물"],
+      "fallback_text_policy": "generate_from_rfp",
+      "priority": 1,
+      "subsections": [
+        {"id": "s04_auto", "name": "(RFP 과업에서 자동 생성)", "dynamic": true, "instructions": "RFP 과업별 상세 수행방법, 산출물, 기대효과"}
+      ]
+    },
+    {
+      "id": "s05", "name": "추진 일정 및 WBS", "level": 1, "required": true,
+      "weight": 0.10, "max_score": 10,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 1500, "max_chars": 4000, "token_budget": 2000},
+      "block_types": ["narrative", "table", "chart"],
+      "subsections": [
+        {"id": "s05_1", "name": "전체 추진 일정", "block_types": ["narrative", "chart"], "instructions": "마일스톤 중심 일정 + 간트차트"},
+        {"id": "s05_2", "name": "WBS 상세", "block_types": ["table"], "render_mode": "data_table"}
+      ]
+    },
+    {
+      "id": "s06", "name": "투입인력 계획", "level": 1, "required": true,
+      "weight": 0.08, "max_score": 10,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 1500, "max_chars": 4000, "token_budget": 2000},
+      "block_types": ["narrative", "table"],
+      "subsections": [
+        {"id": "s06_1", "name": "투입인력 구성", "block_types": ["table"], "render_mode": "data_table"},
+        {"id": "s06_2", "name": "핵심인력 역량", "instructions": "PM, PL, 개발리더의 자격/경력/역할"}
+      ]
+    },
+    {
+      "id": "s07", "name": "품질관리 및 감리대응", "level": 1, "required": true,
+      "weight": 0.08, "max_score": 5,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 1500, "max_chars": 4000, "token_budget": 2000},
+      "block_types": ["narrative", "table"],
+      "subsections": [
+        {"id": "s07_1", "name": "품질관리 체계", "instructions": "ISO 25010 기반 품질관리 프로세스"},
+        {"id": "s07_2", "name": "감리 대응 방안", "instructions": "감리 단계별 대응 계획, 산출물 준비"}
+      ]
+    },
+    {
+      "id": "s08", "name": "보안관리", "level": 1, "required": true,
+      "weight": 0.07, "max_score": 5,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 1000, "max_chars": 3000, "token_budget": 1500},
+      "block_types": ["narrative", "table"],
+      "subsections": [
+        {"id": "s08_1", "name": "보안관리 체계", "instructions": "ISMS 기반 보안관리, 개인정보보호"},
+        {"id": "s08_2", "name": "보안 아키텍처", "instructions": "네트워크/시스템/애플리케이션 보안 설계"}
+      ]
+    },
+    {
+      "id": "s09", "name": "리스크 관리", "level": 1, "required": false,
+      "weight": 0.05, "max_score": 5,
+      "conditions": {"any_of": [{"min_budget_krw": 100000000}, {"min_duration_months": 6}]},
+      "fallback_text_policy": "use_boilerplate",
+      "generation_target": {"min_chars": 800, "max_chars": 2500, "token_budget": 1200},
+      "block_types": ["narrative", "table"],
+      "subsections": [
+        {"id": "s09_1", "name": "리스크 식별 및 대응", "block_types": ["narrative", "table"], "render_mode": "data_table"},
+        {"id": "s09_2", "name": "리스크 모니터링 계획"}
+      ]
+    },
+    {
+      "id": "s10", "name": "기대효과", "level": 1, "required": true,
+      "weight": 0.05, "max_score": 5,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 800, "max_chars": 2000, "token_budget": 1000},
+      "block_types": ["narrative"],
+      "subsections": [
+        {"id": "s10_1", "name": "정량적 효과", "instructions": "비용절감, 처리시간 단축 등 수치 기반"},
+        {"id": "s10_2", "name": "정성적 효과", "instructions": "행정 효율화, 사용자 만족도 등"}
+      ]
+    }
+  ]
+}

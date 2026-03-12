@@ -24,6 +24,14 @@ class MethodologyType(str, Enum):
     HYBRID = "hybrid"
 
 
+class DomainType(str, Enum):
+    IT_BUILD = "it_build"
+    RESEARCH = "research"
+    CONSULTING = "consulting"
+    EDUCATION_ODA = "education_oda"
+    GENERAL = "general"
+
+
 @dataclass
 class WbsTask:
     """단일 WBS 항목."""

@@ -26,6 +26,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import re as _re
+import time as _time
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -702,12 +703,83 @@ async def extract_checklist_endpoint(req: ChecklistRequest):
 class GenerateWbsRequest(BaseModel):
     rfx_result: RfxResultInput
     methodology: str = ""  # "waterfall" | "agile" | "hybrid" or empty for auto
+    use_pack: bool = False
 
 
 @app.post("/api/generate-wbs")
 @limiter.limit("5/minute")
 async def generate_wbs_endpoint(req: GenerateWbsRequest, request: Request):
     """Generate WBS (XLSX + Gantt + DOCX) from RFP analysis."""
+
+    # ── Pack-based pipeline (feature flag) ──
+    if req.use_pack:
+        from document_orchestrator import generate_document
+        from wbs_generator import generate_wbs_xlsx, generate_gantt_chart
+
+        rfx_dict = req.rfx_result.model_dump()
+        try:
+            result = await asyncio.to_thread(
+                generate_document,
+                rfx_result=rfx_dict,
+                doc_type="execution_plan",
+                output_dir=_PROPOSALS_DIR,
+                packs_dir=os.path.join(os.path.dirname(__file__), "..", "data", "company_packs"),
+                knowledge_db_path=_KNOWLEDGE_DB_DIR,
+                company_context="",
+            )
+        except Exception as exc:
+            logger.error("generate_document failed: %s\n%s", exc, traceback.format_exc())
+            raise HTTPException(status_code=500, detail="수행계획서 생성 실패") from exc
+
+        xlsx_path = ""
+        gantt_path = ""
+        if result.tasks:
+            ts = int(_time.time())
+            title = rfx_dict.get("title", "wbs")
+            safe = _re.sub(r"[^a-zA-Z0-9가-힣._\-]", "_", title[:50]).strip("_") or "wbs"
+            xlsx_path = os.path.join(_PROPOSALS_DIR, f"{safe}_WBS_{ts}.xlsx")
+            try:
+                generate_wbs_xlsx(
+                    tasks=result.tasks, personnel=result.personnel,
+                    title=title, total_months=result.total_months,
+                    output_path=xlsx_path,
+                )
+            except Exception as exc:
+                logger.error("XLSX generation failed: %s", exc)
+                xlsx_path = ""
+            gantt_path = os.path.join(_PROPOSALS_DIR, f"{safe}_간트차트_{ts}.png")
+            try:
+                generate_gantt_chart(
+                    tasks=result.tasks, total_months=result.total_months,
+                    output_path=gantt_path,
+                )
+            except Exception as exc:
+                logger.error("Gantt generation failed: %s", exc)
+                gantt_path = ""
+
+        return {
+            "xlsx_filename": os.path.basename(xlsx_path) if xlsx_path else "",
+            "gantt_filename": os.path.basename(gantt_path) if gantt_path else "",
+            "docx_filename": os.path.basename(result.docx_path) if result.docx_path else "",
+            "tasks_count": len(result.tasks),
+            "total_months": result.total_months,
+            "generation_time_sec": result.generation_time_sec,
+            "methodology": "",
+            "tasks": [
+                {
+                    "phase": t.phase,
+                    "task_name": t.task_name,
+                    "start_month": t.start_month,
+                    "duration_months": t.duration_months,
+                    "responsible_role": t.responsible_role,
+                }
+                for t in result.tasks
+            ],
+            "domain_type": result.domain_type,
+            "quality_issues_count": len(result.quality_issues),
+        }
+
+    # ── Legacy pipeline (default) ──
     from wbs_orchestrator import generate_wbs as _generate_wbs
     from phase2_models import MethodologyType
 

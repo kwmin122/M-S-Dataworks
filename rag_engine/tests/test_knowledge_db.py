@@ -78,3 +78,18 @@ def test_add_batch(tmp_db):
     ]
     tmp_db.add_batch(units)
     assert tmp_db.count() == 5
+
+
+def test_search_with_domain_type_filter(tmp_db):
+    tmp_db.add(KnowledgeUnit(
+        category=KnowledgeCategory.WRITING,
+        subcategory="research_method",
+        rule="연구 수행계획서에는 연구 방법론을 명시한다",
+        explanation="연구개발 과제에서 방법론 설명은 핵심 평가 항목이다.",
+        source_type=SourceType.BLOG,
+        raw_confidence=0.8,
+    ))
+    results = tmp_db.search(
+        "수행계획서", top_k=5, domain_type="research"
+    )
+    assert isinstance(results, list)

@@ -12,6 +12,7 @@ from openai import OpenAI
 
 from knowledge_models import KnowledgeUnit, ProposalSection, StrategyMemo
 from llm_utils import call_with_retry, LLM_DEFAULT_TIMEOUT
+from pack_models import PackSection as PackSectionModel, BoilerplateEntry
 
 SYSTEM_PROMPT = """당신은 대한민국 공공조달 기술제안서 작성 전문가입니다.
 평가위원이 높은 점수를 줄 수 있도록, 구체적이고 전문적인 제안서 섹션을 작성합니다.
@@ -203,3 +204,112 @@ def rewrite_section(
     )
 
     return _call_llm_for_section(rewrite_prompt, api_key, middleware=middleware)
+
+
+def assemble_pack_prompt(
+    section: PackSectionModel,
+    rfp_context: str,
+    knowledge_texts: list[str] | None = None,
+    company_context: str = "",
+    boilerplates: list[BoilerplateEntry] | None = None,
+    exemplar_texts: list[str] | None = None,
+    strategy_memo: Optional[StrategyMemo] = None,
+    domain_system_prompt: str = "",
+    dynamic_subsections: list[str] | None = None,
+) -> str:
+    """Assemble Pack-based prompt for section writing.
+
+    See spec S5 Step 5 -- 9-layer prompt structure.
+    """
+    parts: list[str] = []
+
+    # 1 Domain system prompt
+    if domain_system_prompt:
+        parts.append(f"## 시스템 역할:\n{domain_system_prompt}")
+
+    # 2 Exemplars
+    if exemplar_texts:
+        parts.append("## 참고할 좋은 예시:\n" + "\n".join(f"- {e}" for e in exemplar_texts[:3]))
+
+    # 3 Boilerplates (merge mode only -- prepend/append handled by caller)
+    if boilerplates:
+        merge_bps = [bp for bp in boilerplates if bp.mode == "merge" and bp.section_id == section.id]
+        if merge_bps:
+            parts.append("## 반드시 포함해야 할 내용 (자연스럽게 통합):\n"
+                         + "\n".join(f"- {bp.text}" for bp in merge_bps))
+
+    # 4 Forbidden/preferred patterns
+    if section.forbidden_patterns:
+        parts.append("## 금지 표현 (절대 사용 금지):\n" + "\n".join(f"- {p}" for p in section.forbidden_patterns))
+    if section.must_include_facts:
+        parts.append("## 반드시 포함할 사실:\n" + "\n".join(f"- {f}" for f in section.must_include_facts))
+
+    # 5 Layer 1 knowledge
+    if knowledge_texts:
+        parts.append("## 공공조달 작성 규칙:\n" + "\n".join(f"- {t}" for t in knowledge_texts[:7]))
+
+    # 6 Company context
+    if company_context:
+        parts.append(f"## 회사 역량/스타일:\n{company_context}")
+
+    # 7 RFP context
+    parts.append(f"## 이번 공고 정보:\n{rfp_context}")
+
+    # 8 Section instructions + constraints
+    gt = section.generation_target
+    min_chars = gt.min_chars if gt else 1000
+    max_chars = gt.max_chars if gt else 5000
+
+    task_desc = (
+        f"## 작성할 섹션: {section.name}\n"
+        f"배점: {section.max_score}점\n"
+        f"목표 분량: {min_chars}~{max_chars}자\n"
+    )
+    if dynamic_subsections:
+        task_desc += f"하위 과업 (각각 상세 서술):\n" + "\n".join(f"  - {s}" for s in dynamic_subsections) + "\n"
+
+    # 9 Narrative quality rules
+    task_desc += (
+        "\n작성 규칙:\n"
+        "- 구체적 수치/근거 기반 서술 (추상적 표현 금지)\n"
+        "- 각 주장에 '왜'와 '어떻게'를 명시\n"
+        "- 풍부한 산문으로 작성 (표만으로 구성 금지)\n"
+        "- 마크다운 형식 (## 제목, - 목록, **강조**, 표)"
+    )
+    parts.append(task_desc)
+
+    return "\n\n".join(parts)
+
+
+def call_llm_for_pack_section(
+    prompt: str,
+    system_prompt: str = "",
+    api_key: Optional[str] = None,
+    middleware=None,
+) -> str:
+    """Public wrapper for Pack-based section LLM calls.
+
+    Unlike internal _call_llm_for_section, accepts custom system_prompt
+    for domain-specific generation.
+    """
+    sys_prompt = system_prompt or SYSTEM_PROMPT
+    client = OpenAI(
+        api_key=api_key or os.environ.get("OPENAI_API_KEY"),
+        timeout=LLM_DEFAULT_TIMEOUT,
+    )
+
+    def _do_call():
+        return client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.4,
+            max_tokens=4000,
+        )
+
+    retried = lambda: call_with_retry(_do_call)
+    fn = middleware.wrap(retried, caller_name="section_writer_pack") if middleware else retried
+    resp = fn()
+    return resp.choices[0].message.content or ""

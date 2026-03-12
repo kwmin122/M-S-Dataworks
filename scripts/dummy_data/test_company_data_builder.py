@@ -2,16 +2,19 @@ import sys
 import os
 
 # Add paths
-current_dir = os.path.dirname(__file__)
+current_dir = os.path.dirname(os.path.abspath(__file__))
 rag_engine_path = os.path.abspath(os.path.join(current_dir, '..', '..', 'rag_engine'))
 if rag_engine_path not in sys.path:
     sys.path.insert(0, rag_engine_path)
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
 
 from company_data_builder import load_company_to_db
 from company_db import CompanyDB
 
-def test_load_company_basic():
+def test_load_company_basic(tmp_path):
     """CompanyDB 기본 적재 테스트"""
+    db_dir = str(tmp_path / "company_db")
     company_id = "test_company_001"
     profile = {
         "name": "테스트회사",
@@ -42,18 +45,19 @@ def test_load_company_basic():
         }
     ]
 
-    load_company_to_db(company_id, profile, projects, personnel)
+    load_company_to_db(company_id, profile, projects, personnel, persist_directory=db_dir)
 
     # 검증 — semantic search로 확인
-    db = CompanyDB()
+    db = CompanyDB(persist_directory=db_dir)
     results = db.search_similar_projects("클라우드 전환", top_k=3)
     assert len(results) >= 1
     # 메타데이터에서 프로젝트명 확인
     project_names = [r['metadata'].get('project_name') for r in results]
     assert "테스트 프로젝트 1" in project_names
 
-def test_load_company_personnel():
+def test_load_company_personnel(tmp_path):
     """인력 정보 적재 테스트"""
+    db_dir = str(tmp_path / "company_db")
     company_id = "test_company_002"
     profile = {"name": "인력테스트회사", "employees": 50}
     projects = []
@@ -68,10 +72,10 @@ def test_load_company_personnel():
         }
     ]
 
-    load_company_to_db(company_id, profile, projects, personnel)
+    load_company_to_db(company_id, profile, projects, personnel, persist_directory=db_dir)
 
     # 검증
-    db = CompanyDB()
+    db = CompanyDB(persist_directory=db_dir)
     results = db.find_matching_personnel("프로젝트 관리 경험자", top_k=3)
     assert len(results) >= 1
     personnel_names = [r['metadata'].get('name') for r in results]

@@ -73,3 +73,61 @@ def check_quality(
             ))
 
     return issues
+
+
+def check_quality_with_pack(
+    text: str,
+    company_name: Optional[str] = None,
+    must_include_facts: Optional[list[str]] = None,
+    forbidden_patterns: Optional[list[str]] = None,
+    min_chars: int = 0,
+    max_chars: int = 0,
+) -> list[QualityIssue]:
+    """Pack-aware quality check extending base check_quality().
+
+    Adds: must_include_facts, forbidden_patterns, length constraints.
+    """
+    # Start with existing checks
+    issues = check_quality(text, company_name)
+
+    # Must-include facts
+    for fact in (must_include_facts or []):
+        if fact not in text:
+            issues.append(QualityIssue(
+                category="missing_fact",
+                severity="warning",
+                detail=f"필수 포함 사실 '{fact}' 미발견",
+                suggestion=f"'{fact}'에 대한 내용을 추가하세요",
+            ))
+
+    # Forbidden patterns
+    for pattern in (forbidden_patterns or []):
+        try:
+            if re.search(pattern, text):
+                issues.append(QualityIssue(
+                    category="forbidden_pattern",
+                    severity="warning",
+                    detail=f"금지 패턴 '{pattern}' 발견",
+                    suggestion="해당 표현을 구체적/전문적 표현으로 교체",
+                ))
+        except re.error:
+            pass  # invalid regex in pack config -- skip
+
+    # Length constraints
+    text_len = len(text)
+    if min_chars and text_len < min_chars:
+        issues.append(QualityIssue(
+            category="length_violation",
+            severity="warning",
+            detail=f"텍스트 길이({text_len}자)가 최소 기준({min_chars}자) 미달",
+            suggestion=f"최소 {min_chars}자 이상으로 보강",
+        ))
+    if max_chars and text_len > max_chars:
+        issues.append(QualityIssue(
+            category="length_violation",
+            severity="info",
+            detail=f"텍스트 길이({text_len}자)가 최대 기준({max_chars}자) 초과",
+            suggestion=f"핵심 내용 중심으로 {max_chars}자 이내로 축소",
+        ))
+
+    return issues

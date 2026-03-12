@@ -1,0 +1,28 @@
+{
+  "domain_type": "general",
+  "roles": [
+    {"id": "pm", "name": "PM", "grade": "특급", "aliases": ["프로젝트관리자", "사업총괄"]},
+    {"id": "senior_specialist", "name": "수석전문가", "grade": "특급", "aliases": ["수석연구원", "책임전문가"]},
+    {"id": "specialist", "name": "전문가", "grade": "고급", "aliases": ["선임전문가", "선임연구원"]},
+    {"id": "researcher", "name": "연구원", "grade": "중급", "aliases": ["주임연구원", "담당자"]}
+  ],
+  "phases": [
+    {"id": "kickoff", "name": "착수", "aliases": ["사업착수", "킥오프"]},
+    {"id": "execution", "name": "실행", "aliases": ["수행", "본수행"]},
+    {"id": "closing", "name": "마무리", "aliases": ["종료", "사업종료", "최종보고"]}
+  ],
+  "methodologies": [
+    {"id": "general", "name": "일반수행방법론", "aliases": ["표준수행절차"]}
+  ],
+  "deliverables_common": ["착수보고서", "중간보고서", "최종보고서", "결과물"],
+  "organization_terms": {
+    "client": ["발주기관", "발주처", "고객"],
+    "team": ["수행팀", "사업팀", "수행사"]
+  },
+  "common_risks": [
+    {"risk": "요구사항 변경", "mitigation": "변경관리 프로세스 수립, 정기 협의"},
+    {"risk": "일정 지연", "mitigation": "마일스톤 관리, 주간 진척 점검"},
+    {"risk": "의사소통 부족", "mitigation": "정기 보고 체계, 협의체 운영"}
+  ],
+  "quality_frameworks": ["ISO9001"]
+}

@@ -32,16 +32,34 @@ def test_web_runtime_session_bootstrap() -> None:
     assert data["company_chunks"] == 0
 
 
-def test_analyze_text_requires_company_documents() -> None:
+def test_analyze_text_without_company_documents_returns_no_matching(monkeypatch) -> None:
+    from unittest.mock import MagicMock, patch
+    from rfx_analyzer import RFxAnalysisResult
+
+    # Mock RFxAnalyzer to avoid real OpenAI call
+    fake_analysis = RFxAnalysisResult(
+        title="테스트", issuing_org="기관", requirements=[]
+    )
+    mock_analyzer_cls = MagicMock()
+    mock_analyzer_cls.return_value.analyze_text.return_value = fake_analysis
+    monkeypatch.setattr(web_main, "RFxAnalyzer", mock_analyzer_cls)
+
     create_resp = client.post("/api/session")
     session_id = create_resp.json()["session_id"]
+
+    # Mock rfx_rag_engine methods to avoid embedding API calls
+    session = web_main.SESSIONS[session_id]
+    session.rfx_rag_engine = MagicMock()
 
     analyze_resp = client.post(
         "/api/analyze/text",
         json={"session_id": session_id, "document_text": "테스트 문서"},
     )
-    assert analyze_resp.status_code == 400
-    assert "회사 문서를 먼저 업로드" in analyze_resp.json()["detail"]
+    assert analyze_resp.status_code == 200
+    data = analyze_resp.json()
+    assert data["ok"] is True
+    assert data["company_chunks"] == 0
+    assert data["matching"] is None
 
 
 @pytest.mark.skip(reason="Tool Use: off-topic now handled by LLM general_response, not blocked")
@@ -187,13 +205,7 @@ def test_google_callback_sets_session_cookie_and_auth_me(monkeypatch) -> None:
     assert payload["user"]["email"] == "e2e@example.com"
 
 
-def test_chat_gap_query_returns_no_gap_when_latest_matching_is_all_met(monkeypatch) -> None:
-    monkeypatch.setattr(
-        web_main,
-        "apply_context_policy",
-        lambda decision, has_context, relevance_score, min_relevance_score: decision,
-    )
-
+def test_chat_gap_query_returns_no_gap_when_latest_matching_is_all_met() -> None:
     create_resp = client.post("/api/session")
     session_id = create_resp.json()["session_id"]
     session = web_main.SESSIONS[session_id]
@@ -224,13 +236,7 @@ def test_chat_gap_query_returns_no_gap_when_latest_matching_is_all_met(monkeypat
     assert "미충족/보완 필요 항목이 없습니다" in data["answer"]
 
 
-def test_chat_gap_query_returns_gap_list_when_latest_matching_has_issues(monkeypatch) -> None:
-    monkeypatch.setattr(
-        web_main,
-        "apply_context_policy",
-        lambda decision, has_context, relevance_score, min_relevance_score: decision,
-    )
-
+def test_chat_gap_query_returns_gap_list_when_latest_matching_has_issues() -> None:
     create_resp = client.post("/api/session")
     session_id = create_resp.json()["session_id"]
     session = web_main.SESSIONS[session_id]

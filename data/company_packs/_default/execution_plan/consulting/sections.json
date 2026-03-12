@@ -1,0 +1,133 @@
+{
+  "document_type": "execution_plan",
+  "domain_type": "consulting",
+  "sections": [
+    {
+      "id": "s01", "name": "사업이해 및 추진배경", "level": 1, "required": true,
+      "weight": 0.10, "max_score": 10,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 2000, "max_chars": 5000, "token_budget": 2500},
+      "block_types": ["narrative"],
+      "must_include_facts": ["발주기관명", "사업명", "컨설팅목적"],
+      "forbidden_patterns": ["~할 것임$", "~인 것으로 사료됨$"],
+      "evidence_policy": "required",
+      "subsections": [
+        {"id": "s01_1", "name": "사업 추진 배경", "block_types": ["narrative"], "instructions": "발주기관의 정책/경영 환경 변화, 현재 문제점, 컨설팅 필요성을 RFP에서 추출하여 서술"},
+        {"id": "s01_2", "name": "사업 목적 및 범위", "block_types": ["narrative"], "instructions": "컨설팅의 최종 목표, 기대 산출물, 과업 범위(포함/제외)를 구체적으로 정의"}
+      ]
+    },
+    {
+      "id": "s02", "name": "진단방법론", "level": 1, "required": true,
+      "weight": 0.15, "max_score": 15,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 2500, "max_chars": 6000, "token_budget": 3000},
+      "block_types": ["narrative", "chart"],
+      "must_include_facts": ["현황진단방법", "GAP분석", "개선방향"],
+      "evidence_policy": "required",
+      "subsections": [
+        {"id": "s02_1", "name": "컨설팅 방법론 개요", "block_types": ["narrative", "chart"], "instructions": "ISP/BPR/PI/전략수립 등 적용 방법론 제시, 방법론 선택 근거 및 적용 프레임워크 설명"},
+        {"id": "s02_2", "name": "현황진단 접근방법", "block_types": ["narrative"], "instructions": "AS-IS 현황 분석 방법, 인터뷰/워크샵/설문 등 진단 도구 상세 기술"},
+        {"id": "s02_3", "name": "GAP분석 및 목표모델 수립", "block_types": ["narrative", "chart"], "instructions": "AS-IS vs TO-BE GAP 분석 방법, 목표모델(TO-BE) 도출 프레임워크"}
+      ]
+    },
+    {
+      "id": "s03", "name": "현황진단계획", "level": 1, "required": true,
+      "weight": 0.12, "max_score": 12,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 2000, "max_chars": 5500, "token_budget": 2500},
+      "block_types": ["narrative", "table"],
+      "must_include_facts": ["진단대상", "진단항목", "진단방법"],
+      "evidence_policy": "required",
+      "subsections": [
+        {"id": "s03_1", "name": "진단 대상 및 범위", "block_types": ["narrative", "table"], "instructions": "진단 대상 조직/시스템/프로세스 정의, 진단 범위 명확화"},
+        {"id": "s03_2", "name": "진단 항목 및 기준", "block_types": ["table"], "render_mode": "data_table", "instructions": "분야별 진단 항목, 평가 기준, 성숙도 모델 적용 방안"},
+        {"id": "s03_3", "name": "데이터 수집 계획", "block_types": ["narrative"], "instructions": "인터뷰 대상, 설문 설계, 문서 검토, 벤치마킹 계획"}
+      ]
+    },
+    {
+      "id": "s04", "name": "개선방안수립 방법", "level": 1, "required": true,
+      "weight": 0.15, "max_score": 15,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 3000, "max_chars": 8000, "token_budget": 4000},
+      "block_types": ["narrative", "table", "chart"],
+      "must_include_facts": ["개선과제", "우선순위", "실행방안"],
+      "evidence_policy": "required",
+      "fallback_text_policy": "generate_from_rfp",
+      "priority": 1,
+      "subsections": [
+        {"id": "s04_auto", "name": "(RFP 과업에서 자동 생성)", "dynamic": true, "instructions": "RFP의 각 과업을 세부 섹션으로 분해. 과업별 개선 목표/방법/산출물/기대효과를 서술"}
+      ]
+    },
+    {
+      "id": "s05", "name": "실행지원 계획", "level": 1, "required": true,
+      "weight": 0.10, "max_score": 10,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 1500, "max_chars": 4000, "token_budget": 2000},
+      "block_types": ["narrative", "table"],
+      "must_include_facts": ["실행지원방안", "의사소통계획"],
+      "evidence_policy": "recommended",
+      "subsections": [
+        {"id": "s05_1", "name": "컨설팅 실행 지원 체계", "block_types": ["narrative"], "instructions": "개선방안 실행 중 컨설팅 지원 방법, 의사결정 지원, 현장 코칭 방안"},
+        {"id": "s05_2", "name": "의사소통 및 보고 체계", "block_types": ["table"], "render_mode": "data_table", "instructions": "정기보고, 임시보고, 협의체 운영 계획"}
+      ]
+    },
+    {
+      "id": "s06", "name": "변화관리 방안", "level": 1, "required": true,
+      "weight": 0.08, "max_score": 8,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 1200, "max_chars": 3500, "token_budget": 1800},
+      "block_types": ["narrative"],
+      "must_include_facts": ["변화관리전략", "이해관계자관리"],
+      "fallback_text_policy": "use_boilerplate",
+      "subsections": [
+        {"id": "s06_1", "name": "변화관리 전략", "instructions": "조직 변화 저항 관리, 이해관계자 참여 전략, 조직문화 변화 방안"},
+        {"id": "s06_2", "name": "교육 및 역량강화 계획", "instructions": "개선방안 실행에 필요한 내부 역량강화 교육 계획"}
+      ]
+    },
+    {
+      "id": "s07", "name": "추진일정", "level": 1, "required": true,
+      "weight": 0.08, "max_score": 8,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 1500, "max_chars": 4000, "token_budget": 2000},
+      "block_types": ["narrative", "table", "chart"],
+      "subsections": [
+        {"id": "s07_1", "name": "컨설팅 추진 일정", "block_types": ["narrative", "chart"], "instructions": "단계별 마일스톤 중심 일정 서술 + 간트차트"},
+        {"id": "s07_2", "name": "WBS 상세", "block_types": ["table"], "render_mode": "data_table", "instructions": "WBS 표 (schedule_planner가 데이터 생성)"}
+      ]
+    },
+    {
+      "id": "s08", "name": "투입인력 구성", "level": 1, "required": true,
+      "weight": 0.08, "max_score": 8,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 1500, "max_chars": 4000, "token_budget": 2000},
+      "block_types": ["narrative", "table"],
+      "subsections": [
+        {"id": "s08_1", "name": "컨설팅팀 구성", "block_types": ["table"], "render_mode": "data_table", "instructions": "PM, 수석/책임/선임 컨설턴트, ISP전문가, 현장조사원 등 역할별 투입인력"},
+        {"id": "s08_2", "name": "핵심인력 역량", "block_types": ["narrative"], "instructions": "PM, 수석 컨설턴트 등 핵심인력의 전문분야/경력/자격/유사 프로젝트 수행 실적"}
+      ]
+    },
+    {
+      "id": "s09", "name": "품질관리 계획", "level": 1, "required": true,
+      "weight": 0.07, "max_score": 7,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 1000, "max_chars": 3000, "token_budget": 1500},
+      "block_types": ["narrative", "table"],
+      "fallback_text_policy": "use_boilerplate",
+      "subsections": [
+        {"id": "s09_1", "name": "산출물 품질 관리 체계", "instructions": "컨설팅 산출물 검토 절차, 내부 리뷰, 고객 검수 기준"},
+        {"id": "s09_2", "name": "리스크 관리 방안", "instructions": "주요 리스크 식별, 사전 예방 및 대응 계획"}
+      ]
+    },
+    {
+      "id": "s10", "name": "기대효과 및 성과지표", "level": 1, "required": false,
+      "weight": 0.07, "max_score": 7,
+      "conditions": {"always": true},
+      "generation_target": {"min_chars": 800, "max_chars": 2500, "token_budget": 1200},
+      "block_types": ["narrative", "table"],
+      "subsections": [
+        {"id": "s10_1", "name": "정량적/정성적 기대효과", "instructions": "컨설팅 수행으로 인한 조직 효율성, 비용절감, 역량강화 등 기대효과"},
+        {"id": "s10_2", "name": "성과 측정 지표", "instructions": "KPI 설정, 성과 측정 방법 및 시기"}
+      ]
+    }
+  ]
+}
