@@ -14,6 +14,7 @@ import json
 import os
 import secrets
 import sqlite3
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -52,11 +53,16 @@ def username_to_scope(username: str) -> str:
     return _to_slug(username)
 
 
-def _connect() -> sqlite3.Connection:
+@contextmanager
+def _connect():
+    """Yield a sqlite3 connection that is properly closed on exit."""
     BASE_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def init_user_store() -> None:

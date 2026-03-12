@@ -25,10 +25,18 @@ export default defineConfig({
     },
   },
   build: {
+    // @mdxeditor/editor is ~656KB monolithic (lazy-loaded, settings page only).
+    // Remaining app code is well-split across 7 vendor chunks.
+    chunkSizeWarningLimit: 700,
     rollupOptions: {
       output: {
         manualChunks: {
           'pdf-viewer': ['react-pdf', 'pdfjs-dist'],
+          'markdown-editor': ['@mdxeditor/editor'],
+          'recharts-vendor': ['recharts'],
+          'animations': ['framer-motion'],
+          'router-icons': ['react-router-dom', 'lucide-react'],
+          'markdown-render': ['react-markdown', 'remark-gfm'],
         },
       },
     },

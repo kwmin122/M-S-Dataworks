@@ -34,11 +34,6 @@ _TEST_USERNAME = "test-payment-user@example.com"
 _TEST_TOKEN = "test-payment-session-token"
 
 
-def _auth_cookie() -> dict[str, str]:
-    """테스트용 인증 쿠키."""
-    return {"kira_auth": _TEST_TOKEN}
-
-
 def _cleanup_sub():
     """테스트 구독 파일 정리."""
     safe = _safe_username_for_path(_TEST_USERNAME)
@@ -49,10 +44,12 @@ def _cleanup_sub():
 
 @pytest.fixture(autouse=True)
 def _setup_teardown():
-    """각 테스트 전후 정리."""
+    """각 테스트 전후 정리 + 클라이언트 쿠키 설정."""
     _cleanup_sub()
+    client.cookies.set("kira_auth", _TEST_TOKEN)
     yield
     _cleanup_sub()
+    client.cookies.clear()
 
 
 # ── _safe_username_for_path 단위 테스트 ──
@@ -120,7 +117,7 @@ class TestVerifyAmount:
         resp = client.post(
             "/api/payments/verify-amount",
             json={"plan": "pro"},
-            cookies=_auth_cookie(),
+
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -132,7 +129,7 @@ class TestVerifyAmount:
         resp = client.post(
             "/api/payments/verify-amount",
             json={"plan": "platinum"},
-            cookies=_auth_cookie(),
+
         )
         assert resp.status_code == 400
 
@@ -146,7 +143,7 @@ class TestBillingKey:
         resp = client.post(
             "/api/payments/billing-key",
             json={"billingKey": "", "plan": "pro", "cardLast4": "1234"},
-            cookies=_auth_cookie(),
+
         )
         assert resp.status_code == 400
 
@@ -155,7 +152,7 @@ class TestBillingKey:
         resp = client.post(
             "/api/payments/billing-key",
             json={"billingKey": "bk_test", "plan": "free", "cardLast4": ""},
-            cookies=_auth_cookie(),
+
         )
         assert resp.status_code == 400
 
@@ -169,7 +166,7 @@ class TestBillingKey:
         resp = client.post(
             "/api/payments/billing-key",
             json={"billingKey": "bk_test_123", "plan": "pro", "cardLast4": "4242"},
-            cookies=_auth_cookie(),
+
         )
         assert resp.status_code == 200
         sub = resp.json()["subscription"]
@@ -190,13 +187,13 @@ class TestBillingKey:
         client.post(
             "/api/payments/billing-key",
             json={"billingKey": "bk_test_1", "plan": "pro", "cardLast4": "4242"},
-            cookies=_auth_cookie(),
+
         )
         # 중복 등록 시도
         resp = client.post(
             "/api/payments/billing-key",
             json={"billingKey": "bk_test_2", "plan": "pro", "cardLast4": "4242"},
-            cookies=_auth_cookie(),
+
         )
         assert resp.status_code == 200
         assert "이미 동일 플랜" in resp.json().get("message", "")
@@ -211,7 +208,7 @@ class TestBillingKey:
         resp = client.post(
             "/api/payments/billing-key",
             json={"billingKey": "fake_key", "plan": "pro", "cardLast4": "0000"},
-            cookies=_auth_cookie(),
+
         )
         assert resp.status_code == 400
         assert "유효하지 않은 빌링키" in resp.json()["detail"]
@@ -224,8 +221,7 @@ class TestGetSubscription:
     @patch("services.web_app.main.resolve_user_from_session", return_value=_TEST_USERNAME)
     def test_no_subscription_returns_free(self, _mock):
         resp = client.get(
-            "/api/payments/subscription", cookies=_auth_cookie()
-        )
+            "/api/payments/subscription"        )
         assert resp.status_code == 200
         sub = resp.json()["subscription"]
         assert sub["plan"] == "free"
@@ -242,12 +238,11 @@ class TestGetSubscription:
         client.post(
             "/api/payments/billing-key",
             json={"billingKey": "bk_secret", "plan": "pro", "cardLast4": "1234"},
-            cookies=_auth_cookie(),
+
         )
         # 조회
         resp = client.get(
-            "/api/payments/subscription", cookies=_auth_cookie()
-        )
+            "/api/payments/subscription"        )
         sub = resp.json()["subscription"]
         assert sub["plan"] == "pro"
         assert "billingKey" not in sub
@@ -260,8 +255,7 @@ class TestCancelSubscription:
     @patch("services.web_app.main.resolve_user_from_session", return_value=_TEST_USERNAME)
     def test_cancel_without_subscription_fails(self, _mock):
         resp = client.post(
-            "/api/payments/cancel", json={}, cookies=_auth_cookie()
-        )
+            "/api/payments/cancel", json={}        )
         assert resp.status_code == 400
 
     @patch("services.web_app.main.resolve_user_from_session", return_value=_TEST_USERNAME)
@@ -275,12 +269,11 @@ class TestCancelSubscription:
         client.post(
             "/api/payments/billing-key",
             json={"billingKey": "bk_cancel_test", "plan": "pro", "cardLast4": "5678"},
-            cookies=_auth_cookie(),
+
         )
         # 해지
         resp = client.post(
-            "/api/payments/cancel", json={}, cookies=_auth_cookie()
-        )
+            "/api/payments/cancel", json={}        )
         assert resp.status_code == 200
         sub = resp.json()["subscription"]
         assert sub["status"] == "cancelled"
@@ -409,7 +402,7 @@ class TestBillingKeyFormat:
             resp = client.post(
                 "/api/payments/billing-key",
                 json={"billingKey": "bk_invalid_format", "plan": "pro", "cardLast4": "1234"},
-                cookies=_auth_cookie(),
+    
             )
             assert resp.status_code == 400
             assert "유효하지 않은 빌링키" in resp.json()["detail"]
@@ -425,7 +418,7 @@ class TestBillingKeyFormat:
                     "plan": "pro",
                     "cardLast4": "1234",
                 },
-                cookies=_auth_cookie(),
+    
             )
             assert resp.status_code == 503
 
@@ -448,7 +441,7 @@ class TestSendAlertNowAuth:
         resp = client.post(
             "/api/alerts/send-now",
             json={},
-            cookies=_auth_cookie(),
+
         )
         assert resp.status_code == 400
 
@@ -463,7 +456,7 @@ class TestUploadFilenameTraversal:
         resp = client.post(
             "/api/company/profile",
             files=[("files", (malicious_name, io.BytesIO(file_content), "application/pdf"))],
-            cookies=_auth_cookie(),
+
         )
         # os.path.basename이 적용되어 정상 처리됨
         assert resp.status_code == 200
