@@ -461,20 +461,20 @@ export interface CompanyDbStats {
   total_knowledge_units: number;
 }
 
-export async function addTrackRecord(record: TrackRecordInput, companyId: string = '_default'): Promise<{ id: string; total: number }> {
+export async function addTrackRecord(record: TrackRecordInput, companyId: string = '_default', sessionId: string = ''): Promise<{ id: string; total: number }> {
   const res = await fetchWithError(`${API_BASE_URL}/api/company-db/track-records`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...record, company_id: companyId }),
+    body: JSON.stringify({ ...record, company_id: companyId, session_id: sessionId }),
   });
   return parseJson<{ id: string; total: number }>(res);
 }
 
-export async function addPersonnel(person: PersonnelInput, companyId: string = '_default'): Promise<{ id: string; total: number }> {
+export async function addPersonnel(person: PersonnelInput, companyId: string = '_default', sessionId: string = ''): Promise<{ id: string; total: number }> {
   const res = await fetchWithError(`${API_BASE_URL}/api/company-db/personnel`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...person, company_id: companyId }),
+    body: JSON.stringify({ ...person, company_id: companyId, session_id: sessionId }),
   });
   return parseJson<{ id: string; total: number }>(res);
 }
@@ -1035,11 +1035,12 @@ export async function getCompanyDBProfile(companyId: string = '_default'): Promi
 export async function updateCompanyDBProfile(
   data: { company_name: string },
   companyId: string = '_default',
+  sessionId: string = '',
 ): Promise<{ success: boolean }> {
   const res = await fetchWithError(`${API_BASE_URL}/api/company-db/profile`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...data, company_id: companyId }),
+    body: JSON.stringify({ ...data, company_id: companyId, session_id: sessionId }),
   });
   return parseJson<{ success: boolean }>(res);
 }

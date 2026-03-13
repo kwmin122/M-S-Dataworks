@@ -26,10 +26,10 @@ const UPLOAD_ACCEPT = '.pdf,.doc,.docx,.txt,.hwp,.hwpx,.xlsx,.xls,.csv,.pptx,.pp
 
 const DOC_HISTORY_MAX = 10;
 
-/** Push a new entry to a localStorage document history array (max DOC_HISTORY_MAX). */
+/** Push a new entry to a sessionStorage document history array (max DOC_HISTORY_MAX). */
 function pushDocHistory<T>(key: string, data: T, label: string): void {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = sessionStorage.getItem(key);
     let arr: Array<{ id: string; timestamp: number; label: string; data: T }> = [];
     if (raw) {
       const parsed = JSON.parse(raw);
@@ -42,7 +42,7 @@ function pushDocHistory<T>(key: string, data: T, label: string): void {
     }
     const entry = { id: `doc_${Date.now()}`, timestamp: Date.now(), label, data };
     arr = [entry, ...arr].slice(0, DOC_HISTORY_MAX);
-    localStorage.setItem(key, JSON.stringify(arr));
+    sessionStorage.setItem(key, JSON.stringify(arr));
   } catch { /* noop */ }
 }
 
@@ -1382,7 +1382,7 @@ export function useConversationFlow() {
 
           const format = action.format || 'docx';
           const formatName = format === 'hwpx' ? 'HWPX' : 'DOCX';
-          const companyId = localStorage.getItem('kira_company_id') || '_default';
+          const companyId = sessionStorage.getItem('kira_company_id') || '_default';
 
           setProcessing(true);
           pushStatus('loading', `A-lite 제안서(${formatName})를 생성하고 있어요... (약 3~5분 소요)`);
@@ -1461,7 +1461,7 @@ export function useConversationFlow() {
 
           try {
             const usePack = localStorage.getItem('kira_use_pack') === 'true';
-            const companyId = localStorage.getItem('kira_company_id') || '_default';
+            const companyId = sessionStorage.getItem('kira_company_id') || '_default';
             const result = await api.generateWbs(conversation.sessionId, undefined, usePack, companyId);
             removeLastStatus();
 
@@ -1502,7 +1502,7 @@ export function useConversationFlow() {
 
           setProcessing(true);
           pushStatus('loading', 'PPT 발표자료를 생성하고 있어요... (약 3~5분 소요)');
-          const companyId = localStorage.getItem('kira_company_id') || '_default';
+          const companyId = sessionStorage.getItem('kira_company_id') || '_default';
 
           try {
             const result = await api.generatePpt(conversation.sessionId, 30, 10, companyId);
@@ -1543,7 +1543,7 @@ export function useConversationFlow() {
 
           setProcessing(true);
           pushStatus('loading', '실적/경력 기술서를 생성하고 있어요... (약 2~3분 소요)');
-          const companyId = localStorage.getItem('kira_company_id') || '_default';
+          const companyId = sessionStorage.getItem('kira_company_id') || '_default';
 
           try {
             const result = await api.generateTrackRecord(conversation.sessionId, companyId);

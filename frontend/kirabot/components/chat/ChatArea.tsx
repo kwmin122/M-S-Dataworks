@@ -38,7 +38,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({ user }) => {
   };
 
   const handleOnboardingComplete = (companyName: string) => {
-    localStorage.setItem('kira_company_id', sanitizeCompanyId(companyName));
+    sessionStorage.setItem('kira_company_id', sanitizeCompanyId(companyName));
     // Update conversation with company name
     if (conversation) {
       dispatch({
@@ -98,16 +98,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({ user }) => {
   useEffect(() => {
     if (isOnboardingModalOpen) return;
     if (conversation?.phase !== 'greeting') return;
-    const companyId = localStorage.getItem('kira_company_id');
+    const companyId = sessionStorage.getItem('kira_company_id');
     if (companyId) return;
-    const dismissed = localStorage.getItem('kira_onboarding_dismissed');
+    const dismissed = sessionStorage.getItem('kira_onboarding_dismissed');
     if (dismissed) return;
 
     let cancelled = false;
     kiraApi.getCompanyDbProfile().then(profile => {
       if (cancelled) return;
       if (profile && (profile.track_record_count > 0 || profile.personnel_count > 0)) {
-        localStorage.setItem('kira_company_id', sanitizeCompanyId(profile.company_name || '_default'));
+        sessionStorage.setItem('kira_company_id', sanitizeCompanyId(profile.company_name || '_default'));
         return;
       }
       // No company data — show onboarding after brief delay
@@ -179,6 +179,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({ user }) => {
         isOpen={isOnboardingModalOpen}
         onClose={() => setIsOnboardingModalOpen(false)}
         onComplete={handleOnboardingComplete}
+        sessionId={conversation?.sessionId || ''}
       />
       <PendingKnowledgeModal
         isOpen={isPendingKnowledgeModalOpen}

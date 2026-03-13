@@ -41,6 +41,7 @@ from hwp_parser import extract_hwp_text_bytes
 
 logger = logging.getLogger("rag_engine")
 logging.basicConfig(level=logging.INFO)
+_audit_log = logging.getLogger("kira.audit")
 
 # ---------------------------------------------------------------------------
 # Engine state — populated during lifespan startup
@@ -130,6 +131,20 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],
+    allow_origin_regex=r"^https://.*\.up\.railway\.app$",
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Debug-Secret"],
+)
+
 
 # ---------------------------------------------------------------------------
 # Routes
@@ -158,8 +173,10 @@ async def healthz() -> dict[str, str]:
 @app.get("/api/debug/env")
 async def debug_env(x_debug_secret: str = Header(default="")) -> dict[str, Any]:
     """Debug endpoint to check Railway environment and file paths. Requires secret header."""
-    expected = os.getenv("DEBUG_SECRET", "")
-    if not expected or x_debug_secret != expected:
+    expected = os.getenv("DEBUG_SECRET")
+    if not expected:
+        raise HTTPException(status_code=404, detail="Not Found")
+    if x_debug_secret != expected:
         raise HTTPException(status_code=403, detail="Forbidden")
     import os
     import sys
@@ -178,7 +195,7 @@ async def debug_env(x_debug_secret: str = Header(default="")) -> dict[str, Any]:
     except Exception as exc:
         import traceback
         import_test = "failed"
-        import_error = f"{type(exc).__name__}: {str(exc)}\nTraceback:\n{traceback.format_exc()}"
+        import_error = f"{type(exc).__name__}: {str(exc)}"
 
     return {
         "cwd": os.getcwd(),
@@ -1227,7 +1244,8 @@ class CompanyProfileUpdateRequest(BaseModel):
 
 
 @app.post("/api/company-db/track-records")
-async def add_track_record_endpoint(req: TrackRecordRequest):
+@limiter.limit("10/minute")
+async def add_track_record_endpoint(req: TrackRecordRequest, request: Request):
     """Add a track record to the company DB."""
     from company_db import TrackRecord as TR
 
@@ -1260,11 +1278,13 @@ async def add_track_record_endpoint(req: TrackRecordRequest):
             profile.track_records.append(record)
             db.save_profile(profile)
 
+    _audit_log.info("track_record_added company_id=%s doc_id=%s project=%s", req.company_id, doc_id, req.project_name)
     return {"id": doc_id, "total": db.count()}
 
 
 @app.post("/api/company-db/personnel")
-async def add_personnel_endpoint(req: PersonnelRequest):
+@limiter.limit("10/minute")
+async def add_personnel_endpoint(req: PersonnelRequest, request: Request):
     """Add personnel info to the company DB."""
     from company_db import Personnel as PS
 
@@ -1286,6 +1306,7 @@ async def add_personnel_endpoint(req: PersonnelRequest):
             profile.personnel.append(person)
             db.save_profile(profile)
 
+    _audit_log.info("personnel_added company_id=%s doc_id=%s name=%s", req.company_id, doc_id, req.name)
     return {"id": doc_id, "total": db.count()}
 
 
@@ -1309,7 +1330,8 @@ async def get_company_db_profile(company_id: str = "_default"):
 
 
 @app.put("/api/company-db/profile")
-async def update_company_db_profile(req: CompanyProfileUpdateRequest):
+@limiter.limit("10/minute")
+async def update_company_db_profile(req: CompanyProfileUpdateRequest, request: Request):
     """Update or create company capability profile."""
     from company_db import CompanyCapabilityProfile
 
@@ -1328,6 +1350,7 @@ async def update_company_db_profile(req: CompanyProfileUpdateRequest):
         profile.capital = req.capital
 
     db.save_profile(profile)
+    _audit_log.info("profile_updated company_id=%s name=%s", req.company_id, req.company_name)
     return {
         "profile": {
             "company_id": req.company_id,
@@ -1367,7 +1390,8 @@ async def list_personnel_endpoint(company_id: str = "_default"):
 
 
 @app.delete("/api/company-db/items/{doc_id}")
-async def delete_company_db_item(doc_id: str, company_id: str = "_default"):
+@limiter.limit("10/minute")
+async def delete_company_db_item(doc_id: str, request: Request, company_id: str = "_default"):
     """Delete a track record or personnel by doc_id."""
     import re
     if not re.match(r'^(tr|ps)_[a-f0-9]{8}$', doc_id):
@@ -1377,6 +1401,7 @@ async def delete_company_db_item(doc_id: str, company_id: str = "_default"):
         deleted = db.delete_item(doc_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="항목을 찾을 수 없습니다.")
+    _audit_log.info("item_deleted company_id=%s doc_id=%s", company_id, doc_id)
     return {"success": True}
 
 

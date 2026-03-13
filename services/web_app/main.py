@@ -244,8 +244,8 @@ app.add_middleware(
     ],
     allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^https://.*\.up\.railway\.app$",
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
 )
 
 
@@ -257,7 +257,7 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
     # CSP: allow self + inline styles (Tailwind) + Railway domain + data: for images
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
@@ -1189,6 +1189,7 @@ def health_check() -> dict[str, str]:
 
 
 @app.get("/api/debug/env")
+@limiter.limit("10/minute")
 async def debug_env(request: Request) -> dict[str, Any]:
     """Debug endpoint: check file paths and rag_engine connectivity. 관리자 전용."""
     _require_admin(request)
@@ -1218,6 +1219,7 @@ async def debug_env(request: Request) -> dict[str, Any]:
 
 
 @app.get("/api/debug/oauth")
+@limiter.limit("10/minute")
 def debug_oauth(request: Request) -> dict[str, Any]:
     """OAuth 환경변수 진단 (값은 마스킹). 관리자 전용."""
     _require_admin(request)
@@ -1252,6 +1254,7 @@ def debug_oauth(request: Request) -> dict[str, Any]:
 
 
 @app.get("/api/debug/smtp")
+@limiter.limit("10/minute")
 def debug_smtp(request: Request) -> dict[str, Any]:
     """이메일 환경변수 진단 (값은 마스킹). 관리자 전용."""
     _require_admin(request)
@@ -1271,6 +1274,7 @@ def debug_smtp(request: Request) -> dict[str, Any]:
 
 
 @app.post("/api/debug/smtp-test")
+@limiter.limit("10/minute")
 def debug_smtp_test(request: Request, payload: dict) -> dict[str, Any]:
     """이메일 테스트 발송 — Brevo 직접 호출로 에러 상세 확인. 관리자 전용."""
     _require_admin(request)
@@ -1567,6 +1571,7 @@ def _require_admin(request: Request) -> str:
 
 
 @app.get("/api/admin/alerts")
+@limiter.limit("10/minute")
 def admin_alerts_list(request: Request) -> dict[str, Any]:
     """모든 알림 설정 + 상태 목록 (관리자 전용)."""
     _require_admin(request)
@@ -1590,6 +1595,7 @@ def admin_alerts_list(request: Request) -> dict[str, Any]:
 
 
 @app.delete("/api/admin/alerts/{config_id}")
+@limiter.limit("10/minute")
 def admin_alert_delete(config_id: str, request: Request) -> dict[str, Any]:
     """특정 알림 설정 삭제 (관리자 전용)."""
     _require_admin(request)
@@ -1609,6 +1615,7 @@ def admin_alert_delete(config_id: str, request: Request) -> dict[str, Any]:
 
 
 @app.post("/api/admin/alerts/{config_id}/send-now")
+@limiter.limit("10/minute")
 async def admin_alert_send_now(config_id: str, request: Request) -> dict[str, Any]:
     """특정 알림 즉시 발송 (관리자 전용)."""
     _require_admin(request)
@@ -1820,7 +1827,7 @@ async def analyze_uploaded_document(
         )
     except ImportError as exc:
         slog.error("analysis_import_error", session_id=session_id, error=str(exc))
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise HTTPException(status_code=503, detail="서비스를 일시적으로 사용할 수 없습니다.") from exc
     except ValueError as exc:
         slog.error("analysis_value_error", session_id=session_id, error=str(exc))
         raise HTTPException(status_code=400, detail=f"문서 분석 실패: {exc}") from exc
@@ -2136,9 +2143,11 @@ async def api_bids_search(payload: BidSearchPayload, request: Request) -> dict[s
             page_size=payload.pageSize,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        logger.error("bid search ValueError: %s", exc)
+        raise HTTPException(status_code=503, detail="서비스를 일시적으로 사용할 수 없습니다.") from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"나라장터 API 호출 실패: {exc}") from exc
+        logger.error("bid search failed: %s", exc)
+        raise HTTPException(status_code=502, detail="나라장터 API 호출 실패") from exc
     return result
 
 
@@ -2148,9 +2157,11 @@ async def api_bid_attachments(bid_ntce_no: str, bid_ntce_ord: str = "00") -> dic
     try:
         attachments = await nara_get_bid_attachments(bid_ntce_no, bid_ntce_ord)
     except ValueError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        logger.error("bid attachments ValueError: %s", exc)
+        raise HTTPException(status_code=503, detail="서비스를 일시적으로 사용할 수 없습니다.") from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"첨부파일 조회 실패: {exc}") from exc
+        logger.error("bid attachments failed: %s", exc)
+        raise HTTPException(status_code=502, detail="첨부파일 조회 실패") from exc
     return {"attachments": attachments}
 
 
@@ -2304,12 +2315,14 @@ async def analyze_bid_from_nara(payload: BidAnalyzePayload, request: Request) ->
     try:
         analysis = await asyncio.to_thread(analyzer.analyze, local_path)
     except ImportError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        logger.error("bid analysis ImportError (bid=%s): %s", payload.bid_ntce_no, exc)
+        raise HTTPException(status_code=503, detail="서비스를 일시적으로 사용할 수 없습니다.") from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=f"문서 분석 실패: {exc}") from exc
+        logger.warning("bid analysis ValueError (bid=%s): %s", payload.bid_ntce_no, exc)
+        raise HTTPException(status_code=400, detail="문서 분석 실패") from exc
     except Exception as exc:
         logger.warning("Bid analysis failed (bid=%s): %s", payload.bid_ntce_no, exc)
-        raise HTTPException(status_code=500, detail=f"문서 분석 중 오류: {exc}") from exc
+        raise HTTPException(status_code=500, detail="문서 분석 중 오류가 발생했습니다.") from exc
 
     # RFP 요약 + 매칭을 동시 실행 (둘 다 분석 결과만 필요, 서로 독립적)
     async def _gen_bid_summary() -> str:
@@ -2662,10 +2675,8 @@ async def generate_proposal_v2(payload: ProposalGenerateV2Payload) -> dict[str, 
     except HTTPException:
         raise  # Re-raise HTTPException as-is
     except Exception as exc:
-        # DEBUG: Catch unexpected errors
-        import traceback
-        error_detail = f"web_app proxy error: {type(exc).__name__}: {str(exc)}\n\nTraceback:\n{traceback.format_exc()}"
-        raise HTTPException(status_code=500, detail=error_detail) from exc
+        logger.error("proposal-v2 proxy error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="제안서 생성 중 내부 오류가 발생했습니다.") from exc
 
 
 # ── 제안서 DOCX 다운로드 프록시 ──
@@ -2839,57 +2850,77 @@ async def _proxy_to_rag(method: str, path: str, json_body: dict | None = None, t
 
 
 @app.post("/api/company-db/track-records")
-async def proxy_add_track_record(payload: dict) -> dict[str, Any]:
+@limiter.limit("10/minute")
+async def proxy_add_track_record(payload: dict, request: Request) -> dict[str, Any]:
     """Proxy: add track record to rag_engine company DB."""
+    session_id = payload.get("session_id", "")
+    if not session_id or session_id not in SESSIONS:
+        raise HTTPException(status_code=401, detail="유효한 세션이 필요합니다.")
     return await _proxy_to_rag("POST", "/api/company-db/track-records", payload)
 
 
 @app.post("/api/company-db/personnel")
-async def proxy_add_personnel(payload: dict) -> dict[str, Any]:
+@limiter.limit("10/minute")
+async def proxy_add_personnel(payload: dict, request: Request) -> dict[str, Any]:
     """Proxy: add personnel to rag_engine company DB."""
+    session_id = payload.get("session_id", "")
+    if not session_id or session_id not in SESSIONS:
+        raise HTTPException(status_code=401, detail="유효한 세션이 필요합니다.")
     return await _proxy_to_rag("POST", "/api/company-db/personnel", payload)
 
 
 @app.get("/api/company-db/profile")
-async def proxy_get_company_db_profile(company_id: str = "_default") -> dict[str, Any]:
+@limiter.limit("30/minute")
+async def proxy_get_company_db_profile(request: Request, company_id: str = "_default") -> dict[str, Any]:
     """Proxy: get company DB profile from rag_engine."""
     return await _proxy_to_rag("GET", f"/api/company-db/profile?company_id={company_id}")
 
 
 @app.put("/api/company-db/profile")
-async def proxy_update_company_db_profile(payload: dict) -> dict[str, Any]:
+@limiter.limit("10/minute")
+async def proxy_update_company_db_profile(payload: dict, request: Request) -> dict[str, Any]:
     """Proxy: update company DB profile in rag_engine."""
+    session_id = payload.get("session_id", "")
+    if not session_id or session_id not in SESSIONS:
+        raise HTTPException(status_code=401, detail="유효한 세션이 필요합니다.")
     return await _proxy_to_rag("PUT", "/api/company-db/profile", payload)
 
 
 @app.get("/api/company-db/stats")
-async def proxy_get_company_db_stats(company_id: str = "_default") -> dict[str, Any]:
+@limiter.limit("30/minute")
+async def proxy_get_company_db_stats(request: Request, company_id: str = "_default") -> dict[str, Any]:
     """Proxy: get company DB stats from rag_engine."""
     return await _proxy_to_rag("GET", f"/api/company-db/stats?company_id={company_id}")
 
 
 @app.get("/api/company-db/canonical-id")
-async def proxy_get_canonical_company_id(company_name: str = "") -> dict[str, Any]:
+@limiter.limit("30/minute")
+async def proxy_get_canonical_company_id(request: Request, company_name: str = "") -> dict[str, Any]:
     """Proxy: get canonical company_id from rag_engine."""
     from urllib.parse import quote
     return await _proxy_to_rag("GET", f"/api/company-db/canonical-id?company_name={quote(company_name)}")
 
 
 @app.get("/api/company-db/track-records")
-async def proxy_list_track_records(company_id: str = "_default") -> dict[str, Any]:
+@limiter.limit("30/minute")
+async def proxy_list_track_records(request: Request, company_id: str = "_default") -> dict[str, Any]:
     """Proxy: list track records from rag_engine company DB."""
     return await _proxy_to_rag("GET", f"/api/company-db/track-records?company_id={company_id}")
 
 
 @app.get("/api/company-db/personnel")
-async def proxy_list_personnel(company_id: str = "_default") -> dict[str, Any]:
+@limiter.limit("30/minute")
+async def proxy_list_personnel(request: Request, company_id: str = "_default") -> dict[str, Any]:
     """Proxy: list personnel from rag_engine company DB."""
     return await _proxy_to_rag("GET", f"/api/company-db/personnel?company_id={company_id}")
 
 
 @app.delete("/api/company-db/items/{doc_id}")
-async def proxy_delete_company_db_item(doc_id: str, company_id: str = "_default") -> dict[str, Any]:
+@limiter.limit("10/minute")
+async def proxy_delete_company_db_item(doc_id: str, request: Request, company_id: str = "_default", session_id: str = "") -> dict[str, Any]:
     """Proxy: delete company DB item in rag_engine."""
+    if not session_id or session_id not in SESSIONS:
+        raise HTTPException(status_code=401, detail="유효한 세션이 필요합니다.")
     return await _proxy_to_rag("DELETE", f"/api/company-db/items/{doc_id}?company_id={company_id}")
 
 
@@ -4550,6 +4581,7 @@ async def _execute_alert_send(config: dict, label: str = "alert",
 
 
 @app.post("/api/debug/send-now-test")
+@limiter.limit("10/minute")
 async def debug_send_now_test(request: Request, payload: dict) -> dict[str, Any]:
     """디버그: 알림 즉시 발송 테스트. 관리자 전용."""
     _require_admin(request)

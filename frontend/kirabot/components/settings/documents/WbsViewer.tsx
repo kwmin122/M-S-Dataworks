@@ -50,7 +50,7 @@ export default function WbsViewer() {
     setRegenerating(true);
     try {
       const usePack = localStorage.getItem('kira_use_pack') === 'true';
-      const companyId = localStorage.getItem('kira_company_id') || '_default';
+      const companyId = sessionStorage.getItem('kira_company_id') || '_default';
       const result = await generateWbs(sessionId, undefined, usePack, companyId);
       if (!mountedRef.current) return;
       push(result, '수행계획서');

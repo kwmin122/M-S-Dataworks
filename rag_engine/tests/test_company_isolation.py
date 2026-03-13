@@ -30,6 +30,8 @@ def isolated_client():
         original_base = _main._COMPANY_DB_BASE
         _main._company_db_cache.clear()
         _main._COMPANY_DB_BASE = company_db_base
+        # Disable rate limiting during tests
+        _main.limiter.enabled = False
 
         with patch("main._PROPOSALS_DIR", proposals_dir):
             from main import app

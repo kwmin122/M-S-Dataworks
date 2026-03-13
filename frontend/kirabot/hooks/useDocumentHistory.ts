@@ -10,9 +10,9 @@ export interface DocumentHistoryEntry<T> {
 const MAX_ENTRIES = 10;
 
 /**
- * Generic hook for managing document generation history in localStorage.
+ * Generic hook for managing document generation history in sessionStorage.
  *
- * @param storageKey - localStorage key (e.g., 'kira_doc_wbs')
+ * @param storageKey - sessionStorage key (e.g., 'kira_doc_wbs')
  * @param validator - shape validator function (returns true if data is valid T)
  */
 export function useDocumentHistory<T>(
@@ -23,10 +23,10 @@ export function useDocumentHistory<T>(
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Load from localStorage on mount
+  // Load from sessionStorage on mount
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(storageKey);
+      const raw = sessionStorage.getItem(storageKey);
       if (raw) {
         const parsed: unknown = JSON.parse(raw);
         if (Array.isArray(parsed)) {
@@ -53,7 +53,7 @@ export function useDocumentHistory<T>(
           setEntries([entry]);
           setSelectedId(entry.id);
           // Save migrated format
-          try { localStorage.setItem(storageKey, JSON.stringify([entry])); } catch { /* noop */ }
+          try { sessionStorage.setItem(storageKey, JSON.stringify([entry])); } catch { /* noop */ }
         }
       }
     } catch {
@@ -73,7 +73,7 @@ export function useDocumentHistory<T>(
     };
     setEntries(prev => {
       const next = [entry, ...prev].slice(0, MAX_ENTRIES);
-      try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* noop */ }
+      try { sessionStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* noop */ }
       return next;
     });
     setSelectedId(entry.id);
@@ -84,7 +84,7 @@ export function useDocumentHistory<T>(
   const remove = useCallback((id: string) => {
     setEntries(prev => {
       const next = prev.filter(e => e.id !== id);
-      try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* noop */ }
+      try { sessionStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* noop */ }
 
       // If the removed entry was selected, select the next available
       setSelectedId(prevId => {

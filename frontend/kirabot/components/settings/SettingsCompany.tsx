@@ -70,7 +70,7 @@ const SettingsCompany: React.FC = () => {
 
   const loadCompanyDb = useCallback(async () => {
     try {
-      const cid = localStorage.getItem('kira_company_id') || '_default';
+      const cid = sessionStorage.getItem('kira_company_id') || '_default';
       const [trRes, psRes, statsRes] = await Promise.all([
         listTrackRecords(cid),
         listPersonnel(cid),
@@ -86,7 +86,7 @@ const SettingsCompany: React.FC = () => {
     if (!trProjectName.trim() || !trClient.trim()) return;
     setAddingTr(true);
     try {
-      const cid = localStorage.getItem('kira_company_id') || '_default';
+      const cid = sessionStorage.getItem('kira_company_id') || '_default';
       await addTrackRecord({
         project_name: trProjectName,
         client: trClient,
@@ -107,7 +107,7 @@ const SettingsCompany: React.FC = () => {
     if (!psName.trim() || !psRole.trim()) return;
     setAddingPs(true);
     try {
-      const cid = localStorage.getItem('kira_company_id') || '_default';
+      const cid = sessionStorage.getItem('kira_company_id') || '_default';
       await addPersonnel({
         name: psName,
         role: psRole,
@@ -124,7 +124,7 @@ const SettingsCompany: React.FC = () => {
 
   const handleDeleteDbItem = async (docId: string) => {
     try {
-      const cid = localStorage.getItem('kira_company_id') || '_default';
+      const cid = sessionStorage.getItem('kira_company_id') || '_default';
       await deleteCompanyDbItem(docId, cid);
       setTrackRecords(prev => prev.filter(r => r.doc_id !== docId));
       setPersonnelList(prev => prev.filter(p => p.doc_id !== docId));

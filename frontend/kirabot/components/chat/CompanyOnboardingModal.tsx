@@ -8,6 +8,7 @@ interface CompanyOnboardingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onComplete: (companyName: string) => void;
+  sessionId?: string;
 }
 
 type Step = 1 | 2 | 3;
@@ -16,6 +17,7 @@ const CompanyOnboardingModal: React.FC<CompanyOnboardingModalProps> = ({
   isOpen,
   onClose,
   onComplete,
+  sessionId = '',
 }) => {
   const [step, setStep] = useState<Step>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -72,7 +74,7 @@ const CompanyOnboardingModal: React.FC<CompanyOnboardingModalProps> = ({
       }
 
       // 1. 회사명 업데이트
-      await kiraApi.updateCompanyDBProfile({ company_name: companyName }, companyId);
+      await kiraApi.updateCompanyDBProfile({ company_name: companyName }, companyId, sessionId);
 
       // 2. 실적 추가
       const trackRecord: TrackRecordInput = {
@@ -82,7 +84,7 @@ const CompanyOnboardingModal: React.FC<CompanyOnboardingModalProps> = ({
         description: '',
         technologies: [],
       };
-      await kiraApi.addTrackRecord(trackRecord, companyId);
+      await kiraApi.addTrackRecord(trackRecord, companyId, sessionId);
 
       // 3. 인력 추가
       const personnel: PersonnelInput = {
@@ -92,9 +94,9 @@ const CompanyOnboardingModal: React.FC<CompanyOnboardingModalProps> = ({
         certifications: [],
         description: '',
       };
-      await kiraApi.addPersonnel(personnel, companyId);
+      await kiraApi.addPersonnel(personnel, companyId, sessionId);
 
-      localStorage.setItem('kira_company_id', companyId);
+      sessionStorage.setItem('kira_company_id', companyId);
 
       // 완료
       onComplete(companyName);
@@ -107,7 +109,7 @@ const CompanyOnboardingModal: React.FC<CompanyOnboardingModalProps> = ({
   };
 
   const handleSkip = () => {
-    localStorage.setItem('kira_onboarding_dismissed', 'true');
+    sessionStorage.setItem('kira_onboarding_dismissed', 'true');
     onClose();
   };
 
