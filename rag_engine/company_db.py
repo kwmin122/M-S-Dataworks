@@ -12,6 +12,7 @@ from dataclasses import dataclass, field, asdict
 from typing import Optional
 
 import chromadb
+from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
 
 
 @dataclass
@@ -52,15 +53,34 @@ class CompanyCapabilityProfile:
 class CompanyDB:
     """ChromaDB-backed company knowledge store."""
 
-    def __init__(self, persist_directory: str = "./data/company_db"):
+    def __init__(self, persist_directory: str = "./data/company_db", embedding_function=None):
         if persist_directory:
             self._client = chromadb.PersistentClient(path=persist_directory)
         else:
             self._client = chromadb.Client()
-        self._collection = self._client.get_or_create_collection(
-            name="company_capabilities",
-            metadata={"hnsw:space": "cosine"},
-        )
+
+        if embedding_function is None:
+            api_key = os.getenv("OPENAI_API_KEY", "").strip()
+            if api_key:
+                embedding_function = OpenAIEmbeddingFunction(
+                    api_key_env_var="OPENAI_API_KEY", model_name="text-embedding-3-small",
+                )
+        try:
+            self._collection = self._client.get_or_create_collection(
+                name="company_capabilities",
+                metadata={"hnsw:space": "cosine"},
+                embedding_function=embedding_function,
+            )
+        except ValueError as exc:
+            if "Embedding function conflict" not in str(exc):
+                raise
+            # Migrate: delete old collection (default embedding) and recreate with OpenAI
+            self._client.delete_collection("company_capabilities")
+            self._collection = self._client.get_or_create_collection(
+                name="company_capabilities",
+                metadata={"hnsw:space": "cosine"},
+                embedding_function=embedding_function,
+            )
         self._profile_path = os.path.join(persist_directory, "profile.json") if persist_directory else ""
 
     def add_track_record(self, record: TrackRecord) -> str:
