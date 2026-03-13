@@ -21,7 +21,10 @@ data/subscriptions/
 data/alert_states/
 data/user_alerts/
 data/layer1/
+data/proposals/
 services/web_app/data/
+rag_engine/tests/
+rag_engine/pytest.ini
 # KEEP in image: data/knowledge_db/ (Layer 1, 495 units)
 # KEEP in image: data/company_packs/ (default domain packs)
 # KEEP in image: data/templates/ (PPT design guide)

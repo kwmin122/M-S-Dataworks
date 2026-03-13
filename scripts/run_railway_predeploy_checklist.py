@@ -107,7 +107,7 @@ def run_checks(base_url: str | None) -> list[CheckResult]:
         ("메인 페이지 (프론트엔드)", normalized_base, {200}),
         ("web_app health", f"{normalized_base}/api/health", {200}),
         ("web_app healthz", f"{normalized_base}/healthz", {200}),
-        ("rag_engine 상태", f"{normalized_base}/api/debug/env", {200}),
+        ("rag_engine 상태 (via healthz)", f"{normalized_base}/healthz", {200}),
         ("세션 생성", f"{normalized_base}/api/session", {200, 405}),  # GET→405, POST→200
     ]
 

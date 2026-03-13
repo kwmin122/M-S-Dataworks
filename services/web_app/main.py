@@ -1189,8 +1189,9 @@ def health_check() -> dict[str, str]:
 
 
 @app.get("/api/debug/env")
-async def debug_env() -> dict[str, Any]:
-    """Debug endpoint: check file paths and rag_engine connectivity."""
+async def debug_env(request: Request) -> dict[str, Any]:
+    """Debug endpoint: check file paths and rag_engine connectivity. 관리자 전용."""
+    _require_admin(request)
     import httpx
 
     rag_health = "unknown"

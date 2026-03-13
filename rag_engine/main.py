@@ -28,7 +28,7 @@ from typing import Any
 import re as _re
 import time as _time
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile, Request
+from fastapi import FastAPI, File, Header, HTTPException, Query, UploadFile, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -156,8 +156,11 @@ async def healthz() -> dict[str, str]:
 
 
 @app.get("/api/debug/env")
-async def debug_env() -> dict[str, Any]:
-    """Debug endpoint to check Railway environment and file paths."""
+async def debug_env(x_debug_secret: str = Header(default="")) -> dict[str, Any]:
+    """Debug endpoint to check Railway environment and file paths. Requires secret header."""
+    expected = os.getenv("DEBUG_SECRET", "")
+    if not expected or x_debug_secret != expected:
+        raise HTTPException(status_code=403, detail="Forbidden")
     import os
     import sys
 
@@ -1186,6 +1189,9 @@ def _get_company_db(company_id: str = "_default"):
             if company_id not in _company_db_cache:
                 from company_db import CompanyDB
                 db_path = os.path.join(_COMPANY_DB_BASE, company_id)
+                # Defense-in-depth: verify resolved path stays within base
+                if not os.path.realpath(db_path).startswith(os.path.realpath(_COMPANY_DB_BASE)):
+                    raise HTTPException(status_code=400, detail="Invalid company_id path")
                 os.makedirs(db_path, exist_ok=True)
                 _company_db_cache[company_id] = CompanyDB(persist_directory=db_path)
     return _company_db_cache[company_id]
