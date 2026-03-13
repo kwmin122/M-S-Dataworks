@@ -65,6 +65,13 @@ const CompanyOnboardingModal: React.FC<CompanyOnboardingModalProps> = ({
     setError(null);
 
     try {
+      // Ensure we have a valid session (onboarding can open before any chat)
+      let sid = sessionId || sessionStorage.getItem('kira_session_id') || '';
+      if (!sid) {
+        sid = await kiraApi.createSession();
+        sessionStorage.setItem('kira_session_id', sid);
+      }
+
       // Get canonical company_id first
       let companyId: string;
       try {
@@ -74,7 +81,7 @@ const CompanyOnboardingModal: React.FC<CompanyOnboardingModalProps> = ({
       }
 
       // 1. 회사명 업데이트
-      await kiraApi.updateCompanyDBProfile({ company_name: companyName }, companyId, sessionId);
+      await kiraApi.updateCompanyDBProfile({ company_name: companyName }, companyId, sid);
 
       // 2. 실적 추가
       const trackRecord: TrackRecordInput = {
@@ -84,7 +91,7 @@ const CompanyOnboardingModal: React.FC<CompanyOnboardingModalProps> = ({
         description: '',
         technologies: [],
       };
-      await kiraApi.addTrackRecord(trackRecord, companyId, sessionId);
+      await kiraApi.addTrackRecord(trackRecord, companyId, sid);
 
       // 3. 인력 추가
       const personnel: PersonnelInput = {
@@ -94,7 +101,7 @@ const CompanyOnboardingModal: React.FC<CompanyOnboardingModalProps> = ({
         certifications: [],
         description: '',
       };
-      await kiraApi.addPersonnel(personnel, companyId, sessionId);
+      await kiraApi.addPersonnel(personnel, companyId, sid);
 
       sessionStorage.setItem('kira_company_id', companyId);
 
