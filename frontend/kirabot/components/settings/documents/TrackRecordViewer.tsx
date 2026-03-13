@@ -41,7 +41,7 @@ export default function TrackRecordViewer() {
   }, []);
 
   const handleRegenerate = async () => {
-    const sessionId = localStorage.getItem('kira_session_id') || '';
+    const sessionId = sessionStorage.getItem('kira_session_id') || '';
     if (!sessionId) {
       showToast('세션이 없습니다. 먼저 문서를 분석해주세요.', 'error');
       return;

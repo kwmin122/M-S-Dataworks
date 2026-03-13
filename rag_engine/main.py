@@ -13,6 +13,7 @@ returns HTTP 503 on /api/analyze-bid with a descriptive error.
 """
 
 import asyncio
+import hmac
 import logging
 import os
 import sys
@@ -176,10 +177,8 @@ async def debug_env(x_debug_secret: str = Header(default="")) -> dict[str, Any]:
     expected = os.getenv("DEBUG_SECRET")
     if not expected:
         raise HTTPException(status_code=404, detail="Not Found")
-    if x_debug_secret != expected:
+    if not hmac.compare_digest(x_debug_secret, expected):
         raise HTTPException(status_code=403, detail="Forbidden")
-    import os
-    import sys
 
     # Paths are defined later in this file, access via globals
     proposals_dir = globals().get("_PROPOSALS_DIR", "NOT_DEFINED")

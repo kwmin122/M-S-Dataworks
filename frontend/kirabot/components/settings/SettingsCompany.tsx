@@ -87,6 +87,7 @@ const SettingsCompany: React.FC = () => {
     setAddingTr(true);
     try {
       const cid = sessionStorage.getItem('kira_company_id') || '_default';
+      const sid = sessionStorage.getItem('kira_session_id') || '';
       await addTrackRecord({
         project_name: trProjectName,
         client: trClient,
@@ -94,7 +95,7 @@ const SettingsCompany: React.FC = () => {
         contract_amount: trAmount,
         description: trDescription,
         technologies: trTechnologies,
-      }, cid);
+      }, cid, sid);
       setTrProjectName(''); setTrClient(''); setTrPeriod('');
       setTrAmount(''); setTrDescription(''); setTrTechnologies([]);
       setShowAddTrackRecord(false);
@@ -108,13 +109,14 @@ const SettingsCompany: React.FC = () => {
     setAddingPs(true);
     try {
       const cid = sessionStorage.getItem('kira_company_id') || '_default';
+      const sid = sessionStorage.getItem('kira_session_id') || '';
       await addPersonnel({
         name: psName,
         role: psRole,
         experience_years: parseInt(psExperience) || 0,
         certifications: psCertifications,
         description: '',
-      }, cid);
+      }, cid, sid);
       setPsName(''); setPsRole(''); setPsExperience(''); setPsCertifications([]);
       setShowAddPersonnel(false);
       await loadCompanyDb();
@@ -125,7 +127,8 @@ const SettingsCompany: React.FC = () => {
   const handleDeleteDbItem = async (docId: string) => {
     try {
       const cid = sessionStorage.getItem('kira_company_id') || '_default';
-      await deleteCompanyDbItem(docId, cid);
+      const sid = sessionStorage.getItem('kira_session_id') || '';
+      await deleteCompanyDbItem(docId, cid, sid);
       setTrackRecords(prev => prev.filter(r => r.doc_id !== docId));
       setPersonnelList(prev => prev.filter(p => p.doc_id !== docId));
     } catch { /* ignore */ }

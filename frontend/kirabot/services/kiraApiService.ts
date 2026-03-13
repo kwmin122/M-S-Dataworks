@@ -516,8 +516,10 @@ export async function listPersonnel(companyId: string = '_default'): Promise<{ p
   return parseJson<{ personnel: import('../types').PersonnelListItem[] }>(res);
 }
 
-export async function deleteCompanyDbItem(docId: string, companyId: string = '_default'): Promise<{ success: boolean }> {
-  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/items/${encodeURIComponent(docId)}?company_id=${encodeURIComponent(companyId)}`, {
+export async function deleteCompanyDbItem(docId: string, companyId: string = '_default', sessionId: string = ''): Promise<{ success: boolean }> {
+  const params = new URLSearchParams({ company_id: companyId });
+  if (sessionId) params.set('session_id', sessionId);
+  const res = await fetchWithError(`${API_BASE_URL}/api/company-db/items/${encodeURIComponent(docId)}?${params.toString()}`, {
     method: 'DELETE',
   });
   return parseJson<{ success: boolean }>(res);

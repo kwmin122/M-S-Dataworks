@@ -782,7 +782,7 @@ export function useConversationFlow() {
                 const analysisLabel = result.analysis?.title || allFileNames[0] || '문서 분석';
                 const analysisWithMeta = { ...result.analysis, _fileNames: allFileNames, _fileUrl: analysisUrl && !analysisUrl.startsWith('blob:') ? analysisUrl : '' };
                 pushDocHistory('kira_last_analysis', analysisWithMeta, analysisLabel);
-                if (sid) localStorage.setItem('kira_session_id', sid);
+                if (sid) sessionStorage.setItem('kira_session_id', sid);
               } catch { /* noop */ }
 
               trackEvent('document_analyzed', { doc_type: 'analysis', analysis_type: result.analysis?.document_type, file_count: files.length });
@@ -1137,7 +1137,7 @@ export function useConversationFlow() {
             try {
               const bidAnalysisUrl = result.fileUrl ? `${api.getApiBaseUrl()}${result.fileUrl}` : '';
               pushDocHistory('kira_last_analysis', { ...result.analysis, _fileUrl: bidAnalysisUrl }, result.analysis?.title || bid.title || '공고 분석');
-              if (sid) localStorage.setItem('kira_session_id', sid);
+              if (sid) sessionStorage.setItem('kira_session_id', sid);
             } catch { /* noop */ }
 
             trackEvent('bid_evaluation_completed', {
