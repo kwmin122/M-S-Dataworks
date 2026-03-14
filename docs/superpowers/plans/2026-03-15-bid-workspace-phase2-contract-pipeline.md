@@ -97,18 +97,43 @@ rag_engine/
 ├── main.py                       ← Add /api/generate-document endpoint + update doc_type validators
 ├── auto_learner.py               ← Update VALID_DOC_TYPES + doc_type_label mapping
 ├── quality_checker.py            ← Add doc_type-aware check_quality_for_doc_type()
+├── phase2_models.py              ← Add slides_metadata, records_data, personnel_data to result types
+├── ppt_orchestrator.py           ← Populate slides_metadata in PptResult
+├── track_record_orchestrator.py  ← Populate records_data, personnel_data in TrackRecordDocResult
 └── tests/
     └── test_auto_learner.py      ← Update doc_type test values
 
 services/web_app/
-├── main.py                       ← Wire generate router + analysis persistence hook
+├── main.py                       ← Wire generate router + analysis persistence (all 3 entry points)
+├── db/engine.py                  ← Add create_session() helper
 └── api/
     └── adapter.py                ← Wire save_analysis into existing proxy flow
 
 frontend/kirabot/
-├── components/settings/documents/DocumentWorkspace.tsx  ← Tab name migration
-└── components/settings/documents/__tests__/DocumentWorkspace.test.ts
+├── components/settings/documents/DocumentTabNav.tsx      ← DocumentTab type + tab ids
+├── components/settings/documents/DocumentWorkspace.tsx   ← VALID_TABS + conditional render
+├── types.ts                                              ← Action type names
+├── hooks/useConversationFlow.ts                          ← Case labels + push keys
+├── components/chat/messages/AnalysisResultView.tsx       ← Action dispatches
+└── components/settings/documents/__tests__/              ← Test assertions
 ```
+
+### Import Convention (rag_engine)
+
+**rag_engine is a flat module directory, NOT a Python package.** There is no `__init__.py`.
+All imports within rag_engine use bare module names:
+
+```python
+# CORRECT — matches existing codebase (proposal_orchestrator.py, document_orchestrator.py, etc.)
+from generation_contract import GenerationContract
+from contract_adapter import generate_from_contract
+from quality_checker import check_quality
+
+# WRONG — would fail at runtime (no rag_engine package)
+from rag_engine.generation_contract import GenerationContract
+```
+
+Tests run from inside `rag_engine/`: `cd rag_engine && python -m pytest ...`
 
 ---
 
@@ -128,7 +153,7 @@ frontend/kirabot/
 from __future__ import annotations
 
 import pytest
-from rag_engine.generation_contract import (
+from generation_contract import (
     GenerationContract, CompanyContext, QualityRules,
     GenerationResult, UploadTarget, OutputFile,
     DOC_TYPE_CANONICAL, normalize_doc_type,
@@ -349,7 +374,7 @@ Change line 62:
 VALID_DOC_TYPES = {"proposal", "wbs", "ppt", "track_record"}
 
 # After:
-from rag_engine.generation_contract import DOC_TYPE_CANONICAL, normalize_doc_type
+from generation_contract import DOC_TYPE_CANONICAL, normalize_doc_type
 
 VALID_DOC_TYPES = set(DOC_TYPE_CANONICAL) - {"checklist"}
 ```
@@ -393,7 +418,7 @@ pattern=r"^(proposal|execution_plan|presentation|track_record|wbs|ppt)$"
 This accepts BOTH old and new names. The endpoint handler normalizes:
 ```python
 # Add at top of each endpoint that receives doc_type:
-from rag_engine.generation_contract import normalize_doc_type
+from generation_contract import normalize_doc_type
 # In handler:
 doc_type = normalize_doc_type(req.doc_type)
 ```
@@ -429,14 +454,14 @@ git commit -m "feat(doc-type): migrate wbs→execution_plan, ppt→presentation 
 
 def test_check_quality_for_doc_type_proposal():
     """Proposal: full blind + ambiguity check."""
-    from rag_engine.quality_checker import check_quality_for_doc_type
+    from quality_checker import check_quality_for_doc_type
     issues = check_quality_for_doc_type("좋은 제안서 내용입니다.", "proposal", company_name="테스트회사")
     assert isinstance(issues, list)
 
 
 def test_check_quality_for_doc_type_execution_plan():
     """execution_plan: ambiguity check only (no blind words)."""
-    from rag_engine.quality_checker import check_quality_for_doc_type
+    from quality_checker import check_quality_for_doc_type
     # "최고 수준" is a VAGUE_PATTERNS match → vague_claim category
     issues = check_quality_for_doc_type("최고 수준의 기술력", "execution_plan")
     assert any(i.category == "vague_claim" for i in issues)
@@ -444,14 +469,14 @@ def test_check_quality_for_doc_type_execution_plan():
 
 def test_check_quality_for_doc_type_presentation():
     """presentation: minimal checks."""
-    from rag_engine.quality_checker import check_quality_for_doc_type
+    from quality_checker import check_quality_for_doc_type
     issues = check_quality_for_doc_type("발표 내용", "presentation")
     assert isinstance(issues, list)
 
 
 def test_check_quality_for_doc_type_track_record():
     """track_record: blind check active."""
-    from rag_engine.quality_checker import check_quality_for_doc_type
+    from quality_checker import check_quality_for_doc_type
     issues = check_quality_for_doc_type("테스트회사가 수행한 사업", "track_record", company_name="테스트회사")
     assert any(i.category == "blind_violation" for i in issues)
 ```
@@ -574,11 +599,11 @@ from __future__ import annotations
 
 import pytest
 from unittest.mock import patch, MagicMock
-from rag_engine.generation_contract import (
+from generation_contract import (
     GenerationContract, CompanyContext, QualityRules,
     GenerationResult, UploadTarget,
 )
-from rag_engine.contract_adapter import (
+from contract_adapter import (
     generate_from_contract,
     _unwrap_for_proposal,
     _unwrap_for_execution_plan,
@@ -666,7 +691,7 @@ from typing import Any, Callable
 
 import httpx
 
-from rag_engine.generation_contract import (
+from generation_contract import (
     GenerationContract, GenerationResult, OutputFile, UploadTarget,
     normalize_doc_type,
 )
@@ -827,7 +852,7 @@ def generate_from_contract(
     # This adapter is the integration layer — it bridges document_orchestrator
     # output to the full output set the spec promises.
     if doc_type == "execution_plan" and hasattr(raw_result, "tasks") and raw_result.tasks:
-        from rag_engine.wbs_generator import generate_wbs_xlsx, generate_gantt_chart
+        from wbs_generator import generate_wbs_xlsx, generate_gantt_chart
 
         _title = rfx_result.get("title", "수행계획서")
         _total_months = getattr(raw_result, "total_months", 12)
@@ -850,7 +875,7 @@ def generate_from_contract(
             logger.warning("Gantt chart generation failed (matplotlib may be unavailable)", exc_info=True)
 
     # Quality check
-    from rag_engine.quality_checker import check_quality_for_doc_type
+    from quality_checker import check_quality_for_doc_type
     text_for_check = _extract_text_for_quality(gen_result)
     if text_for_check:
         quality_issues = check_quality_for_doc_type(
@@ -997,19 +1022,19 @@ def _map_track_record_result(raw, doc_type, elapsed):
 # --- Dispatcher registry ---
 
 def _lazy_import_proposal():
-    from rag_engine.proposal_orchestrator import generate_proposal
+    from proposal_orchestrator import generate_proposal
     return generate_proposal
 
 def _lazy_import_execution_plan():
-    from rag_engine.document_orchestrator import generate_document
+    from document_orchestrator import generate_document
     return generate_document
 
 def _lazy_import_ppt():
-    from rag_engine.ppt_orchestrator import generate_ppt
+    from ppt_orchestrator import generate_ppt
     return generate_ppt
 
 def _lazy_import_track_record():
-    from rag_engine.track_record_orchestrator import generate_track_record_doc
+    from track_record_orchestrator import generate_track_record_doc
     return generate_track_record_doc
 
 
@@ -1056,7 +1081,7 @@ from fastapi.testclient import TestClient
 
 
 def test_generate_document_endpoint_exists():
-    from rag_engine.main import app
+    from main import app
     client = TestClient(app)
     # Should return 422 (validation error) not 404 (not found)
     resp = client.post("/api/generate-document", json={})
@@ -1064,7 +1089,7 @@ def test_generate_document_endpoint_exists():
 
 
 def test_generate_document_rejects_invalid_doc_type():
-    from rag_engine.main import app
+    from main import app
     client = TestClient(app)
     resp = client.post("/api/generate-document", json={
         "doc_type": "invalid_type",
@@ -1077,8 +1102,8 @@ def test_generate_document_rejects_invalid_doc_type():
 
 def test_generate_document_accepts_alias_doc_type():
     """wbs and ppt should be accepted (alias resolution)."""
-    from rag_engine.main import app
-    from rag_engine.generation_contract import normalize_doc_type
+    from main import app
+    from generation_contract import normalize_doc_type
     # Just verify alias resolution works at API level
     assert normalize_doc_type("wbs") == "execution_plan"
     assert normalize_doc_type("ppt") == "presentation"
@@ -1099,11 +1124,11 @@ class GenerateDocumentRequest(BaseModel):
 @app.post("/api/generate-document")
 async def generate_document_unified(req: GenerateDocumentRequest):
     """Unified document generation endpoint. Dispatches by doc_type via GenerationContract."""
-    from rag_engine.generation_contract import (
+    from generation_contract import (
         GenerationContract, CompanyContext, QualityRules,
         UploadTarget, normalize_doc_type,
     )
-    from rag_engine.contract_adapter import generate_from_contract
+    from contract_adapter import generate_from_contract
 
     doc_type = normalize_doc_type(req.doc_type)
 
