@@ -81,9 +81,13 @@ services/web_app/
     ├── __init__.py
     ├── conftest.py                     ← Async DB fixtures, test client
     ├── test_models.py                  ← Model CRUD + constraint tests
-    ├── test_s3.py                      ← S3 client tests (mocked)
-    ├── test_projects_api.py            ← Project API tests
-    ├── test_assets_api.py              ← Asset API tests
+    ├── test_unit.py                    ← Layer 1: Pure logic (enum, ACL hierarchy, state transitions)
+    ├── test_postgres_integration.py    ← Layer 2: JSONB, partial index, CHECK, deferrable FK
+    ├── test_storage_integration.py     ← Layer 3: MinIO/R2 upload/download/checksum
+    ├── test_api_scenarios.py           ← Layer 4: Full lifecycle, IDOR prevention, ACL enforcement
+    ├── test_s3.py                      ← S3 client unit tests (mocked)
+    ├── test_projects_api.py            ← Project API route tests
+    ├── test_assets_api.py              ← Asset API route tests
     └── test_adapter.py                 ← Session adapter tests
 ```
 
@@ -107,6 +111,9 @@ docker-compose.yml                      ← Add BID_DATABASE_URL env to web_app 
 | `S3_SECRET_ACCESS_KEY` | S3 secret | |
 | `S3_BUCKET_NAME` | Asset bucket | `kira-assets` |
 | `S3_REGION` | AWS region (or `auto` for R2) | `auto` |
+| `BID_DEV_BOOTSTRAP` | `1`/`true` = enable org auto-provision (DEV ONLY) | `false` |
+| `BID_TEST_DATABASE_URL` | PostgreSQL for tests (CI must set this) | `postgresql+asyncpg://kira:kira@localhost:5434/kira_bid_test` |
+| `S3_TEST_ENDPOINT_URL` | MinIO/R2 endpoint for storage integration tests | `http://localhost:9000` |
 
 ---
 
@@ -131,6 +138,7 @@ boto3==1.38.0
 pgvector==0.3.6
 cuid2==2.0.1
 pytest-asyncio==0.24.0
+pytest-timeout==2.3.1
 ```
 
 Run: `pip install -r requirements.txt`
@@ -215,8 +223,10 @@ async def get_async_session() -> AsyncSession:
 from __future__ import annotations
 
 import asyncio
+import os
 import pytest
 import pytest_asyncio
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -226,6 +236,20 @@ from sqlalchemy.ext.asyncio import (
 from services.web_app.db.models import Base
 
 
+# --- Test DB strategy ---
+# PRIMARY: PostgreSQL (validates JSONB, partial indexes, deferrable FK, pgvector)
+# FALLBACK: SQLite (fast local-only smoke tests, limited feature coverage)
+#
+# CI must always set BID_TEST_DATABASE_URL to PostgreSQL.
+# docker-compose.yml provides: postgresql+asyncpg://kira:kira@localhost:5432/kira_bid_test
+
+_TEST_DB_URL = os.getenv(
+    "BID_TEST_DATABASE_URL",
+    "sqlite+aiosqlite:///:memory:",  # fallback for local dev without docker
+)
+_IS_POSTGRES = "postgresql" in _TEST_DB_URL
+
+
 @pytest.fixture(scope="session")
 def event_loop():
     loop = asyncio.new_event_loop()
@@ -233,22 +257,79 @@ def event_loop():
     loop.close()
 
 
-@pytest_asyncio.fixture(scope="function")
-async def db_session():
-    """Per-test async session using in-memory SQLite for speed."""
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        echo=False,
-    )
+@pytest_asyncio.fixture(scope="session")
+async def _pg_engine():
+    """Session-scoped engine for PostgreSQL. Creates schema once."""
+    if not _IS_POSTGRES:
+        yield None
+        return
+    engine = create_async_engine(_TEST_DB_URL, echo=False)
+    async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    async with factory() as session:
-        yield session
-
+    yield engine
     await engine.dispose()
+
+
+@pytest_asyncio.fixture(scope="function")
+async def db_session(_pg_engine):
+    """Per-test async session with proper transactional isolation.
+
+    PostgreSQL: outer connection-level transaction wraps entire test.
+    Session.commit() creates/releases savepoints within the outer txn.
+    After test, outer txn rolls back → zero side effects.
+
+    SQLite: fresh in-memory DB per test (no shared state possible).
+    """
+    if _IS_POSTGRES:
+        # --- Outer connection transaction pattern ---
+        # 1. Open raw connection, begin outer transaction (never committed)
+        async with _pg_engine.connect() as conn:
+            txn = await conn.begin()
+
+            # 2. Bind session to this connection
+            # Session.commit() → savepoint release, NOT real commit
+            session = AsyncSession(bind=conn, expire_on_commit=False)
+
+            # 3. Start first savepoint (session.commit() will release + re-create)
+            nested = await conn.begin_nested()
+
+            @event.listens_for(session.sync_session, "after_transaction_end")
+            def _restart_savepoint(session_sync, transaction):
+                """After session.commit() releases savepoint, start a new one."""
+                if transaction.nested and not transaction._parent.nested:
+                    # inner savepoint ended, restart
+                    conn_sync = conn.sync_connection
+                    if conn_sync is not None:
+                        conn_sync.begin_nested()
+
+            yield session
+
+            # 4. Cleanup: close session, rollback outer txn
+            await session.close()
+            await txn.rollback()
+    else:
+        # SQLite: fresh DB per test
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async with factory() as session:
+            yield session
+        await engine.dispose()
+
+
+@pytest.fixture
+def is_postgres() -> bool:
+    """Use to skip PostgreSQL-only tests when running on SQLite."""
+    return _IS_POSTGRES
 ```
+
+> **IMPORTANT:** CI pipeline MUST set `BID_TEST_DATABASE_URL` to PostgreSQL.
+> SQLite cannot validate: JSONB operators, partial unique indexes (`WHERE is_active = true`),
+> deferrable FK constraints, pgvector columns, `CHECK` constraints on enum values.
+> SQLite fallback exists only for local quick iteration — it is NOT a substitute for PostgreSQL tests.
 
 - [ ] **Step 4: Verify setup compiles**
 
@@ -474,11 +555,14 @@ Expected: FAIL (import error — org.py not yet created)
 # services/web_app/db/models/org.py
 from __future__ import annotations
 
-from sqlalchemy import Boolean, ForeignKey, Index, Text, text
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Index, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, CuidPkMixin, TimestampMixin, CreatedAtMixin
+
+_PLAN_TIERS = "plan_tier IN ('free','starter','pro','enterprise') OR plan_tier IS NULL"
+_MEMBERSHIP_ROLES = "role IN ('owner','admin','editor','reviewer','approver','viewer')"
 
 
 class Organization(CuidPkMixin, TimestampMixin, Base):
@@ -490,6 +574,10 @@ class Organization(CuidPkMixin, TimestampMixin, Base):
 
     memberships: Mapped[list[Membership]] = relationship(
         back_populates="organization", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        CheckConstraint(_PLAN_TIERS, name="ck_organizations_plan_tier"),
     )
 
 
@@ -508,6 +596,7 @@ class Membership(CuidPkMixin, TimestampMixin, Base):
     organization: Mapped[Organization] = relationship(back_populates="memberships")
 
     __table_args__ = (
+        CheckConstraint(_MEMBERSHIP_ROLES, name="ck_memberships_role"),
         Index("idx_memberships_user", "user_id", "org_id", postgresql_where=text("is_active = true")),
         Index("idx_memberships_org_role", "org_id", "role", postgresql_where=text("is_active = true")),
     )
@@ -617,6 +706,8 @@ from .base import Base, CuidPkMixin, TimestampMixin, CreatedAtMixin
 
 _BID_PROJECT_STATUSES = "status IN ('draft','collecting_inputs','analyzing','ready_for_generation','generating','in_review','changes_requested','approved','locked_for_submission','submitted','archived')"
 _RFP_SOURCE_TYPES = "rfp_source_type IN ('upload','nara_search','manual') OR rfp_source_type IS NULL"
+_GENERATION_MODES = "generation_mode IN ('strict_template','starter','upgrade') OR generation_mode IS NULL"
+_ACCESS_LEVELS = "access_level IN ('owner','editor','reviewer','approver','viewer')"
 _DOC_KINDS = "document_kind IN ('rfp','company_profile','template','past_proposal','track_record','personnel','supporting_material','final_upload')"
 _PARSE_STATUSES = "parse_status IN ('pending','parsing','completed','failed')"
 
@@ -634,6 +725,10 @@ class BidProject(CuidPkMixin, TimestampMixin, Base):
     )  # draft / collecting_inputs / analyzing / ready_for_generation / generating / in_review / changes_requested / approved / locked_for_submission / submitted / archived
     rfp_source_type: Mapped[str | None] = mapped_column(Text)  # upload / nara_search / manual
     rfp_source_ref: Mapped[str | None] = mapped_column(Text)
+    # Dedicated legacy session mapping — NOT stored in rfp_source_ref (business field)
+    legacy_session_id: Mapped[str | None] = mapped_column(
+        Text, unique=True, index=True, doc="Session adapter lookup key. Phase 4 removed."
+    )
     active_analysis_snapshot_id: Mapped[str | None] = mapped_column(
         Text, ForeignKey("analysis_snapshots.id", use_alter=True, deferrable=True, initially="DEFERRED"),
     )
@@ -643,6 +738,7 @@ class BidProject(CuidPkMixin, TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint(_BID_PROJECT_STATUSES, name="ck_bid_projects_status"),
         CheckConstraint(_RFP_SOURCE_TYPES, name="ck_bid_projects_rfp_source_type"),
+        CheckConstraint(_GENERATION_MODES, name="ck_bid_projects_generation_mode"),
         Index("idx_bid_projects_org_status", "org_id", "status"),
         Index("idx_bid_projects_org_created", "org_id", text("created_at DESC")),
     )
@@ -661,6 +757,7 @@ class ProjectAccess(CuidPkMixin, TimestampMixin, Base):
     )  # owner / editor / reviewer / approver / viewer
 
     __table_args__ = (
+        CheckConstraint(_ACCESS_LEVELS, name="ck_project_access_level"),
         Index("idx_project_access_project", "project_id"),
         Index("idx_project_access_user", "user_id"),
     )
@@ -1046,11 +1143,15 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, CuidPkMixin, TimestampMixin
 
-# NOTE: pgvector Vector(1536) column only works on PostgreSQL.
-# For SQLite tests, embedding columns are nullable Text.
-# In production migration, use: from pgvector.sqlalchemy import Vector
-# and change column type to Vector(1536).
-# For now, we store embeddings as nullable to allow SQLite testing.
+# pgvector: import conditionally to prevent SQLite import errors,
+# but ALWAYS define in ORM model to prevent autogenerate drift.
+try:
+    from pgvector.sqlalchemy import Vector
+    _VECTOR_TYPE = Vector(1536)
+except ImportError:
+    # SQLite fallback: treat as opaque binary (tests won't use embeddings)
+    from sqlalchemy import LargeBinary
+    _VECTOR_TYPE = LargeBinary
 
 
 class CompanyProfile(CuidPkMixin, TimestampMixin, Base):
@@ -1082,7 +1183,7 @@ class CompanyTrackRecord(CuidPkMixin, TimestampMixin, Base):
     period_end: Mapped[date | None] = mapped_column(Date)
     description: Mapped[str | None] = mapped_column(Text)
     technologies: Mapped[dict | None] = mapped_column(JSONB)
-    # embedding: Vector(1536) — added in PostgreSQL migration, not in SQLite tests
+    embedding = mapped_column(_VECTOR_TYPE, nullable=True)
 
     __table_args__ = (
         Index("idx_track_records_org", "org_id"),
@@ -1101,7 +1202,7 @@ class CompanyPersonnel(CuidPkMixin, TimestampMixin, Base):
     certifications: Mapped[dict | None] = mapped_column(JSONB)
     skills: Mapped[dict | None] = mapped_column(JSONB)
     description: Mapped[str | None] = mapped_column(Text)
-    # embedding: Vector(1536) — added in PostgreSQL migration, not in SQLite tests
+    embedding = mapped_column(_VECTOR_TYPE, nullable=True)
 
     __table_args__ = (
         Index("idx_personnel_org", "org_id"),
@@ -1598,6 +1699,8 @@ git commit -m "feat(bid-workspace): add S3/R2 client wrapper with presigned URL 
 # services/web_app/api/deps.py
 from __future__ import annotations
 
+import logging
+import os
 from dataclasses import dataclass
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
@@ -1605,6 +1708,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.web_app.db.engine import get_async_session
 from services.web_app.db.models.org import Membership
+from services.web_app.db.models.project import ProjectAccess
+
+logger = logging.getLogger(__name__)
+
+# --- Guard: org auto-provision is DEV ONLY ---
+_DEV_BOOTSTRAP = os.getenv("BID_DEV_BOOTSTRAP", "").lower() in ("1", "true")
 
 
 @dataclass
@@ -1628,8 +1737,6 @@ async def get_current_user(request: Request) -> CurrentUser:
     if not username:
         raise HTTPException(status_code=401, detail="인증이 필요합니다")
 
-    # For Phase 1, auto-provision org + membership if not exists
-    # This is the session adapter bridge — existing users get auto-enrolled
     return CurrentUser(username=username, org_id="", role="owner")
 
 
@@ -1639,7 +1746,8 @@ async def resolve_org_membership(
 ) -> CurrentUser:
     """Resolve user's org membership from DB.
 
-    Phase 1: auto-creates org + membership for first-time users.
+    Auto-provision (org + owner membership) is DEV ONLY (BID_DEV_BOOTSTRAP=1).
+    In production, users must be invited to an existing org.
     """
     result = await db.execute(
         select(Membership).where(
@@ -1650,7 +1758,13 @@ async def resolve_org_membership(
     membership = result.scalar_one_or_none()
 
     if membership is None:
-        # Auto-provision: create org + owner membership
+        if not _DEV_BOOTSTRAP:
+            raise HTTPException(
+                status_code=403,
+                detail="소속된 조직이 없습니다. 관리자에게 초대를 요청하세요.",
+            )
+        # DEV ONLY: auto-provision org + owner membership
+        logger.warning("DEV_BOOTSTRAP: auto-creating org for user=%s", user.username)
         from services.web_app.db.models.org import Organization
         org = Organization(name=f"{user.username}의 조직")
         db.add(org)
@@ -1668,6 +1782,75 @@ async def resolve_org_membership(
     user.org_id = membership.org_id
     user.role = membership.role
     return user
+
+
+# --- ACL: Project-level access control ---
+
+# access_level hierarchy (higher = more permissive)
+_ACCESS_LEVELS = {
+    "viewer": 1,
+    "reviewer": 2,
+    "approver": 3,
+    "editor": 4,
+    "owner": 5,
+}
+
+# Org-level roles that bypass project_access row check (full org access)
+_ORG_BYPASS_ROLES = {"owner", "admin"}
+
+
+async def require_project_access(
+    project_id: str,
+    min_level: str,
+    user: CurrentUser,
+    db: AsyncSession,
+) -> ProjectAccess | None:
+    """Central ACL guard. Enforced on ALL project/asset/read/write paths.
+
+    Logic:
+    1. Verify project exists AND belongs to user's org → 404 if not.
+    2. If user.role is org owner/admin → bypass project_access check (full access).
+    3. Otherwise, require ProjectAccess row with level >= min_level.
+    4. No access → 404 (not 403, to prevent IDOR enumeration).
+
+    Returns ProjectAccess row if one exists, None for org-level bypass.
+    """
+    from services.web_app.db.models.project import BidProject
+
+    # 1. Verify project belongs to user's org
+    proj_result = await db.execute(
+        select(BidProject).where(
+            BidProject.id == project_id,
+            BidProject.org_id == user.org_id,
+        )
+    )
+    project = proj_result.scalar_one_or_none()
+    if project is None:
+        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다")
+
+    # 2. Org owner/admin bypass — full access to all projects in their org
+    if user.role in _ORG_BYPASS_ROLES:
+        return None
+
+    # 3. Check ProjectAccess row for non-admin users
+    access_result = await db.execute(
+        select(ProjectAccess).where(
+            ProjectAccess.project_id == project_id,
+            ProjectAccess.user_id == user.username,
+        )
+    )
+    access = access_result.scalar_one_or_none()
+
+    if access is None:
+        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다")
+
+    # 4. Check access level hierarchy
+    user_level = _ACCESS_LEVELS.get(access.access_level, 0)
+    required_level = _ACCESS_LEVELS.get(min_level, 0)
+    if user_level < required_level:
+        raise HTTPException(status_code=403, detail="권한이 부족합니다")
+
+    return access
 ```
 
 - [ ] **Step 2: Commit**
@@ -1711,15 +1894,18 @@ async def test_download_asset_requires_org_ownership():
 # services/web_app/api/assets.py
 from __future__ import annotations
 
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.web_app.db.engine import get_async_session
 from services.web_app.db.models.document import DocumentAsset
 from services.web_app.db.models.audit import AuditLog
 from services.web_app.storage.s3 import get_s3_client
-from services.web_app.api.deps import CurrentUser, resolve_org_membership
+from services.web_app.api.deps import CurrentUser, resolve_org_membership, require_project_access
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
 
@@ -1730,7 +1916,7 @@ async def download_asset(
     user: CurrentUser = Depends(resolve_org_membership),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """Ownership-verified asset download via presigned URL."""
+    """ACL-verified asset download via presigned URL."""
     result = await db.execute(
         select(DocumentAsset).where(
             DocumentAsset.id == asset_id,
@@ -1742,7 +1928,11 @@ async def download_asset(
     if asset is None:
         raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다")
 
-    if asset.upload_status != "verified":
+    # ACL: viewer or above can download project assets
+    if asset.project_id:
+        await require_project_access(asset.project_id, "viewer", user, db)
+
+    if asset.upload_status not in ("uploaded", "verified"):
         raise HTTPException(status_code=409, detail="파일 준비 중입니다")
 
     s3 = get_s3_client()
@@ -1787,32 +1977,67 @@ async def confirm_upload(
     if asset is None:
         raise HTTPException(status_code=404)
 
+    # ACL: editor or above can confirm uploads
+    if asset.project_id:
+        await require_project_access(asset.project_id, "editor", user, db)
+
     if asset.upload_status not in ("presigned_issued", "uploading"):
         raise HTTPException(status_code=409, detail=f"Invalid status: {asset.upload_status}")
 
-    # Verify file exists in S3
+    # Step 1: Verify file exists in S3 + get server-side metadata
     s3 = get_s3_client()
     try:
         key = s3.parse_storage_uri(asset.storage_uri)
         head = s3.head_object(key)
         actual_size = head.get("ContentLength", 0)
+        # S3 ETag is MD5 for non-multipart uploads, or MD5-of-parts for multipart
+        s3_etag = head.get("ETag", "").strip('"')
     except Exception:
         asset.upload_status = "failed"
         await db.commit()
         raise HTTPException(status_code=422, detail="S3 파일 확인 실패")
 
-    # Hash verification (spec section 6: uploaded → verified requires hash check)
-    if content_hash:
-        # Client-provided hash — store for audit trail
-        # Server-side hash verification would require downloading the file;
-        # for Phase 1, trust client hash + S3 ETag as integrity signal.
-        asset.content_hash = content_hash
-
-    asset.upload_status = "verified"
+    # Step 2: Transition to "uploaded" (S3 head confirmed file exists)
+    asset.upload_status = "uploaded"
     asset.size_bytes = actual_size
+    await db.flush()
+
+    # Step 3: Integrity verification — what "verified" actually guarantees:
+    #
+    # Guarantee levels (honest naming):
+    # - "uploaded"  = S3 head_object succeeded (file exists, has size)
+    # - "verified"  = "uploaded" + we have an ETag (S3-level integrity)
+    #
+    # What "verified" does NOT guarantee:
+    # - SHA256 content hash (ETag = MD5 for single-part, opaque for multipart)
+    # - Provider-independent hash (ETag format varies by S3/R2/MinIO)
+    # - Client-to-server bit-for-bit integrity
+    #
+    # Phase 2 upgrade path: S3 ChecksumAlgorithm=SHA256 or server-side
+    # download+hash for critical document types (final_upload).
+
+    if s3_etag:
+        asset.content_hash = f"etag:{s3_etag}"
+        asset.upload_status = "verified"
+        if content_hash:
+            # Store client hash alongside ETag for audit trail
+            asset.content_hash = f"etag:{s3_etag},client:{content_hash}"
+            if content_hash != s3_etag:
+                logger.info(
+                    "ETag/client hash differ for asset %s (expected for multipart): "
+                    "etag=%s, client=%s", asset_id, s3_etag, content_hash,
+                )
+    else:
+        # No ETag — unusual. Leave as "uploaded", log for investigation.
+        logger.warning("No ETag from S3 for asset %s — leaving as 'uploaded'", asset_id)
+
     await db.commit()
 
-    return {"status": "verified", "size_bytes": actual_size}
+    return {
+        "status": asset.upload_status,
+        "size_bytes": actual_size,
+        "content_hash": asset.content_hash,
+    }
 ```
 
 - [ ] **Step 3: Run tests**
@@ -1868,7 +2093,7 @@ from services.web_app.db.models.project import BidProject, ProjectAccess, Source
 from services.web_app.db.models.document import DocumentAsset, ProjectCurrentDocument
 from services.web_app.db.models.audit import AuditLog
 from services.web_app.storage.s3 import get_s3_client
-from services.web_app.api.deps import CurrentUser, resolve_org_membership
+from services.web_app.api.deps import CurrentUser, resolve_org_membership, require_project_access
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -1941,7 +2166,25 @@ async def list_projects(
     user: CurrentUser = Depends(resolve_org_membership),
     db: AsyncSession = Depends(get_async_session),
 ):
-    query = select(BidProject).where(BidProject.org_id == user.org_id)
+    """List projects the user has access to.
+
+    Org owner/admin: see all org projects.
+    Others: only projects with ProjectAccess row.
+    """
+    if user.role in ("owner", "admin"):
+        # Org owner/admin see everything in their org
+        query = select(BidProject).where(BidProject.org_id == user.org_id)
+    else:
+        # Non-admin: only projects with explicit ProjectAccess
+        query = (
+            select(BidProject)
+            .join(ProjectAccess, ProjectAccess.project_id == BidProject.id)
+            .where(
+                BidProject.org_id == user.org_id,
+                ProjectAccess.user_id == user.username,
+            )
+        )
+
     if status:
         query = query.where(BidProject.status == status)
     query = query.order_by(BidProject.created_at.desc())
@@ -1969,6 +2212,9 @@ async def get_project(
     user: CurrentUser = Depends(resolve_org_membership),
     db: AsyncSession = Depends(get_async_session),
 ):
+    # ACL: viewer or above can read project
+    await require_project_access(project_id, "viewer", user, db)
+
     result = await db.execute(
         select(BidProject).where(
             BidProject.id == project_id,
@@ -2001,6 +2247,9 @@ async def update_project(
     user: CurrentUser = Depends(resolve_org_membership),
     db: AsyncSession = Depends(get_async_session),
 ):
+    # ACL: editor or above can modify project
+    await require_project_access(project_id, "editor", user, db)
+
     result = await db.execute(
         select(BidProject).where(
             BidProject.id == project_id,
@@ -2028,6 +2277,9 @@ async def archive_project(
     user: CurrentUser = Depends(resolve_org_membership),
     db: AsyncSession = Depends(get_async_session),
 ):
+    # ACL: owner only can archive project
+    await require_project_access(project_id, "owner", user, db)
+
     result = await db.execute(
         select(BidProject).where(
             BidProject.id == project_id,
@@ -2062,15 +2314,8 @@ async def upload_source(
     db: AsyncSession = Depends(get_async_session),
 ):
     """Create document_asset + presigned upload URL for source document."""
-    # Verify project ownership
-    result = await db.execute(
-        select(BidProject).where(
-            BidProject.id == project_id,
-            BidProject.org_id == user.org_id,
-        )
-    )
-    if result.scalar_one_or_none() is None:
-        raise HTTPException(status_code=404)
+    # ACL: editor or above can upload source documents
+    await require_project_access(project_id, "editor", user, db)
 
     from services.web_app.db.models.base import new_cuid
     asset_id = new_cuid()
@@ -2086,7 +2331,7 @@ async def upload_source(
         id=asset_id,
         org_id=user.org_id,
         project_id=project_id,
-        asset_type=req.filename.rsplit(".", 1)[-1] if "." in req.filename else "other",
+        asset_type="original",  # Source uploads are always "original" — not derived from file extension
         storage_uri=storage_uri,
         upload_status="presigned_issued",
         original_filename=req.filename,
@@ -2205,13 +2450,14 @@ class SessionAdapter:
     ) -> BidProject:
         """Map existing session_id to a bid_project.
 
-        Uses session_id as rfp_source_ref for lookup.
-        Creates org + membership if user has none (Phase 1 auto-provision).
+        Uses dedicated legacy_session_id column for lookup.
+        rfp_source_ref is a business field — NOT used for session mapping.
+        Creates org + membership if user has none (Phase 1 dev-bootstrap).
         """
         # Find existing project mapped to this session
         result = await self._db.execute(
             select(BidProject).where(
-                BidProject.rfp_source_ref == f"session:{session_id}",
+                BidProject.legacy_session_id == session_id,
             )
         )
         project = result.scalar_one_or_none()
@@ -2228,7 +2474,7 @@ class SessionAdapter:
             title=title,
             status="draft",
             rfp_source_type="upload",
-            rfp_source_ref=f"session:{session_id}",
+            legacy_session_id=session_id,
         )
         self._db.add(project)
         await self._db.flush()
@@ -2406,26 +2652,15 @@ git commit -m "feat(bid-workspace): wire DB lifespan + project/asset routers int
 - [ ] **Step 1: Add DB roundtrip test**
 
 ```python
-import pytest_asyncio
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from services.web_app.db.models import Base
 from services.web_app.api.adapter import SessionAdapter
 
 
-@pytest_asyncio.fixture
-async def adapter_session():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    async with factory() as session:
-        yield session
-    await engine.dispose()
+# NOTE: Uses db_session from conftest.py (PostgreSQL-first, SQLite fallback)
 
 
 @pytest.mark.asyncio
-async def test_adapter_creates_project_on_first_call(adapter_session):
-    adapter = SessionAdapter(adapter_session)
+async def test_adapter_creates_project_on_first_call(db_session):
+    adapter = SessionAdapter(db_session)
     project = await adapter.get_or_create_project(
         session_id="sess_001",
         username="testuser",
@@ -2433,21 +2668,21 @@ async def test_adapter_creates_project_on_first_call(adapter_session):
     )
     assert project.id is not None
     assert project.title == "XX기관 사업"
-    assert project.rfp_source_ref == "session:sess_001"
+    assert project.legacy_session_id == "sess_001"
     assert project.org_id  # org was auto-created
 
 
 @pytest.mark.asyncio
-async def test_adapter_returns_same_project_for_same_session(adapter_session):
-    adapter = SessionAdapter(adapter_session)
+async def test_adapter_returns_same_project_for_same_session(db_session):
+    adapter = SessionAdapter(db_session)
     p1 = await adapter.get_or_create_project("sess_001", "testuser")
     p2 = await adapter.get_or_create_project("sess_001", "testuser")
     assert p1.id == p2.id
 
 
 @pytest.mark.asyncio
-async def test_adapter_save_and_get_analysis(adapter_session):
-    adapter = SessionAdapter(adapter_session)
+async def test_adapter_save_and_get_analysis(db_session):
+    adapter = SessionAdapter(db_session)
     project = await adapter.get_or_create_project("sess_002", "testuser")
 
     analysis = {"title": "테스트 사업", "requirements": [{"category": "기술", "description": "웹 시스템"}]}
@@ -2467,8 +2702,8 @@ async def test_adapter_save_and_get_analysis(adapter_session):
 
 
 @pytest.mark.asyncio
-async def test_adapter_analysis_versioning(adapter_session):
-    adapter = SessionAdapter(adapter_session)
+async def test_adapter_analysis_versioning(db_session):
+    adapter = SessionAdapter(db_session)
     project = await adapter.get_or_create_project("sess_003", "testuser")
 
     s1 = await adapter.save_analysis(project.id, project.org_id, {"v": 1})
@@ -2481,7 +2716,7 @@ async def test_adapter_analysis_versioning(adapter_session):
     assert fetched["analysis_json"]["v"] == 2
 ```
 
-- [ ] **Step 2: Run integration tests** (aiosqlite already in requirements.txt from Task 1)
+- [ ] **Step 2: Run integration tests** (uses conftest db_session — PostgreSQL or SQLite fallback)
 
 Run: `pytest services/web_app/tests/test_adapter.py -v`
 Expected: PASS (4 tests)
@@ -2531,13 +2766,565 @@ git add -A services/web_app/db/ services/web_app/storage/ services/web_app/api/ 
 git status  # Review what's staged
 git commit -m "feat(bid-workspace): Phase 1 Foundation — PostgreSQL schema, S3 client, session adapter
 
-- 14 SQLAlchemy models (org, project, document, company, audit)
-- S3/R2 client with presigned URL support
-- Project CRUD + asset upload/download APIs with org ownership
-- Session adapter (session_id ↔ bid_project bridge)
+- 14 SQLAlchemy models with CHECK constraints on all enum columns
+- pgvector Vector(1536) in ORM (no autogenerate drift)
+- S3/R2 client with honest verification semantics (uploaded + ETag = verified)
+- Project CRUD + asset APIs with central ACL (require_project_access)
+- Org owner/admin bypass + non-admin ProjectAccess enforcement
+- list_projects scoped to user's accessible projects
+- Session adapter (legacy_session_id ↔ bid_project bridge)
 - Alembic migration setup
-- Integration tests with async SQLite"
+- PostgreSQL-first test isolation (outer transaction + savepoint pattern)
+- 5-layer test strategy with realistic dummy data
+- Org auto-provision gated behind BID_DEV_BOOTSTRAP
+- Runtime: existing Dockerfile + start.sh (no new Dockerfile)"
 ```
+
+---
+
+## Runtime Topology (Canonical)
+
+**Production (Railway):** Single container via existing `Dockerfile` + `start.sh`.
+`start.sh` starts both `web_app` (port 8000) and `rag_engine` (port 8001).
+No new `Dockerfile.web_app` — we use the existing monolith container.
+
+**BID_DATABASE_URL injection:** Railway env var → `start.sh` passes to `web_app`.
+When `BID_DATABASE_URL` is unset, Bid Workspace routes are disabled (graceful degradation).
+
+**Local dev:** `python services/web_app/main.py` directly (port 8000).
+Set `BID_DATABASE_URL` and `BID_DEV_BOOTSTRAP=1` in `.env` or shell.
+
+## Docker Compose: Test DB
+
+Update `docker-compose.yml` to add **test databases only** (web_app runs outside docker in dev):
+
+```yaml
+# Add to existing docker-compose.yml services:
+
+  kira_bid_db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: kira
+      POSTGRES_PASSWORD: kira
+      POSTGRES_DB: kira_bid
+    ports:
+      - "5433:5432"
+    volumes:
+      - kira_bid_data:/var/lib/postgresql/data
+
+  kira_bid_test_db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: kira
+      POSTGRES_PASSWORD: kira
+      POSTGRES_DB: kira_bid_test
+    ports:
+      - "5434:5432"
+    tmpfs:
+      - /var/lib/postgresql/data  # RAM-backed for speed
+
+# Add volume:
+volumes:
+  kira_bid_data:
+```
+
+**Local dev (.env):**
+```bash
+BID_DATABASE_URL=postgresql+asyncpg://kira:kira@localhost:5433/kira_bid
+BID_DEV_BOOTSTRAP=1
+```
+
+**Test execution:**
+```bash
+# PostgreSQL integration tests (primary — CI mandatory):
+BID_TEST_DATABASE_URL="postgresql+asyncpg://kira:kira@localhost:5434/kira_bid_test" \
+  pytest services/web_app/tests/ -v
+
+# SQLite fallback (no docker, limited coverage — local quick check only):
+pytest services/web_app/tests/ -v
+```
+
+---
+
+## 5-Layer Test Strategy
+
+### Layer 1: Unit Tests (No DB, No I/O)
+
+Fast, isolated tests for pure logic. Run with plain `pytest`.
+
+```python
+# services/web_app/tests/test_unit.py
+
+# --- Enum + state transition ---
+from services.web_app.db.models.base import DocType, ContentSchema
+
+def test_doc_type_values():
+    assert DocType.PROPOSAL == "proposal"
+    assert len(DocType.ALL) == 5
+    assert DocType.CHECKLIST in DocType.ALL
+
+def test_content_schema_consistency():
+    # Every doc_type has a corresponding content_schema
+    for dt in DocType.ALL:
+        assert hasattr(ContentSchema, f"{dt.upper()}_V1")
+
+
+# --- ACL hierarchy ---
+from services.web_app.api.deps import _ACCESS_LEVELS
+
+def test_access_level_hierarchy():
+    assert _ACCESS_LEVELS["owner"] > _ACCESS_LEVELS["editor"]
+    assert _ACCESS_LEVELS["editor"] > _ACCESS_LEVELS["reviewer"]
+    assert _ACCESS_LEVELS["reviewer"] > _ACCESS_LEVELS["viewer"]
+
+def test_all_levels_defined():
+    for level in ("viewer", "reviewer", "approver", "editor", "owner"):
+        assert level in _ACCESS_LEVELS
+
+
+# --- cuid2 + S3 key ---
+from services.web_app.db.models.base import new_cuid
+
+def test_cuid_unique():
+    ids = {new_cuid() for _ in range(100)}
+    assert len(ids) == 100
+
+
+# --- BidProject status transitions ---
+_VALID_TRANSITIONS = {
+    "draft": {"collecting_inputs", "analyzing"},
+    "collecting_inputs": {"analyzing"},
+    "analyzing": {"ready_for_generation"},
+    "ready_for_generation": {"generating"},
+    "generating": {"in_review", "ready_for_generation"},  # retry
+    "in_review": {"changes_requested", "approved"},
+    "changes_requested": {"in_review", "generating"},
+    "approved": {"locked_for_submission"},
+    "locked_for_submission": {"submitted"},
+    "submitted": {"archived"},
+}
+
+def test_status_transitions_complete():
+    """Every status except 'archived' has at least one valid transition."""
+    for status in _VALID_TRANSITIONS:
+        assert len(_VALID_TRANSITIONS[status]) >= 1
+```
+
+### Layer 2: PostgreSQL Integration Tests (DB-specific features)
+
+**Requires:** `BID_TEST_DATABASE_URL` pointing to PostgreSQL with pgvector.
+
+```python
+# services/web_app/tests/test_postgres_integration.py
+
+import pytest
+from sqlalchemy import text
+from services.web_app.db.models.project import BidProject, AnalysisSnapshot
+from services.web_app.db.models.org import Organization
+
+
+@pytest.mark.asyncio
+async def test_jsonb_query(db_session, is_postgres):
+    if not is_postgres:
+        pytest.skip("JSONB operators require PostgreSQL")
+
+    org = Organization(name="테스트")
+    db_session.add(org)
+    await db_session.flush()
+
+    proj = BidProject(
+        org_id=org.id, created_by="u1", title="테스트",
+        settings_json={"total_pages": 50, "template": "standard"},
+    )
+    db_session.add(proj)
+    await db_session.commit()
+
+    # JSONB containment query
+    result = await db_session.execute(
+        text("SELECT id FROM bid_projects WHERE settings_json @> :val"),
+        {"val": '{"total_pages": 50}'},
+    )
+    row = result.fetchone()
+    assert row is not None
+
+
+@pytest.mark.asyncio
+async def test_partial_unique_index_analysis_snapshot(db_session, is_postgres):
+    """Only one active snapshot per project (idx_analysis_active)."""
+    if not is_postgres:
+        pytest.skip("Partial unique index requires PostgreSQL")
+
+    org = Organization(name="테스트")
+    db_session.add(org)
+    await db_session.flush()
+
+    proj = BidProject(org_id=org.id, created_by="u1", title="테스트")
+    db_session.add(proj)
+    await db_session.flush()
+
+    s1 = AnalysisSnapshot(
+        org_id=org.id, project_id=proj.id, version=1,
+        analysis_json={"v": 1}, is_active=True,
+    )
+    db_session.add(s1)
+    await db_session.commit()
+
+    # Second active snapshot should violate partial unique index
+    s2 = AnalysisSnapshot(
+        org_id=org.id, project_id=proj.id, version=2,
+        analysis_json={"v": 2}, is_active=True,
+    )
+    db_session.add(s2)
+    with pytest.raises(Exception):  # IntegrityError
+        await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_check_constraint_rejects_invalid_status(db_session, is_postgres):
+    if not is_postgres:
+        pytest.skip("CHECK constraints not enforced in SQLite")
+
+    org = Organization(name="테스트")
+    db_session.add(org)
+    await db_session.flush()
+
+    proj = BidProject(
+        org_id=org.id, created_by="u1", title="테스트",
+        status="invalid_status",
+    )
+    db_session.add(proj)
+    with pytest.raises(Exception):  # IntegrityError from CHECK constraint
+        await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_deferrable_fk_bid_project_analysis(db_session, is_postgres):
+    """bid_projects.active_analysis_snapshot_id FK is deferrable."""
+    if not is_postgres:
+        pytest.skip("Deferrable FK requires PostgreSQL")
+
+    org = Organization(name="테스트")
+    db_session.add(org)
+    await db_session.flush()
+
+    # Create project with active_analysis_snapshot_id pointing to not-yet-created snapshot
+    proj = BidProject(org_id=org.id, created_by="u1", title="테스트")
+    db_session.add(proj)
+    await db_session.flush()
+
+    snapshot = AnalysisSnapshot(
+        org_id=org.id, project_id=proj.id, version=1,
+        analysis_json={}, is_active=True,
+    )
+    db_session.add(snapshot)
+    await db_session.flush()
+
+    proj.active_analysis_snapshot_id = snapshot.id
+    await db_session.commit()  # Should succeed with deferred FK
+
+
+@pytest.mark.asyncio
+async def test_legacy_session_id_unique(db_session, is_postgres):
+    """legacy_session_id uniqueness constraint."""
+    org = Organization(name="테스트")
+    db_session.add(org)
+    await db_session.flush()
+
+    p1 = BidProject(
+        org_id=org.id, created_by="u1", title="P1",
+        legacy_session_id="session_abc",
+    )
+    db_session.add(p1)
+    await db_session.commit()
+
+    p2 = BidProject(
+        org_id=org.id, created_by="u1", title="P2",
+        legacy_session_id="session_abc",  # duplicate
+    )
+    db_session.add(p2)
+    with pytest.raises(Exception):  # IntegrityError from unique
+        await db_session.commit()
+```
+
+### Layer 3: Storage Integration Tests (MinIO/R2)
+
+**Requires:** MinIO container or R2 test bucket.
+
+```python
+# services/web_app/tests/test_storage_integration.py
+
+import io
+import hashlib
+import os
+import pytest
+from services.web_app.storage.s3 import S3Client
+
+_STORAGE_TEST_URL = os.getenv("S3_TEST_ENDPOINT_URL")
+
+
+@pytest.fixture
+def s3_client():
+    if not _STORAGE_TEST_URL:
+        pytest.skip("S3_TEST_ENDPOINT_URL not set")
+    return S3Client(
+        endpoint_url=_STORAGE_TEST_URL,
+        access_key_id=os.getenv("S3_TEST_ACCESS_KEY", "minioadmin"),
+        secret_access_key=os.getenv("S3_TEST_SECRET_KEY", "minioadmin"),
+        bucket_name="kira-test-assets",
+        region="us-east-1",
+    )
+
+
+def test_upload_download_roundtrip(s3_client):
+    """Upload → head → download → verify content matches."""
+    content = "테스트 문서 내용".encode("utf-8")
+    key = "test/roundtrip/test.txt"
+
+    s3_client.upload_fileobj(io.BytesIO(content), key, "text/plain")
+
+    head = s3_client.head_object(key)
+    assert head["ContentLength"] == len(content)
+
+    buf = io.BytesIO()
+    s3_client.download_fileobj(key, buf)
+    assert buf.getvalue() == content
+
+    s3_client.delete_object(key)
+
+
+def test_presigned_url_generation(s3_client):
+    """Presigned upload + download URLs are valid format."""
+    key = "test/presigned/test.docx"
+    upload_url = s3_client.generate_presigned_upload_url(key)
+    assert "X-Amz-Signature" in upload_url or "Signature" in upload_url
+
+    download_url = s3_client.generate_presigned_download_url(key, "test.docx")
+    assert "X-Amz-Signature" in download_url or "Signature" in download_url
+
+
+def test_checksum_verification(s3_client):
+    """Upload file and verify ETag matches content hash."""
+    content = b"checksum test data"
+    expected_md5 = hashlib.md5(content).hexdigest()
+    key = "test/checksum/verify.bin"
+
+    s3_client.upload_fileobj(io.BytesIO(content), key)
+    head = s3_client.head_object(key)
+    etag = head.get("ETag", "").strip('"')
+
+    # For non-multipart uploads, ETag == MD5
+    assert etag == expected_md5
+
+    s3_client.delete_object(key)
+```
+
+### Layer 4: API Scenario Tests (Realistic Dummy Data)
+
+```python
+# services/web_app/tests/test_api_scenarios.py
+
+import pytest
+from services.web_app.api.adapter import SessionAdapter
+from services.web_app.db.models.org import Organization, Membership
+from services.web_app.db.models.project import BidProject, ProjectAccess
+from sqlalchemy import select
+
+
+# --- Realistic dummy data ---
+REALISTIC_RFP = {
+    "title": "2026년 XX교육청 학사행정시스템 고도화 사업",
+    "issuing_org": "XX교육청",
+    "budget": "8억5천만원",
+    "project_period": "2026-06 ~ 2027-05 (12개월)",
+    "evaluation_criteria": [
+        {"category": "사업 이해도", "max_score": 15, "description": "사업 배경 및 목적 이해"},
+        {"category": "기술적 접근방안", "max_score": 30, "description": "시스템 아키텍처, 구현방안"},
+        {"category": "수행관리 방안", "max_score": 15, "description": "일정관리, 품질관리, 리스크관리"},
+        {"category": "투입인력 및 조직", "max_score": 10, "description": "PM/PL 구성"},
+        {"category": "유사 수행실적", "max_score": 10, "description": "관련 경험"},
+    ],
+    "requirements": [
+        {"category": "기능요건", "description": "학적관리, 성적처리, 출결관리 모듈"},
+        {"category": "기술요건", "description": "클라우드 네이티브, MSA 기반 구축"},
+        {"category": "보안요건", "description": "개인정보보호법 준수, ISMS 인증 수준"},
+    ],
+}
+
+
+@pytest.mark.asyncio
+async def test_full_project_lifecycle(db_session):
+    """Create org → project → analysis → verify state transitions."""
+    # 1. Create org + user
+    org = Organization(name="MS솔루션")
+    db_session.add(org)
+    await db_session.flush()
+
+    member = Membership(org_id=org.id, user_id="testpm", role="owner", is_active=True)
+    db_session.add(member)
+    await db_session.flush()
+
+    # 2. Create project
+    project = BidProject(
+        org_id=org.id,
+        created_by="testpm",
+        title=REALISTIC_RFP["title"],
+        status="draft",
+    )
+    db_session.add(project)
+    await db_session.flush()
+
+    # 3. Grant project access
+    access = ProjectAccess(
+        project_id=project.id, user_id="testpm", access_level="owner",
+    )
+    db_session.add(access)
+    await db_session.commit()
+
+    # 4. Simulate analysis via adapter
+    adapter = SessionAdapter(db_session)
+    snapshot = await adapter.save_analysis(
+        project_id=project.id,
+        org_id=org.id,
+        analysis_json=REALISTIC_RFP,
+        summary_md="## 사업개요\n학사행정시스템 고도화",
+        username="testpm",
+    )
+    assert snapshot.version == 1
+
+    # 5. Verify project status transitioned
+    result = await db_session.execute(
+        select(BidProject).where(BidProject.id == project.id)
+    )
+    updated_project = result.scalar_one()
+    assert updated_project.status == "ready_for_generation"
+    assert updated_project.active_analysis_snapshot_id == snapshot.id
+
+
+@pytest.mark.asyncio
+async def test_idor_prevention(db_session):
+    """User from org_A cannot access org_B's project."""
+    org_a = Organization(name="A사")
+    org_b = Organization(name="B사")
+    db_session.add_all([org_a, org_b])
+    await db_session.flush()
+
+    project_b = BidProject(
+        org_id=org_b.id, created_by="user_b", title="B사 프로젝트",
+    )
+    db_session.add(project_b)
+    await db_session.commit()
+
+    # User from org_A tries to query org_B's project
+    result = await db_session.execute(
+        select(BidProject).where(
+            BidProject.id == project_b.id,
+            BidProject.org_id == org_a.id,  # wrong org
+        )
+    )
+    assert result.scalar_one_or_none() is None  # not found
+
+
+@pytest.mark.asyncio
+async def test_acl_level_enforcement(db_session):
+    """Viewer cannot perform editor actions."""
+    from services.web_app.api.deps import require_project_access, CurrentUser
+    from fastapi import HTTPException
+
+    org = Organization(name="테스트")
+    db_session.add(org)
+    await db_session.flush()
+
+    project = BidProject(org_id=org.id, created_by="admin", title="ACL 테스트")
+    db_session.add(project)
+    await db_session.flush()
+
+    # Grant viewer access
+    access = ProjectAccess(
+        project_id=project.id, user_id="viewer_user", access_level="viewer",
+    )
+    db_session.add(access)
+
+    # Grant viewer org membership
+    member = Membership(org_id=org.id, user_id="viewer_user", role="viewer", is_active=True)
+    db_session.add(member)
+    await db_session.commit()
+
+    viewer = CurrentUser(username="viewer_user", org_id=org.id, role="viewer")
+
+    # Viewer can read
+    await require_project_access(project.id, "viewer", viewer, db_session)
+
+    # Viewer cannot edit
+    with pytest.raises(HTTPException) as exc_info:
+        await require_project_access(project.id, "editor", viewer, db_session)
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_org_owner_bypasses_project_access(db_session):
+    """Org owner can access any project without ProjectAccess row."""
+    from services.web_app.api.deps import require_project_access, CurrentUser
+
+    org = Organization(name="테스트")
+    db_session.add(org)
+    await db_session.flush()
+
+    # Project created by someone else, no ProjectAccess for org_owner
+    project = BidProject(org_id=org.id, created_by="other_user", title="타인 프로젝트")
+    db_session.add(project)
+    await db_session.commit()
+
+    org_owner = CurrentUser(username="org_owner", org_id=org.id, role="owner")
+
+    # Org owner can access without ProjectAccess row
+    result = await require_project_access(project.id, "owner", org_owner, db_session)
+    assert result is None  # None = org-level bypass, not ProjectAccess row
+
+
+@pytest.mark.asyncio
+async def test_org_admin_bypasses_project_access(db_session):
+    """Org admin can access any project without ProjectAccess row."""
+    from services.web_app.api.deps import require_project_access, CurrentUser
+
+    org = Organization(name="테스트")
+    db_session.add(org)
+    await db_session.flush()
+
+    project = BidProject(org_id=org.id, created_by="other_user", title="타인 프로젝트")
+    db_session.add(project)
+    await db_session.commit()
+
+    org_admin = CurrentUser(username="org_admin", org_id=org.id, role="admin")
+
+    result = await require_project_access(project.id, "editor", org_admin, db_session)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_non_admin_without_access_row_rejected(db_session):
+    """Non-admin user without ProjectAccess row gets 404."""
+    from services.web_app.api.deps import require_project_access, CurrentUser
+    from fastapi import HTTPException
+
+    org = Organization(name="테스트")
+    db_session.add(org)
+    await db_session.flush()
+
+    project = BidProject(org_id=org.id, created_by="other_user", title="타인 프로젝트")
+    db_session.add(project)
+    await db_session.commit()
+
+    editor_no_access = CurrentUser(username="no_access_user", org_id=org.id, role="editor")
+
+    # No ProjectAccess row → 404 (not 403, anti-enumeration)
+    with pytest.raises(HTTPException) as exc_info:
+        await require_project_access(project.id, "viewer", editor_no_access, db_session)
+    assert exc_info.value.status_code == 404
+```
+
+### Layer 5: Document Quality Acceptance Tests (Phase 2)
+
+Deferred to Phase 2 when GenerationContract is implemented. Will use golden dataset of 10-20 real RFPs.
 
 ---
 
@@ -2545,12 +3332,24 @@ git commit -m "feat(bid-workspace): Phase 1 Foundation — PostgreSQL schema, S3
 
 Before proceeding to Phase 2, verify:
 
-- [ ] All 14 tables can be created via Alembic migration on PostgreSQL
+- [ ] All 14 tables can be created via Alembic migration on PostgreSQL (including pgvector extension)
 - [ ] S3 presigned upload/download works with actual R2/S3 bucket
-- [ ] Session adapter correctly maps session_id → bid_project
+- [ ] Upload confirm: uploaded = S3 exists, verified = uploaded + ETag present (honest semantics)
+- [ ] Session adapter correctly maps `legacy_session_id` → bid_project (NOT rfp_source_ref)
+- [ ] `require_project_access()` enforced on ALL routes: get/update/archive/upload/download/confirm
+- [ ] Org owner/admin bypass ProjectAccess row check (full org access without explicit row)
+- [ ] list_projects scoped: org admin sees all, non-admin sees only their ProjectAccess projects
+- [ ] IDOR test passes — org_A user cannot access org_B project
+- [ ] ACL level hierarchy works — viewer cannot edit, editor cannot archive
+- [ ] Non-admin without ProjectAccess row gets 404 (not 403 — anti-enumeration)
+- [ ] Org auto-provision only active when `BID_DEV_BOOTSTRAP=1`
+- [ ] All enum-like columns have CHECK constraints: status, role, access_level, doc_type, generation_mode, plan_tier
+- [ ] PostgreSQL integration tests pass with outer-txn isolation: JSONB, partial unique index, CHECK constraints, deferrable FK
+- [ ] pgvector Vector(1536) columns exist in ORM models (no autogenerate drift)
 - [ ] Existing Chat UI still works (no regressions)
 - [ ] `BID_DATABASE_URL` not set → all new routes gracefully disabled
 - [ ] Audit logs record create_project, upload_source, download_asset actions
+- [ ] Source upload creates asset with `asset_type="original"` (not file extension)
 
 ## Next Steps
 
