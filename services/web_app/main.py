@@ -1508,6 +1508,20 @@ def create_session() -> dict[str, str]:
     return {"session_id": session_id}
 
 
+@app.post("/api/session/check")
+def session_check(payload: SessionPayload) -> dict[str, Any]:
+    """Check if a session exists and has analysis data available."""
+    normalized = payload.session_id.strip().lower()[:64]
+    session = SESSIONS.get(normalized)
+    has_analysis = session is not None and session.latest_rfx_analysis is not None
+    return {
+        "session_id": normalized,
+        "exists": session is not None,
+        "has_analysis": has_analysis,
+        "analysis_title": session.latest_rfx_analysis.title if has_analysis else None,
+    }
+
+
 @app.post("/api/session/stats")
 def session_stats(payload: SessionPayload) -> dict[str, Any]:
     session = _get_or_create_session(payload.session_id)
@@ -2638,16 +2652,32 @@ class ProposalGenerateV2Payload(BaseModel):
 
 
 def _build_rfx_dict(analysis: Any) -> dict[str, Any]:
-    """세션의 rfx_analysis에서 rag_engine용 rfx_dict 생성 (공통 헬퍼)."""
+    """세션의 rfx_analysis에서 rag_engine용 rfx_dict 생성 (공통 헬퍼).
+
+    evaluation_criteria를 item 기반으로 전달:
+    - category: 실제 평가 항목명 (ec.item) — 제안서 섹션명이 됨
+    - parent_category: 상위 채점 버킷 (ec.category, 예: 기술평가) — 참조용
+    - max_score: 배점
+    - description: 상세 설명
+    """
+    criteria = []
+    for ec in (analysis.evaluation_criteria or []):
+        item_name = (ec.item or "").strip()
+        cat_name = (ec.category or "").strip()
+        # item이 있으면 실제 평가항목, 없으면 category 그대로 사용
+        section_name = item_name if item_name else cat_name
+        criteria.append({
+            "category": section_name,
+            "parent_category": cat_name,
+            "max_score": ec.score,
+            "description": ec.detail if hasattr(ec, 'detail') else item_name,
+        })
     return {
         "title": analysis.title,
         "issuing_org": analysis.issuing_org,
         "budget": analysis.budget,
         "project_period": analysis.project_period,
-        "evaluation_criteria": [
-            {"category": ec.category, "max_score": ec.score, "description": ec.item}
-            for ec in (analysis.evaluation_criteria or [])
-        ],
+        "evaluation_criteria": criteria,
         "requirements": [
             {"category": r.category, "description": r.description}
             for r in (analysis.requirements or [])

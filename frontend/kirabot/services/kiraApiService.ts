@@ -77,6 +77,22 @@ export async function createSession(): Promise<string> {
   return data.session_id;
 }
 
+export interface SessionCheckResult {
+  session_id: string;
+  exists: boolean;
+  has_analysis: boolean;
+  analysis_title: string | null;
+}
+
+export async function checkSession(sessionId: string): Promise<SessionCheckResult> {
+  const response = await fetchWithError(`${API_BASE_URL}/api/session/check`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+  return parseJson<SessionCheckResult>(response);
+}
+
 export async function getSessionStats(sessionId: string): Promise<SessionStats> {
   const response = await fetchWithError(`${API_BASE_URL}/api/session/stats`, {
     method: 'POST',

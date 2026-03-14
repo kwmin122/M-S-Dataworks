@@ -459,6 +459,7 @@ async def generate_proposal_v2(req: GenerateProposalV2Request, request: Request)
         result = await asyncio.to_thread(
             _generate,
             rfx_result=req.rfx_result.model_dump(),
+            output_dir=_PROPOSALS_DIR,
             company_context=company_context,
             company_name=company_name,
             company_db_path=_company_db_path,

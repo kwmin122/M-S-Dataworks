@@ -20,6 +20,36 @@ DEFAULT_SECTIONS = [
     ("기타 특이사항", 5),
 ]
 
+# Categories that are scoring buckets, not proposal content sections.
+# These should be filtered out — "가격평가" is not a section you write.
+_NON_CONTENT_KEYWORDS = {"가격", "가격평가", "가격점수", "입찰가격"}
+
+# High-level bucket names that indicate coarse extraction
+_COARSE_KEYWORDS = {"기술평가", "기술", "기술점수", "제안평가", "종합평가"}
+
+
+def _is_criteria_too_coarse(eval_criteria: list[dict[str, Any]]) -> bool:
+    """Detect when extracted eval_criteria are too high-level to be useful sections.
+
+    Returns True when criteria are just scoring buckets (기술평가/가격평가)
+    rather than actionable proposal sections (사업이해도/기술적 접근방안).
+    """
+    content = [
+        ec for ec in eval_criteria
+        if ec.get("category", "").strip() not in _NON_CONTENT_KEYWORDS
+        and ec.get("parent_category", "").strip() not in _NON_CONTENT_KEYWORDS
+    ]
+    if not content:
+        return True
+    # Check if all remaining are just bucket names
+    names = {ec.get("category", "").strip() for ec in content}
+    if names <= _COARSE_KEYWORDS:
+        return True
+    # If ≤2 content sections, probably too coarse
+    if len(content) <= 2 and names & _COARSE_KEYWORDS:
+        return True
+    return False
+
 
 def build_proposal_outline(
     rfx_result: dict[str, Any],
@@ -28,6 +58,8 @@ def build_proposal_outline(
     """Build a ProposalOutline from RFxAnalysisResult dict.
 
     Maps evaluation criteria to sections with proportional page allocation.
+    Falls back to DEFAULT_SECTIONS when criteria are missing or too coarse
+    (e.g., only "기술평가"/"가격평가" — these are scoring buckets, not sections).
     """
     title = rfx_result.get("title", "제안서")
     issuing_org = rfx_result.get("issuing_org", "")
@@ -35,9 +67,16 @@ def build_proposal_outline(
 
     sections: list[ProposalSection] = []
 
-    if eval_criteria:
-        total_score = sum(ec.get("max_score", 0) for ec in eval_criteria) or 100
-        for ec in eval_criteria:
+    # Filter out non-content criteria (가격평가 is not a proposal section)
+    content_criteria = [
+        ec for ec in eval_criteria
+        if ec.get("category", "").strip() not in _NON_CONTENT_KEYWORDS
+        and ec.get("parent_category", "").strip() not in _NON_CONTENT_KEYWORDS
+    ]
+
+    if content_criteria and not _is_criteria_too_coarse(eval_criteria):
+        total_score = sum(ec.get("max_score", 0) for ec in content_criteria) or 100
+        for ec in content_criteria:
             name = ec.get("category", ec.get("name", "섹션"))
             max_score = ec.get("max_score", 0)
             weight = max_score / total_score if total_score else 0
@@ -49,6 +88,7 @@ def build_proposal_outline(
                 instructions=f"RFP 평가항목 '{name}'에 맞춰 작성. 배점 {max_score}점.",
             ))
     else:
+        # Use well-structured default sections
         total_score = sum(s for _, s in DEFAULT_SECTIONS)
         for name, score in DEFAULT_SECTIONS:
             sections.append(ProposalSection(

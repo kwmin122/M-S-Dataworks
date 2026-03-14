@@ -49,7 +49,8 @@ export default function TrackRecordViewer() {
 
     setRegenerating(true);
     try {
-      const result = await generateTrackRecord(sessionId);
+      const companyId = sessionStorage.getItem('kira_company_id') || '_default';
+      const result = await generateTrackRecord(sessionId, companyId);
       if (!mountedRef.current) return;
       push(result, '실적기술서');
       showToast('실적기술서가 재생성되었습니다.');

@@ -1423,6 +1423,15 @@ export function useConversationFlow() {
             break;
           }
 
+          // Check if server still has analysis data (may have expired)
+          try {
+            const sc = await api.checkSession(conversation.sessionId);
+            if (!sc.has_analysis) {
+              pushStatus('error', '분석 상태가 만료되었습니다. 공고를 다시 분석해주세요.');
+              break;
+            }
+          } catch { /* proceed anyway — server will return 400 if truly gone */ }
+
           setProcessing(true);
           pushStatus('loading', '제출 체크리스트를 추출하고 있어요...');
 
@@ -1455,6 +1464,14 @@ export function useConversationFlow() {
             pushStatus('error', '세션이 없습니다. 먼저 문서를 분석해주세요.');
             break;
           }
+
+          try {
+            const sc = await api.checkSession(conversation.sessionId);
+            if (!sc.has_analysis) {
+              pushStatus('error', '분석 상태가 만료되었습니다. 공고를 다시 분석해주세요.');
+              break;
+            }
+          } catch { /* proceed */ }
 
           setProcessing(true);
           pushStatus('loading', '수행계획서/WBS를 생성하고 있어요... (약 2~3분 소요)');
@@ -1500,6 +1517,14 @@ export function useConversationFlow() {
             break;
           }
 
+          try {
+            const sc = await api.checkSession(conversation.sessionId);
+            if (!sc.has_analysis) {
+              pushStatus('error', '분석 상태가 만료되었습니다. 공고를 다시 분석해주세요.');
+              break;
+            }
+          } catch { /* proceed */ }
+
           setProcessing(true);
           pushStatus('loading', 'PPT 발표자료를 생성하고 있어요... (약 3~5분 소요)');
           const companyId = sessionStorage.getItem('kira_company_id') || '_default';
@@ -1540,6 +1565,14 @@ export function useConversationFlow() {
             pushStatus('error', '세션이 없습니다. 먼저 문서를 분석해주세요.');
             break;
           }
+
+          try {
+            const sc = await api.checkSession(conversation.sessionId);
+            if (!sc.has_analysis) {
+              pushStatus('error', '분석 상태가 만료되었습니다. 공고를 다시 분석해주세요.');
+              break;
+            }
+          } catch { /* proceed */ }
 
           setProcessing(true);
           pushStatus('loading', '실적/경력 기술서를 생성하고 있어요... (약 2~3분 소요)');

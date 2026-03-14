@@ -38,7 +38,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({ user }) => {
   };
 
   const handleOnboardingComplete = (companyName: string) => {
-    sessionStorage.setItem('kira_company_id', sanitizeCompanyId(companyName));
+    // kira_company_id is already set by CompanyOnboardingModal using server canonical ID
+    // Do NOT overwrite with local sanitizeCompanyId — server is single source of truth
     // Update conversation with company name
     if (conversation) {
       dispatch({
@@ -184,7 +185,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({ user }) => {
       <PendingKnowledgeModal
         isOpen={isPendingKnowledgeModalOpen}
         onClose={() => setIsPendingKnowledgeModalOpen(false)}
-        companyId={conversation?.sessionId || 'default'}
+        companyId={sessionStorage.getItem('kira_company_id') || '_default'}
         docType="proposal"
       />
     </div>

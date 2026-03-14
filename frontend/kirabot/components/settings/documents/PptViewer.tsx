@@ -49,7 +49,8 @@ export default function PptViewer() {
 
     setRegenerating(true);
     try {
-      const result = await generatePpt(sessionId);
+      const companyId = sessionStorage.getItem('kira_company_id') || '_default';
+      const result = await generatePpt(sessionId, 30, 10, companyId);
       if (!mountedRef.current) return;
       push(result, 'PPT 발표자료');
       showToast('PPT가 재생성되었습니다.');
