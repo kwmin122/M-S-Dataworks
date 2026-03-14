@@ -437,9 +437,9 @@ def test_check_quality_for_doc_type_proposal():
 def test_check_quality_for_doc_type_execution_plan():
     """execution_plan: ambiguity check only (no blind words)."""
     from rag_engine.quality_checker import check_quality_for_doc_type
-    issues = check_quality_for_doc_type("향후 검토 예정입니다.", "execution_plan")
-    # Should detect ambiguity
-    assert any(i.category == "ambiguous_expression" for i in issues)
+    # "최고 수준" is a VAGUE_PATTERNS match → vague_claim category
+    issues = check_quality_for_doc_type("최고 수준의 기술력", "execution_plan")
+    assert any(i.category == "vague_claim" for i in issues)
 
 
 def test_check_quality_for_doc_type_presentation():
@@ -484,6 +484,7 @@ def check_quality_for_doc_type(
 ) -> list[QualityIssue]:
     """Run quality checks appropriate for the given doc_type.
 
+    Composes with existing check_quality() rather than duplicating logic.
     proposal/track_record: blind + ambiguity checks.
     execution_plan: ambiguity only.
     presentation/checklist: minimal (custom_forbidden only).
@@ -491,11 +492,19 @@ def check_quality_for_doc_type(
     checks = _DOC_TYPE_CHECKS.get(doc_type, {"blind": True, "ambiguity": True})
     issues: list[QualityIssue] = []
 
-    if checks.get("blind") and company_name:
-        issues.extend(_check_blind_violations(text, company_name))
-
-    if checks.get("ambiguity"):
-        issues.extend(_check_ambiguous_expressions(text))
+    # Compose with existing check_quality() — pass company_name only when blind check enabled
+    if checks.get("blind") or checks.get("ambiguity"):
+        base_issues = check_quality(
+            text,
+            company_name=company_name if checks.get("blind") else None,
+        )
+        # Filter out vague_claim if ambiguity check is disabled
+        if not checks.get("ambiguity"):
+            base_issues = [i for i in base_issues if i.category != "vague_claim"]
+        # Filter out blind_violation if blind check is disabled
+        if not checks.get("blind"):
+            base_issues = [i for i in base_issues if i.category != "blind_violation"]
+        issues.extend(base_issues)
 
     if custom_forbidden:
         for pattern in custom_forbidden:
@@ -503,14 +512,14 @@ def check_quality_for_doc_type(
                 issues.append(QualityIssue(
                     category="custom_forbidden",
                     severity="warning",
-                    message=f"금지 표현 발견: {pattern}",
+                    detail=f"금지 표현 발견: {pattern}",
                     location="",
                 ))
 
     return issues
 ```
 
-Note: `_check_blind_violations` and `_check_ambiguous_expressions` are already internal functions in quality_checker.py. Extract them from the existing `check_quality()` if not already standalone.
+Note: This composes with the existing `check_quality()` function (which already implements blind violation and vague claim checks inline). No extraction of private functions needed.
 
 - [ ] **Step 4: Run tests**
 
@@ -756,7 +765,7 @@ def generate_from_contract(
     if doc_type not in DISPATCHER:
         raise ValueError(f"Unsupported doc_type: {doc_type}")
 
-    unwrap_fn, orchestrate_fn, result_mapper = DISPATCHER[doc_type]
+    unwrap_fn, orchestrate_fn_getter, result_mapper = DISPATCHER[doc_type]
 
     # Unwrap contract → kwargs
     kwargs = unwrap_fn(contract, rfx_result, params)
@@ -765,7 +774,8 @@ def generate_from_contract(
     work_dir = output_dir or tempfile.mkdtemp(prefix=f"kira_{doc_type}_")
     kwargs["output_dir"] = work_dir
 
-    # Call orchestrator
+    # Call orchestrator — getter returns the actual function (lazy import)
+    orchestrate_fn = orchestrate_fn_getter()
     start = time.time()
     raw_result = orchestrate_fn(**kwargs)
     elapsed = time.time() - start
@@ -784,7 +794,7 @@ def generate_from_contract(
             custom_forbidden=contract.quality_rules.custom_forbidden or None,
         )
         gen_result.quality_report = {
-            "issues": [{"category": i.category, "severity": i.severity, "message": i.message} for i in quality_issues],
+            "issues": [{"category": i.category, "severity": i.severity, "detail": i.detail} for i in quality_issues],
             "total_issues": len(quality_issues),
         }
         gen_result.quality_schema = "quality_report_v1"
@@ -840,12 +850,12 @@ def _map_wbs_result(raw, doc_type, elapsed):
 
 
 def _map_ppt_result(raw, doc_type, elapsed):
+    # PptDocResult has: pptx_path, slide_count, qna_pairs, total_duration_min
+    # Slide content is baked into PPTX — store metadata + qna_pairs
     return GenerationResult(
         doc_type=doc_type,
         content_json={
-            "slides": [{"slide_number": i + 1, "type": "content", "title": "",
-                         "body": "", "speaker_notes": ""}
-                        for i in range(raw.slide_count)],
+            "slide_count": raw.slide_count,
             "qna_pairs": [{"question": q.question, "answer": q.answer, "category": q.category}
                           for q in raw.qna_pairs],
             "total_duration_min": raw.total_duration_min,
@@ -857,11 +867,13 @@ def _map_ppt_result(raw, doc_type, elapsed):
 
 
 def _map_track_record_result(raw, doc_type, elapsed):
+    # TrackRecordDocResult has: docx_path, track_record_count, personnel_count
+    # Structured data is in the DOCX — store counts as content_json
     return GenerationResult(
         doc_type=doc_type,
         content_json={
-            "records": [],
-            "personnel": [],
+            "track_record_count": raw.track_record_count,
+            "personnel_count": raw.personnel_count,
         },
         content_schema="track_record_v1",
         metadata={"docx_path": getattr(raw, "docx_path", "")},
@@ -982,11 +994,17 @@ async def generate_document_unified(req: GenerateDocumentRequest):
 
     doc_type = normalize_doc_type(req.doc_type)
 
-    # Rebuild contract from dict
+    # Rebuild contract from dict — explicit field mapping
     cc = req.contract.get("company_context", {})
     qr = req.contract.get("quality_rules", {})
     contract = GenerationContract(
-        company_context=CompanyContext(**{k: cc.get(k, v) for k, v in CompanyContext().__dict__.items()}),
+        company_context=CompanyContext(
+            profile_summary=cc.get("profile_summary", ""),
+            similar_projects=cc.get("similar_projects", []),
+            matching_personnel=cc.get("matching_personnel", []),
+            licenses=cc.get("licenses", []),
+            certifications=cc.get("certifications", []),
+        ),
         company_profile_md=req.contract.get("company_profile_md"),
         writing_style=req.contract.get("writing_style"),
         knowledge_units=req.contract.get("knowledge_units", []),
@@ -994,7 +1012,12 @@ async def generate_document_unified(req: GenerateDocumentRequest):
         pack_config=req.contract.get("pack_config"),
         mode=req.contract.get("mode", "starter"),
         template_source=req.contract.get("template_source"),
-        quality_rules=QualityRules(**{k: qr.get(k, v) for k, v in QualityRules().__dict__.items()}),
+        quality_rules=QualityRules(
+            blind_words=qr.get("blind_words", []),
+            custom_forbidden=qr.get("custom_forbidden", []),
+            min_section_length=qr.get("min_section_length", 0),
+            max_ambiguity_score=qr.get("max_ambiguity_score", 1.0),
+        ),
         required_checks=req.contract.get("required_checks", []),
         pass_threshold=req.contract.get("pass_threshold", 0.0),
     )
@@ -1203,6 +1226,8 @@ git commit -m "feat(web_app): add contract_builder service for GenerationContrac
 - Create: `services/web_app/services/generation_service.py`
 - Test: `services/web_app/tests/test_generation_service.py`
 
+**Note:** Tests use the `db_session` fixture from `services/web_app/tests/conftest.py` (created in Phase 1). This fixture provides an async SQLAlchemy session connected to the test PostgreSQL database and rolls back after each test.
+
 - [ ] **Step 1: Write the test**
 
 ```python
@@ -1320,6 +1345,9 @@ from services.web_app.db.models.document import (
 )
 
 
+ENGINE_VERSION = "bid-workspace-v1.0-phase2"
+
+
 async def create_document_run(
     db: AsyncSession,
     org_id: str,
@@ -1339,6 +1367,7 @@ async def create_document_run(
         analysis_snapshot_id=analysis_snapshot_id,
         params_json=params or {},
         mode_used=mode,
+        engine_version=ENGINE_VERSION,
         created_by=created_by,
     )
     db.add(run)
@@ -1413,22 +1442,34 @@ async def complete_document_run(
         )
         db.add(current)
 
-    # Record asset metadata (uploaded by rag_engine to S3)
-    for f in (output_files or []):
-        asset = DocumentAsset(
-            id=f.get("asset_id"),
-            org_id=run.org_id,
-            project_id=run.project_id,
-            revision_id=revision.id,
-            asset_type=f.get("asset_type", "docx"),
-            storage_uri=f.get("storage_uri", ""),
-            upload_status="verified",
-            size_bytes=f.get("size_bytes"),
-            content_hash=f.get("content_hash"),
+    # Mark previous completed runs as superseded (Spec Section 11)
+    result = await db.execute(
+        select(DocumentRun).where(
+            DocumentRun.project_id == run.project_id,
+            DocumentRun.doc_type == run.doc_type,
+            DocumentRun.status == "completed",
+            DocumentRun.id != run.id,
         )
-        db.add(asset)
+    )
+    for prev_run in result.scalars().all():
+        prev_run.status = "superseded"
 
-    await db.commit()
+    # Update pre-created asset records (from presigned_issued → verified)
+    for f in (output_files or []):
+        asset_id = f.get("asset_id")
+        if asset_id:
+            result = await db.execute(
+                select(DocumentAsset).where(DocumentAsset.id == asset_id)
+            )
+            asset = result.scalar_one_or_none()
+            if asset:
+                asset.revision_id = revision.id
+                asset.upload_status = "verified"
+                asset.size_bytes = f.get("size_bytes")
+                asset.content_hash = f.get("content_hash")
+
+    # NOTE: caller owns the transaction — do NOT commit here
+    await db.flush()
     return revision
 
 
@@ -1441,7 +1482,8 @@ async def fail_document_run(
     run.status = "failed"
     run.completed_at = datetime.now(timezone.utc)
     run.error_message = error
-    await db.commit()
+    # NOTE: caller owns the transaction — do NOT commit here
+    await db.flush()
 ```
 
 - [ ] **Step 3: Run test**
@@ -1640,6 +1682,14 @@ async def generate_document(
             rag_result = resp.json()
     except Exception as e:
         await fail_document_run(db, run, str(e))
+        # Audit log for failure
+        audit = AuditLog(
+            org_id=user.org_id, user_id=user.username, project_id=project_id,
+            action="generate_document_failed", target_type="document_run", target_id=run.id,
+            detail_json={"doc_type": req.doc_type, "error": str(e)[:500]},
+        )
+        db.add(audit)
+        await db.commit()
         raise HTTPException(status_code=502, detail=f"Generation failed: {e}")
 
     # Record revision
@@ -1716,8 +1766,8 @@ After the rag_engine response is received and stored in session:
 if _BID_DB_ENABLED:
     try:
         from services.web_app.api.adapter import SessionAdapter
-        from services.web_app.db.engine import get_async_session
-        async for db in get_async_session():
+        from services.web_app.db.engine import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
             adapter = SessionAdapter(db)
             project = await adapter.get_or_create_project(session_id, username)
             await adapter.save_analysis(
@@ -1728,7 +1778,7 @@ if _BID_DB_ENABLED:
                 go_nogo_json=go_nogo_result,
                 username=username,
             )
-            break
+            await db.commit()
     except Exception:
         logger.warning("Failed to persist analysis to DB", exc_info=True)
 ```
