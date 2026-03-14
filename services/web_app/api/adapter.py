@@ -9,7 +9,7 @@ from services.web_app.db.models.base import new_cuid
 
 
 class SessionAdapter:
-    """Thin bridge: session_id → bid_project.
+    """Thin bridge: session_id -> bid_project.
 
     Rules (from spec):
     1. READ/WRITE-THROUGH ONLY — adapter calls bid_project API internally.
@@ -27,7 +27,12 @@ class SessionAdapter:
         username: str,
         title: str = "대화 기반 프로젝트",
     ) -> BidProject:
-        """Map existing session_id to a bid_project."""
+        """Map existing session_id to a bid_project.
+
+        Uses dedicated legacy_session_id column for lookup.
+        rfp_source_ref is a business field — NOT used for session mapping.
+        Creates org + membership if user has none (Phase 1 dev-bootstrap).
+        """
         result = await self._db.execute(
             select(BidProject).where(
                 BidProject.legacy_session_id == session_id,
@@ -37,10 +42,8 @@ class SessionAdapter:
         if project is not None:
             return project
 
-        # Ensure user has an org
         org_id = await self._ensure_org(username)
 
-        # Create new project for this session
         project = BidProject(
             org_id=org_id,
             created_by=username,
@@ -62,8 +65,10 @@ class SessionAdapter:
         go_nogo_json: dict | None = None,
         username: str | None = None,
     ) -> AnalysisSnapshot:
-        """Save analysis result as immutable snapshot."""
-        # Deactivate current active snapshot
+        """Save analysis result as immutable snapshot.
+
+        Deactivates previous active snapshot, creates new one.
+        """
         result = await self._db.execute(
             select(AnalysisSnapshot).where(
                 AnalysisSnapshot.project_id == project_id,
@@ -90,7 +95,6 @@ class SessionAdapter:
         self._db.add(snapshot)
         await self._db.flush()
 
-        # Update project's active snapshot pointer
         proj_result = await self._db.execute(
             select(BidProject).where(BidProject.id == project_id)
         )
@@ -137,7 +141,6 @@ class SessionAdapter:
         )
         memberships = result.scalars().all()
 
-        # v1 invariant: single-org only (same check as resolve_org_membership)
         if len(memberships) > 1:
             org_ids = [m.org_id for m in memberships]
             _logging.getLogger(__name__).error(
@@ -152,7 +155,6 @@ class SessionAdapter:
         if memberships:
             return memberships[0].org_id
 
-        # Guard: ONLY auto-provision in dev mode
         dev_bootstrap = os.getenv("BID_DEV_BOOTSTRAP", "").lower() in ("1", "true")
         if not dev_bootstrap:
             raise ValueError(

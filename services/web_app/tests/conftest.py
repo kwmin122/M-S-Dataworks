@@ -21,17 +21,7 @@ from services.web_app.db.models import Base
 # docker-compose.yml provides: postgresql+asyncpg://kira:kira@localhost:5434/kira_bid_test
 
 _TEST_DB_URL = os.getenv("BID_TEST_DATABASE_URL", "")
-if not _TEST_DB_URL:
-    raise RuntimeError(
-        "BID_TEST_DATABASE_URL is required. "
-        "Run: docker compose up kira_bid_test_db -d\n"
-        "Then: export BID_TEST_DATABASE_URL='postgresql+asyncpg://kira:kira@localhost:5434/kira_bid_test'"
-    )
-if "postgresql" not in _TEST_DB_URL:
-    raise RuntimeError(
-        f"BID_TEST_DATABASE_URL must be PostgreSQL (got: {_TEST_DB_URL[:30]}...). "
-        "SQLite is NOT supported."
-    )
+_DB_AVAILABLE = bool(_TEST_DB_URL and "postgresql" in _TEST_DB_URL)
 
 
 @pytest.fixture(scope="session")
@@ -44,6 +34,12 @@ def event_loop():
 @pytest_asyncio.fixture(scope="session")
 async def _pg_engine():
     """Session-scoped engine. Creates schema once with pgvector extension."""
+    if not _DB_AVAILABLE:
+        pytest.skip(
+            "BID_TEST_DATABASE_URL not set or not PostgreSQL. "
+            "Run: docker compose up kira_bid_test_db -d && "
+            "export BID_TEST_DATABASE_URL='postgresql+asyncpg://kira:kira@localhost:5434/kira_bid_test'"
+        )
     engine = create_async_engine(_TEST_DB_URL, echo=False)
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))

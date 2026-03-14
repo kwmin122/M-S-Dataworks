@@ -83,7 +83,11 @@ async def list_projects(
     user: CurrentUser = Depends(resolve_org_membership),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """List projects the user has access to."""
+    """List projects the user has access to.
+
+    Org owner/admin: see all org projects.
+    Others: only projects with ProjectAccess row.
+    """
     if user.role in ("owner", "admin"):
         query = select(BidProject).where(BidProject.org_id == user.org_id)
     else:
@@ -255,7 +259,7 @@ async def upload_source(
         parse_status="pending",
     )
     db.add(source_doc)
-    await db.flush()  # generate source_doc.id before using it in audit
+    await db.flush()
 
     audit = AuditLog(
         org_id=user.org_id,
