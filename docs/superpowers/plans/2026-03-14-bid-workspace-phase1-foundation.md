@@ -2732,7 +2732,7 @@ git commit -m "feat(bid-workspace): wire DB lifespan + project/asset routers int
 from services.web_app.api.adapter import SessionAdapter
 
 
-# NOTE: Uses db_session from conftest.py (PostgreSQL-first, SQLite fallback)
+# NOTE: Uses db_session from conftest.py (PostgreSQL required)
 
 
 @pytest.mark.asyncio
