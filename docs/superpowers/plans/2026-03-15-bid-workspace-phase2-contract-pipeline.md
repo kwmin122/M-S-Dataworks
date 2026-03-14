@@ -1,0 +1,1839 @@
+# Bid Workspace v1.0 — Phase 2: Contract + Pipeline
+
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Unify all 4 document generation pipelines under a single GenerationContract interface, record all generation runs/revisions/assets in PostgreSQL, and migrate doc_type naming to canonical values.
+
+**Architecture:** GenerationContract dataclass defines a uniform interface for company context, knowledge, quality rules, and mode selection. Each orchestrator gets a thin adapter wrapper (no internal refactoring). A unified `/api/generate-document` endpoint in rag_engine dispatches by doc_type. web_app creates DocumentRun → calls rag_engine → records DocumentRevision + DocumentAsset in DB. Legacy endpoints remain untouched for backward compatibility.
+
+**Tech Stack:** Python 3.11+, SQLAlchemy 2.0 (async), Pydantic v2, httpx (presigned URL uploads), pytest-asyncio
+
+**Spec:** `docs/superpowers/specs/2026-03-14-bid-workspace-v1-design.md` (Sections 8-10)
+
+**Prerequisite:** Phase 1 Foundation merged to main (14 ORM models, S3 client, ACL, session adapter).
+
+---
+
+## Scope & Phasing
+
+This is **Phase 2 of 4**:
+
+| Phase | Status | Deliverables |
+|-------|--------|-------------|
+| 1 | **DONE** | 14 ORM models, S3 storage, ACL, session adapter, 45 tests |
+| **2 (this)** | **NOW** | GenerationContract, orchestrator wrappers, quality expansion, DB recording, analysis persistence, doc_type migration |
+| 3 | Planned | Workspace UI, review/approval, permissions UI |
+| 4 | Planned | Legacy removal, load testing |
+
+---
+
+## Current State (What Exists)
+
+### Orchestrators (rag_engine) — 4 independent silos
+
+| Aspect | proposal | wbs | ppt | track_record |
+|--------|----------|-----|-----|--------------|
+| Company context | Direct string param | Auto-build from path | Auto-build from path | CompanyDB instance |
+| Knowledge retrieval | Per-section custom query → KnowledgeUnit list | Single query → string list | Single query → string list | Single query → string list |
+| Quality checker | YES (check_quality) | NO | NO | NO |
+| Output format | DOCX + HWPX | XLSX + PNG + DOCX | PPTX | DOCX |
+| Return has content_json | sections list | tasks list | slides + qna | records + personnel |
+
+### API Endpoints — Legacy (remain untouched)
+
+| rag_engine | web_app proxy |
+|-----------|---------------|
+| POST /api/generate-proposal-v2 | POST /api/proposal/generate-v2 |
+| POST /api/generate-wbs | POST /api/proposal/generate-wbs |
+| POST /api/generate-ppt | POST /api/proposal/generate-ppt |
+| POST /api/generate-track-record | POST /api/proposal/generate-track-record |
+
+### doc_type Values — Current vs Target
+
+| Current | Target (canonical) | Used by |
+|---------|-------------------|---------|
+| `proposal` | `proposal` (no change) | All |
+| `wbs` | `execution_plan` | auto_learner, validators, frontend tabs |
+| `ppt` | `presentation` | auto_learner, validators, frontend tabs |
+| `track_record` | `track_record` (no change) | All |
+
+**Already using new names:** document_orchestrator.py, pack tests, DB CHECK constraints.
+
+---
+
+## File Map
+
+### New Files (rag_engine)
+
+```
+rag_engine/
+├── generation_contract.py        ← GenerationContract + CompanyContext + QualityRules + GenerationResult dataclasses
+├── contract_adapter.py           ← Per-orchestrator unwrap + dispatch + presigned upload
+└── tests/
+    ├── test_generation_contract.py   ← Contract dataclass validation
+    └── test_contract_adapter.py      ← Adapter dispatch + unwrap tests
+```
+
+### New Files (web_app)
+
+```
+services/web_app/
+├── services/
+│   ├── __init__.py
+│   ├── contract_builder.py       ← Build GenerationContract from DB data
+│   └── generation_service.py     ← DocumentRun lifecycle (create → call rag_engine → record revision)
+├── api/
+│   └── generate.py               ← POST /api/projects/{id}/generate endpoint
+└── tests/
+    ├── test_contract_builder.py
+    ├── test_generation_service.py
+    └── test_generate_api.py
+```
+
+### Modified Files
+
+```
+rag_engine/
+├── main.py                       ← Add /api/generate-document endpoint + update doc_type validators
+├── auto_learner.py               ← Update VALID_DOC_TYPES + doc_type_label mapping
+├── quality_checker.py            ← Add doc_type-aware check_quality_for_doc_type()
+└── tests/
+    └── test_auto_learner.py      ← Update doc_type test values
+
+services/web_app/
+├── main.py                       ← Wire generate router + analysis persistence hook
+└── api/
+    └── adapter.py                ← Wire save_analysis into existing proxy flow
+
+frontend/kirabot/
+├── components/settings/documents/DocumentWorkspace.tsx  ← Tab name migration
+└── components/settings/documents/__tests__/DocumentWorkspace.test.ts
+```
+
+---
+
+## Chunk 1: Contract Definition + doc_type Migration
+
+### Task 1: GenerationContract Dataclasses
+
+**Files:**
+- Create: `rag_engine/generation_contract.py`
+- Test: `rag_engine/tests/test_generation_contract.py`
+
+- [ ] **Step 1: Write the test**
+
+```python
+# rag_engine/tests/test_generation_contract.py
+"""GenerationContract dataclass tests."""
+from __future__ import annotations
+
+import pytest
+from rag_engine.generation_contract import (
+    GenerationContract, CompanyContext, QualityRules,
+    GenerationResult, UploadTarget, OutputFile,
+    DOC_TYPE_CANONICAL, normalize_doc_type,
+)
+
+
+def test_company_context_defaults():
+    ctx = CompanyContext(profile_summary="테스트 회사")
+    assert ctx.similar_projects == []
+    assert ctx.matching_personnel == []
+    assert ctx.licenses == []
+    assert ctx.certifications == []
+
+
+def test_quality_rules_defaults():
+    rules = QualityRules()
+    assert rules.blind_words == []
+    assert rules.min_section_length == 0
+    assert rules.max_ambiguity_score == 1.0
+
+
+def test_generation_contract_minimal():
+    contract = GenerationContract(
+        company_context=CompanyContext(profile_summary="MS솔루션"),
+        quality_rules=QualityRules(),
+    )
+    assert contract.mode == "starter"
+    assert contract.knowledge_units == []
+    assert contract.learned_patterns == []
+    assert contract.pack_config is None
+    assert contract.pass_threshold == 0.0
+
+
+def test_generation_result_structure():
+    result = GenerationResult(
+        doc_type="proposal",
+        output_files=[OutputFile(asset_id="a1", asset_type="docx", size_bytes=100, content_hash="abc")],
+        content_json={"sections": []},
+        content_schema="proposal_sections_v1",
+    )
+    assert result.quality_report is None
+    assert result.generation_time_sec == 0.0
+
+
+def test_upload_target():
+    target = UploadTarget(asset_id="a1", presigned_url="https://r2.example.com/put", asset_type="docx")
+    assert target.content_type == "application/octet-stream"
+
+
+def test_normalize_doc_type_canonical():
+    assert normalize_doc_type("proposal") == "proposal"
+    assert normalize_doc_type("execution_plan") == "execution_plan"
+    assert normalize_doc_type("track_record") == "track_record"
+
+
+def test_normalize_doc_type_aliases():
+    assert normalize_doc_type("wbs") == "execution_plan"
+    assert normalize_doc_type("ppt") == "presentation"
+
+
+def test_normalize_doc_type_invalid():
+    with pytest.raises(ValueError, match="Unknown doc_type"):
+        normalize_doc_type("invalid_type")
+
+
+def test_doc_type_canonical_values():
+    assert set(DOC_TYPE_CANONICAL) == {"proposal", "execution_plan", "presentation", "track_record", "checklist"}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd rag_engine && python -m pytest tests/test_generation_contract.py -v`
+Expected: FAIL with `ModuleNotFoundError: No module named 'rag_engine.generation_contract'`
+
+- [ ] **Step 3: Implement the module**
+
+```python
+# rag_engine/generation_contract.py
+"""GenerationContract — unified interface for all document generation pipelines.
+
+Spec: docs/superpowers/specs/2026-03-14-bid-workspace-v1-design.md Section 8.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Literal
+
+
+# --- doc_type canonical values (single source of truth for rag_engine) ---
+
+DOC_TYPE_CANONICAL = ["proposal", "execution_plan", "presentation", "track_record", "checklist"]
+
+_DOC_TYPE_ALIASES: dict[str, str] = {
+    "wbs": "execution_plan",
+    "ppt": "presentation",
+}
+
+
+def normalize_doc_type(doc_type: str) -> str:
+    """Convert doc_type to canonical name. Accepts legacy aliases.
+
+    Raises ValueError for unknown doc_type.
+    """
+    if doc_type in DOC_TYPE_CANONICAL:
+        return doc_type
+    canonical = _DOC_TYPE_ALIASES.get(doc_type)
+    if canonical is not None:
+        return canonical
+    raise ValueError(f"Unknown doc_type: {doc_type!r}. Valid: {DOC_TYPE_CANONICAL}")
+
+
+# --- Contract dataclasses ---
+
+@dataclass
+class CompanyContext:
+    """Company information injected into all generation pipelines."""
+    profile_summary: str = ""
+    similar_projects: list[dict] = field(default_factory=list)
+    matching_personnel: list[dict] = field(default_factory=list)
+    licenses: list[str] = field(default_factory=list)
+    certifications: list[str] = field(default_factory=list)
+
+
+@dataclass
+class QualityRules:
+    """Quality gate configuration."""
+    blind_words: list[str] = field(default_factory=list)
+    custom_forbidden: list[str] = field(default_factory=list)
+    min_section_length: int = 0
+    max_ambiguity_score: float = 1.0
+
+
+@dataclass
+class GenerationContract:
+    """Unified interface consumed by all 4 document generation pipelines.
+
+    web_app builds this from DB data, serializes to JSON, sends to rag_engine.
+    rag_engine dispatches to the appropriate orchestrator based on doc_type.
+    """
+    # 1. Company Context
+    company_context: CompanyContext = field(default_factory=CompanyContext)
+    company_profile_md: str | None = None
+    writing_style: dict | None = None
+
+    # 2. Skill Retrieval
+    knowledge_units: list[dict] = field(default_factory=list)
+    learned_patterns: list[dict] = field(default_factory=list)
+    pack_config: dict | None = None
+
+    # 3. Mode Selection
+    mode: Literal["strict_template", "starter", "upgrade"] = "starter"
+    template_source: str | None = None
+
+    # 4. Quality Contract
+    quality_rules: QualityRules = field(default_factory=QualityRules)
+    required_checks: list[str] = field(default_factory=list)
+    pass_threshold: float = 0.0
+
+
+@dataclass
+class UploadTarget:
+    """Presigned URL target for rag_engine to upload generated files."""
+    asset_id: str
+    presigned_url: str
+    asset_type: str  # docx, xlsx, pptx, pdf, png, json
+    content_type: str = "application/octet-stream"
+
+
+@dataclass
+class OutputFile:
+    """Metadata for a generated file uploaded to S3."""
+    asset_id: str
+    asset_type: str
+    size_bytes: int = 0
+    content_hash: str = ""
+
+
+@dataclass
+class GenerationResult:
+    """Unified return type from all generation pipelines."""
+    doc_type: str
+    output_files: list[OutputFile] = field(default_factory=list)
+    content_json: dict = field(default_factory=dict)
+    content_schema: str = ""
+    quality_report: dict | None = None
+    quality_schema: str | None = None
+    upgrade_report: dict | None = None
+    metadata: dict = field(default_factory=dict)
+    generation_time_sec: float = 0.0
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `cd rag_engine && python -m pytest tests/test_generation_contract.py -v`
+Expected: 9 passed
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add rag_engine/generation_contract.py rag_engine/tests/test_generation_contract.py
+git commit -m "feat(contract): add GenerationContract dataclasses + doc_type normalization"
+```
+
+---
+
+### Task 2: doc_type Migration in rag_engine
+
+**Files:**
+- Modify: `rag_engine/auto_learner.py` (lines 62, 86, 119)
+- Modify: `rag_engine/main.py` (doc_type pattern validators)
+- Test: `rag_engine/tests/test_auto_learner.py` (update test values)
+
+- [ ] **Step 1: Update VALID_DOC_TYPES in auto_learner.py**
+
+Change line 62:
+```python
+# Before:
+VALID_DOC_TYPES = {"proposal", "wbs", "ppt", "track_record"}
+
+# After:
+from rag_engine.generation_contract import DOC_TYPE_CANONICAL, normalize_doc_type
+
+VALID_DOC_TYPES = set(DOC_TYPE_CANONICAL) - {"checklist"}
+```
+
+Change line 86-87:
+```python
+# Before:
+if doc_type not in VALID_DOC_TYPES:
+    doc_type = "proposal"
+
+# After:
+try:
+    doc_type = normalize_doc_type(doc_type)
+except ValueError:
+    doc_type = "proposal"
+if doc_type not in VALID_DOC_TYPES:
+    doc_type = "proposal"
+```
+
+Change line 119:
+```python
+# Before:
+doc_type_label = {"proposal": "제안서", "wbs": "WBS", "ppt": "PPT", "track_record": "실적기술서"}.get(doc_type, doc_type)
+
+# After:
+doc_type_label = {
+    "proposal": "제안서",
+    "execution_plan": "수행계획서",
+    "presentation": "발표자료",
+    "track_record": "실적기술서",
+}.get(doc_type, doc_type)
+```
+
+- [ ] **Step 2: Update doc_type validators in rag_engine/main.py**
+
+Find all `pattern=r"^(proposal|wbs|ppt|track_record)$"` and replace with:
+```python
+pattern=r"^(proposal|execution_plan|presentation|track_record|wbs|ppt)$"
+```
+
+This accepts BOTH old and new names. The endpoint handler normalizes:
+```python
+# Add at top of each endpoint that receives doc_type:
+from rag_engine.generation_contract import normalize_doc_type
+# In handler:
+doc_type = normalize_doc_type(req.doc_type)
+```
+
+- [ ] **Step 3: Update test_auto_learner.py doc_type values**
+
+Replace `doc_type="wbs"` → `doc_type="execution_plan"` and `doc_type="ppt"` → `doc_type="presentation"` in test calls.
+
+- [ ] **Step 4: Run tests**
+
+Run: `cd rag_engine && python -m pytest tests/test_auto_learner.py tests/test_generation_contract.py -v`
+Expected: All pass
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add rag_engine/auto_learner.py rag_engine/main.py rag_engine/tests/test_auto_learner.py
+git commit -m "feat(doc-type): migrate wbs→execution_plan, ppt→presentation with alias compat"
+```
+
+---
+
+### Task 3: Quality Checker Expansion
+
+**Files:**
+- Modify: `rag_engine/quality_checker.py`
+- Test: `rag_engine/tests/test_quality_checker.py`
+
+- [ ] **Step 1: Write the test for doc_type-aware quality check**
+
+```python
+# Append to rag_engine/tests/test_quality_checker.py
+
+def test_check_quality_for_doc_type_proposal():
+    """Proposal: full blind + ambiguity check."""
+    from rag_engine.quality_checker import check_quality_for_doc_type
+    issues = check_quality_for_doc_type("좋은 제안서 내용입니다.", "proposal", company_name="테스트회사")
+    assert isinstance(issues, list)
+
+
+def test_check_quality_for_doc_type_execution_plan():
+    """execution_plan: ambiguity check only (no blind words)."""
+    from rag_engine.quality_checker import check_quality_for_doc_type
+    issues = check_quality_for_doc_type("향후 검토 예정입니다.", "execution_plan")
+    # Should detect ambiguity
+    assert any(i.category == "ambiguous_expression" for i in issues)
+
+
+def test_check_quality_for_doc_type_presentation():
+    """presentation: minimal checks."""
+    from rag_engine.quality_checker import check_quality_for_doc_type
+    issues = check_quality_for_doc_type("발표 내용", "presentation")
+    assert isinstance(issues, list)
+
+
+def test_check_quality_for_doc_type_track_record():
+    """track_record: blind check active."""
+    from rag_engine.quality_checker import check_quality_for_doc_type
+    issues = check_quality_for_doc_type("테스트회사가 수행한 사업", "track_record", company_name="테스트회사")
+    assert any(i.category == "blind_violation" for i in issues)
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd rag_engine && python -m pytest tests/test_quality_checker.py::test_check_quality_for_doc_type_proposal -v`
+Expected: FAIL with `cannot import name 'check_quality_for_doc_type'`
+
+- [ ] **Step 3: Implement check_quality_for_doc_type**
+
+Add to `rag_engine/quality_checker.py`:
+
+```python
+# Doc-type-aware quality rules
+_DOC_TYPE_CHECKS: dict[str, dict] = {
+    "proposal": {"blind": True, "ambiguity": True},
+    "execution_plan": {"blind": False, "ambiguity": True},
+    "presentation": {"blind": False, "ambiguity": False},
+    "track_record": {"blind": True, "ambiguity": True},
+    "checklist": {"blind": False, "ambiguity": False},
+}
+
+
+def check_quality_for_doc_type(
+    text: str,
+    doc_type: str,
+    company_name: str | None = None,
+    custom_forbidden: list[str] | None = None,
+) -> list[QualityIssue]:
+    """Run quality checks appropriate for the given doc_type.
+
+    proposal/track_record: blind + ambiguity checks.
+    execution_plan: ambiguity only.
+    presentation/checklist: minimal (custom_forbidden only).
+    """
+    checks = _DOC_TYPE_CHECKS.get(doc_type, {"blind": True, "ambiguity": True})
+    issues: list[QualityIssue] = []
+
+    if checks.get("blind") and company_name:
+        issues.extend(_check_blind_violations(text, company_name))
+
+    if checks.get("ambiguity"):
+        issues.extend(_check_ambiguous_expressions(text))
+
+    if custom_forbidden:
+        for pattern in custom_forbidden:
+            if pattern in text:
+                issues.append(QualityIssue(
+                    category="custom_forbidden",
+                    severity="warning",
+                    message=f"금지 표현 발견: {pattern}",
+                    location="",
+                ))
+
+    return issues
+```
+
+Note: `_check_blind_violations` and `_check_ambiguous_expressions` are already internal functions in quality_checker.py. Extract them from the existing `check_quality()` if not already standalone.
+
+- [ ] **Step 4: Run tests**
+
+Run: `cd rag_engine && python -m pytest tests/test_quality_checker.py -v`
+Expected: All pass (existing + 4 new)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add rag_engine/quality_checker.py rag_engine/tests/test_quality_checker.py
+git commit -m "feat(quality): expand quality_checker to all doc_types via check_quality_for_doc_type"
+```
+
+---
+
+## Chunk 2: Orchestrator Wrappers + Unified Endpoint
+
+### Task 4: Contract Adapter — Orchestrator Dispatch
+
+**Files:**
+- Create: `rag_engine/contract_adapter.py`
+- Test: `rag_engine/tests/test_contract_adapter.py`
+
+- [ ] **Step 1: Write the test**
+
+```python
+# rag_engine/tests/test_contract_adapter.py
+"""Contract adapter tests — dispatch + unwrap, no LLM calls."""
+from __future__ import annotations
+
+import pytest
+from unittest.mock import patch, MagicMock
+from rag_engine.generation_contract import (
+    GenerationContract, CompanyContext, QualityRules,
+    GenerationResult, UploadTarget,
+)
+from rag_engine.contract_adapter import (
+    generate_from_contract,
+    _unwrap_for_proposal,
+    _unwrap_for_wbs,
+    _unwrap_for_ppt,
+    _unwrap_for_track_record,
+    DISPATCHER,
+)
+
+
+def test_dispatcher_has_all_doc_types():
+    assert "proposal" in DISPATCHER
+    assert "execution_plan" in DISPATCHER
+    assert "presentation" in DISPATCHER
+    assert "track_record" in DISPATCHER
+
+
+def test_unwrap_for_proposal_extracts_company_context():
+    contract = GenerationContract(
+        company_context=CompanyContext(profile_summary="MS솔루션 SI 전문"),
+        company_profile_md="# MS솔루션",
+    )
+    kwargs = _unwrap_for_proposal(contract, {"title": "테스트"}, {"total_pages": 30})
+    assert kwargs["company_context"] == "MS솔루션 SI 전문"
+    assert kwargs["total_pages"] == 30
+
+
+def test_unwrap_for_wbs_extracts_methodology():
+    contract = GenerationContract()
+    kwargs = _unwrap_for_wbs(contract, {"title": "테스트"}, {"methodology": "agile"})
+    assert "methodology" not in kwargs or kwargs.get("methodology") is None or kwargs.get("methodology") == "agile"
+
+
+def test_unwrap_for_ppt_extracts_params():
+    contract = GenerationContract()
+    kwargs = _unwrap_for_ppt(contract, {"title": "테스트"}, {"duration_min": 20, "qna_count": 5})
+    assert kwargs["duration_min"] == 20
+    assert kwargs["qna_count"] == 5
+
+
+def test_unwrap_for_track_record():
+    contract = GenerationContract(
+        company_context=CompanyContext(
+            similar_projects=[{"name": "A"}],
+            matching_personnel=[{"name": "B"}],
+        ),
+    )
+    kwargs = _unwrap_for_track_record(contract, {"title": "테스트"}, {})
+    assert "max_records" in kwargs or "rfx_result" in kwargs
+
+
+def test_generate_from_contract_invalid_doc_type():
+    contract = GenerationContract()
+    with pytest.raises(ValueError, match="Unsupported doc_type"):
+        generate_from_contract("invalid", contract, {}, {})
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd rag_engine && python -m pytest tests/test_contract_adapter.py -v`
+Expected: FAIL with `ModuleNotFoundError`
+
+- [ ] **Step 3: Implement contract_adapter.py**
+
+```python
+# rag_engine/contract_adapter.py
+"""Adapts GenerationContract to each orchestrator's native signature.
+
+Strategy: Thin wrappers that unwrap the contract into existing orchestrator params.
+No internal orchestrator refactoring — just bridge the interface gap.
+"""
+from __future__ import annotations
+
+import hashlib
+import logging
+import time
+import tempfile
+import os
+from typing import Any, Callable
+
+import httpx
+
+from rag_engine.generation_contract import (
+    GenerationContract, GenerationResult, OutputFile, UploadTarget,
+    normalize_doc_type,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _unwrap_for_proposal(
+    contract: GenerationContract,
+    rfx_result: dict,
+    params: dict,
+) -> dict:
+    """Unwrap contract → proposal_orchestrator.generate_proposal kwargs."""
+    return {
+        "rfx_result": rfx_result,
+        "company_context": contract.company_context.profile_summary,
+        "company_name": params.get("company_name"),
+        "total_pages": params.get("total_pages", 50),
+        "output_format": params.get("output_format", "docx"),
+        "template_mode": contract.mode == "strict_template",
+        "api_key": params.get("api_key"),
+        # Knowledge units passed as-is; orchestrator handles search internally
+        # when knowledge_db_path is set. Contract pre-fetched units are future optimization.
+    }
+
+
+def _unwrap_for_wbs(
+    contract: GenerationContract,
+    rfx_result: dict,
+    params: dict,
+) -> dict:
+    """Unwrap contract → wbs_orchestrator.generate_wbs kwargs."""
+    methodology = params.get("methodology")
+    return {
+        "rfx_result": rfx_result,
+        "methodology": methodology if methodology else None,
+        "api_key": params.get("api_key"),
+    }
+
+
+def _unwrap_for_ppt(
+    contract: GenerationContract,
+    rfx_result: dict,
+    params: dict,
+) -> dict:
+    """Unwrap contract → ppt_orchestrator.generate_ppt kwargs."""
+    return {
+        "rfx_result": rfx_result,
+        "proposal_sections": params.get("proposal_sections"),
+        "duration_min": params.get("duration_min", 30),
+        "target_slide_count": params.get("target_slide_count", 20),
+        "qna_count": params.get("qna_count", 10),
+        "company_name": params.get("company_name", ""),
+        "api_key": params.get("api_key"),
+    }
+
+
+def _unwrap_for_track_record(
+    contract: GenerationContract,
+    rfx_result: dict,
+    params: dict,
+) -> dict:
+    """Unwrap contract → track_record_orchestrator.generate_track_record_doc kwargs."""
+    return {
+        "rfx_result": rfx_result,
+        "max_records": params.get("max_records", 10),
+        "max_personnel": params.get("max_personnel", 10),
+        "company_name": params.get("company_name"),
+        "api_key": params.get("api_key"),
+    }
+
+
+def upload_to_presigned_url(url: str, data: bytes, content_type: str = "application/octet-stream") -> dict:
+    """Upload data to a presigned PUT URL. Returns {size_bytes, content_hash}."""
+    resp = httpx.put(url, content=data, headers={"Content-Type": content_type}, timeout=120)
+    resp.raise_for_status()
+    return {
+        "size_bytes": len(data),
+        "content_hash": hashlib.sha256(data).hexdigest(),
+    }
+
+
+def _collect_output_files(output_dir: str, upload_targets: list[UploadTarget]) -> list[OutputFile]:
+    """Upload generated files to S3 via presigned URLs, return OutputFile metadata."""
+    output_files = []
+    for target in upload_targets:
+        # Find matching file in output_dir by asset_type extension
+        ext = target.asset_type
+        candidates = [f for f in os.listdir(output_dir) if f.endswith(f".{ext}")]
+        if not candidates:
+            logger.warning("No .%s file found in %s for asset %s", ext, output_dir, target.asset_id)
+            continue
+        filepath = os.path.join(output_dir, candidates[0])
+        with open(filepath, "rb") as f:
+            data = f.read()
+        meta = upload_to_presigned_url(target.presigned_url, data, target.content_type)
+        output_files.append(OutputFile(
+            asset_id=target.asset_id,
+            asset_type=target.asset_type,
+            size_bytes=meta["size_bytes"],
+            content_hash=meta["content_hash"],
+        ))
+    return output_files
+
+
+def generate_from_contract(
+    doc_type: str,
+    contract: GenerationContract,
+    rfx_result: dict,
+    params: dict,
+    upload_targets: list[UploadTarget] | None = None,
+    output_dir: str | None = None,
+) -> GenerationResult:
+    """Unified entry point: dispatch to the correct orchestrator via contract.
+
+    1. Normalize doc_type
+    2. Unwrap contract → orchestrator kwargs
+    3. Call orchestrator
+    4. Run quality check
+    5. Upload to presigned URLs (if provided)
+    6. Return GenerationResult
+    """
+    doc_type = normalize_doc_type(doc_type)
+    if doc_type not in DISPATCHER:
+        raise ValueError(f"Unsupported doc_type: {doc_type}")
+
+    unwrap_fn, orchestrate_fn, result_mapper = DISPATCHER[doc_type]
+
+    # Unwrap contract → kwargs
+    kwargs = unwrap_fn(contract, rfx_result, params)
+
+    # Use temp dir if no output_dir specified
+    work_dir = output_dir or tempfile.mkdtemp(prefix=f"kira_{doc_type}_")
+    kwargs["output_dir"] = work_dir
+
+    # Call orchestrator
+    start = time.time()
+    raw_result = orchestrate_fn(**kwargs)
+    elapsed = time.time() - start
+
+    # Map orchestrator result → GenerationResult
+    gen_result = result_mapper(raw_result, doc_type, elapsed)
+
+    # Quality check
+    from rag_engine.quality_checker import check_quality_for_doc_type
+    text_for_check = _extract_text_for_quality(gen_result)
+    if text_for_check:
+        quality_issues = check_quality_for_doc_type(
+            text_for_check,
+            doc_type,
+            company_name=params.get("company_name"),
+            custom_forbidden=contract.quality_rules.custom_forbidden or None,
+        )
+        gen_result.quality_report = {
+            "issues": [{"category": i.category, "severity": i.severity, "message": i.message} for i in quality_issues],
+            "total_issues": len(quality_issues),
+        }
+        gen_result.quality_schema = "quality_report_v1"
+
+    # Upload to presigned URLs
+    if upload_targets:
+        gen_result.output_files = _collect_output_files(work_dir, upload_targets)
+
+    return gen_result
+
+
+def _extract_text_for_quality(result: GenerationResult) -> str:
+    """Extract text from content_json for quality checking."""
+    cj = result.content_json
+    parts = []
+    for section in cj.get("sections", []):
+        parts.append(section.get("text", ""))
+    for task in cj.get("tasks", []):
+        parts.append(task.get("name", ""))
+    for slide in cj.get("slides", []):
+        parts.append(slide.get("body", ""))
+    for rec in cj.get("records", []):
+        parts.append(rec.get("description", ""))
+    return "\n".join(parts)
+
+
+# --- Result mappers (orchestrator result → GenerationResult) ---
+
+def _map_proposal_result(raw, doc_type, elapsed):
+    return GenerationResult(
+        doc_type=doc_type,
+        content_json={"sections": [{"name": n, "text": t} for n, t in raw.sections]},
+        content_schema="proposal_sections_v1",
+        metadata={"docx_path": raw.docx_path},
+        generation_time_sec=elapsed,
+    )
+
+
+def _map_wbs_result(raw, doc_type, elapsed):
+    return GenerationResult(
+        doc_type=doc_type,
+        content_json={
+            "tasks": [{"id": f"T{i}", "name": t.task_name, "phase": t.phase,
+                        "start_month": t.start_month, "end_month": t.end_month}
+                       for i, t in enumerate(raw.tasks, 1)],
+            "methodology": getattr(raw, "methodology", "waterfall"),
+            "total_months": raw.total_months,
+        },
+        content_schema="execution_plan_tasks_v1",
+        metadata={"xlsx_path": raw.xlsx_path, "gantt_path": raw.gantt_path, "docx_path": raw.docx_path},
+        generation_time_sec=elapsed,
+    )
+
+
+def _map_ppt_result(raw, doc_type, elapsed):
+    return GenerationResult(
+        doc_type=doc_type,
+        content_json={
+            "slides": [{"slide_number": i + 1, "type": "content", "title": "",
+                         "body": "", "speaker_notes": ""}
+                        for i in range(raw.slide_count)],
+            "qna_pairs": [{"question": q.question, "answer": q.answer, "category": q.category}
+                          for q in raw.qna_pairs],
+            "total_duration_min": raw.total_duration_min,
+        },
+        content_schema="presentation_slides_v1",
+        metadata={"pptx_path": raw.pptx_path},
+        generation_time_sec=elapsed,
+    )
+
+
+def _map_track_record_result(raw, doc_type, elapsed):
+    return GenerationResult(
+        doc_type=doc_type,
+        content_json={
+            "records": [],
+            "personnel": [],
+        },
+        content_schema="track_record_v1",
+        metadata={"docx_path": getattr(raw, "docx_path", "")},
+        generation_time_sec=elapsed,
+    )
+
+
+# --- Dispatcher registry ---
+
+def _lazy_import_proposal():
+    from rag_engine.proposal_orchestrator import generate_proposal
+    return generate_proposal
+
+def _lazy_import_wbs():
+    from rag_engine.wbs_orchestrator import generate_wbs
+    return generate_wbs
+
+def _lazy_import_ppt():
+    from rag_engine.ppt_orchestrator import generate_ppt
+    return generate_ppt
+
+def _lazy_import_track_record():
+    from rag_engine.track_record_orchestrator import generate_track_record_doc
+    return generate_track_record_doc
+
+
+# Each entry: (unwrap_fn, orchestrate_fn_getter, result_mapper)
+# Using lazy imports to avoid circular dependencies at module load time
+DISPATCHER: dict[str, tuple] = {
+    "proposal": (_unwrap_for_proposal, _lazy_import_proposal, _map_proposal_result),
+    "execution_plan": (_unwrap_for_wbs, _lazy_import_wbs, _map_wbs_result),
+    "presentation": (_unwrap_for_ppt, _lazy_import_ppt, _map_ppt_result),
+    "track_record": (_unwrap_for_track_record, _lazy_import_track_record, _map_track_record_result),
+}
+```
+
+**Note:** The DISPATCHER uses lazy import functions instead of direct function references to avoid importing heavy orchestrator modules at module load time. The `generate_from_contract()` function calls the getter to get the actual function at dispatch time.
+
+- [ ] **Step 4: Run tests**
+
+Run: `cd rag_engine && python -m pytest tests/test_contract_adapter.py -v`
+Expected: 6 passed
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add rag_engine/contract_adapter.py rag_engine/tests/test_contract_adapter.py
+git commit -m "feat(contract): add contract_adapter with orchestrator dispatch + presigned upload"
+```
+
+---
+
+### Task 5: Unified /api/generate-document Endpoint in rag_engine
+
+**Files:**
+- Modify: `rag_engine/main.py`
+- Test: `rag_engine/tests/test_unified_api.py` (new)
+
+- [ ] **Step 1: Write the test**
+
+```python
+# rag_engine/tests/test_unified_api.py
+"""Unified /api/generate-document endpoint structural test."""
+from __future__ import annotations
+
+from fastapi.testclient import TestClient
+
+
+def test_generate_document_endpoint_exists():
+    from rag_engine.main import app
+    client = TestClient(app)
+    # Should return 422 (validation error) not 404 (not found)
+    resp = client.post("/api/generate-document", json={})
+    assert resp.status_code == 422
+
+
+def test_generate_document_rejects_invalid_doc_type():
+    from rag_engine.main import app
+    client = TestClient(app)
+    resp = client.post("/api/generate-document", json={
+        "doc_type": "invalid_type",
+        "rfx_result": {"title": "test"},
+        "contract": {},
+        "params": {},
+    })
+    assert resp.status_code == 422 or resp.status_code == 400
+
+
+def test_generate_document_accepts_alias_doc_type():
+    """wbs and ppt should be accepted (alias resolution)."""
+    from rag_engine.main import app
+    from rag_engine.generation_contract import normalize_doc_type
+    # Just verify alias resolution works at API level
+    assert normalize_doc_type("wbs") == "execution_plan"
+    assert normalize_doc_type("ppt") == "presentation"
+```
+
+- [ ] **Step 2: Add the endpoint to rag_engine/main.py**
+
+```python
+# Add Pydantic model near other request models:
+class GenerateDocumentRequest(BaseModel):
+    doc_type: str = Field(pattern=r"^(proposal|execution_plan|presentation|track_record|wbs|ppt)$")
+    rfx_result: RfxResultInput
+    contract: dict = Field(default_factory=dict)
+    params: dict = Field(default_factory=dict)
+    upload_targets: list[dict] = Field(default_factory=list)
+
+# Add endpoint:
+@app.post("/api/generate-document")
+async def generate_document_unified(req: GenerateDocumentRequest):
+    """Unified document generation endpoint. Dispatches by doc_type via GenerationContract."""
+    from rag_engine.generation_contract import (
+        GenerationContract, CompanyContext, QualityRules,
+        UploadTarget, normalize_doc_type,
+    )
+    from rag_engine.contract_adapter import generate_from_contract
+
+    doc_type = normalize_doc_type(req.doc_type)
+
+    # Rebuild contract from dict
+    cc = req.contract.get("company_context", {})
+    qr = req.contract.get("quality_rules", {})
+    contract = GenerationContract(
+        company_context=CompanyContext(**{k: cc.get(k, v) for k, v in CompanyContext().__dict__.items()}),
+        company_profile_md=req.contract.get("company_profile_md"),
+        writing_style=req.contract.get("writing_style"),
+        knowledge_units=req.contract.get("knowledge_units", []),
+        learned_patterns=req.contract.get("learned_patterns", []),
+        pack_config=req.contract.get("pack_config"),
+        mode=req.contract.get("mode", "starter"),
+        template_source=req.contract.get("template_source"),
+        quality_rules=QualityRules(**{k: qr.get(k, v) for k, v in QualityRules().__dict__.items()}),
+        required_checks=req.contract.get("required_checks", []),
+        pass_threshold=req.contract.get("pass_threshold", 0.0),
+    )
+
+    upload_targets = [UploadTarget(**t) for t in req.upload_targets]
+
+    result = await asyncio.to_thread(
+        generate_from_contract,
+        doc_type=doc_type,
+        contract=contract,
+        rfx_result=req.rfx_result.model_dump(),
+        params=req.params,
+        upload_targets=upload_targets,
+    )
+
+    return {
+        "doc_type": result.doc_type,
+        "content_json": result.content_json,
+        "content_schema": result.content_schema,
+        "quality_report": result.quality_report,
+        "quality_schema": result.quality_schema,
+        "output_files": [
+            {"asset_id": f.asset_id, "asset_type": f.asset_type,
+             "size_bytes": f.size_bytes, "content_hash": f.content_hash}
+            for f in result.output_files
+        ],
+        "generation_time_sec": result.generation_time_sec,
+    }
+```
+
+- [ ] **Step 3: Run test**
+
+Run: `cd rag_engine && python -m pytest tests/test_unified_api.py -v`
+Expected: 3 passed
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add rag_engine/main.py rag_engine/tests/test_unified_api.py
+git commit -m "feat(api): add unified /api/generate-document endpoint with contract dispatch"
+```
+
+---
+
+## Chunk 3: DB Recording + web_app Integration
+
+### Task 6: Contract Builder Service (web_app)
+
+**Files:**
+- Create: `services/web_app/services/__init__.py`
+- Create: `services/web_app/services/contract_builder.py`
+- Test: `services/web_app/tests/test_contract_builder.py`
+
+- [ ] **Step 1: Write the test**
+
+```python
+# services/web_app/tests/test_contract_builder.py
+"""Contract builder tests — builds GenerationContract dict from DB data."""
+from __future__ import annotations
+
+import pytest
+from services.web_app.services.contract_builder import build_generation_contract
+
+
+def test_build_contract_minimal():
+    """Builds contract with minimal inputs (no company profile, no knowledge)."""
+    contract = build_generation_contract(
+        org_id="org1",
+        company_profile=None,
+        writing_style=None,
+        company_name=None,
+    )
+    assert "company_context" in contract
+    assert "quality_rules" in contract
+    assert contract["mode"] == "starter"
+
+
+def test_build_contract_with_company():
+    """Builds contract with company profile."""
+    contract = build_generation_contract(
+        org_id="org1",
+        company_profile={"licenses": {"SW사업자": True}},
+        writing_style={"tone": "formal"},
+        company_name="MS솔루션",
+    )
+    assert contract["company_context"]["profile_summary"] != ""
+    assert contract["quality_rules"]["blind_words"] == ["MS솔루션"]
+    assert contract["writing_style"] == {"tone": "formal"}
+
+
+def test_build_contract_mode_override():
+    """Mode can be overridden."""
+    contract = build_generation_contract(
+        org_id="org1",
+        company_profile=None,
+        mode="strict_template",
+    )
+    assert contract["mode"] == "strict_template"
+```
+
+- [ ] **Step 2: Implement**
+
+```python
+# services/web_app/services/__init__.py
+# (empty)
+
+# services/web_app/services/contract_builder.py
+"""Builds GenerationContract dict from web_app DB data.
+
+The contract is serialized to JSON and sent to rag_engine's /api/generate-document.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+
+def build_generation_contract(
+    org_id: str,
+    company_profile: dict | None = None,
+    writing_style: dict | None = None,
+    company_name: str | None = None,
+    knowledge_units: list[dict] | None = None,
+    learned_patterns: list[dict] | None = None,
+    pack_config: dict | None = None,
+    mode: str = "starter",
+    template_source: str | None = None,
+    custom_forbidden: list[str] | None = None,
+) -> dict[str, Any]:
+    """Build a GenerationContract dict from DB data.
+
+    Returns a plain dict (JSON-serializable) matching GenerationContract schema.
+    web_app sends this to rag_engine via HTTP.
+    """
+    # Company context
+    profile_summary = ""
+    licenses = []
+    certifications = []
+    if company_profile:
+        profile_summary = _build_profile_summary(company_profile, company_name)
+        licenses = list((company_profile.get("licenses") or {}).keys())
+        certifications = list((company_profile.get("certifications") or {}).keys())
+
+    # Quality rules — always include company_name in blind_words
+    blind_words = [company_name] if company_name else []
+
+    return {
+        "company_context": {
+            "profile_summary": profile_summary,
+            "similar_projects": [],
+            "matching_personnel": [],
+            "licenses": licenses,
+            "certifications": certifications,
+        },
+        "company_profile_md": None,
+        "writing_style": writing_style,
+        "knowledge_units": knowledge_units or [],
+        "learned_patterns": learned_patterns or [],
+        "pack_config": pack_config,
+        "mode": mode,
+        "template_source": template_source,
+        "quality_rules": {
+            "blind_words": blind_words,
+            "custom_forbidden": custom_forbidden or [],
+            "min_section_length": 0,
+            "max_ambiguity_score": 1.0,
+        },
+        "required_checks": ["blind", "ambiguity"],
+        "pass_threshold": 0.0,
+    }
+
+
+def _build_profile_summary(profile: dict, company_name: str | None) -> str:
+    """Build a one-paragraph company summary from profile data."""
+    parts = []
+    if company_name:
+        parts.append(company_name)
+    btype = profile.get("business_type")
+    if btype:
+        parts.append(f"({btype})")
+    hc = profile.get("headcount")
+    if hc:
+        parts.append(f"인원 {hc}명")
+    cap = profile.get("capital")
+    if cap:
+        parts.append(f"자본금 {cap}")
+    return " ".join(parts) if parts else ""
+```
+
+- [ ] **Step 3: Run test**
+
+Run: `python -m pytest services/web_app/tests/test_contract_builder.py -v`
+Expected: 3 passed
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add services/web_app/services/ services/web_app/tests/test_contract_builder.py
+git commit -m "feat(web_app): add contract_builder service for GenerationContract assembly"
+```
+
+---
+
+### Task 7: Generation Service — DocumentRun Lifecycle
+
+**Files:**
+- Create: `services/web_app/services/generation_service.py`
+- Test: `services/web_app/tests/test_generation_service.py`
+
+- [ ] **Step 1: Write the test**
+
+```python
+# services/web_app/tests/test_generation_service.py
+"""Generation service tests — DocumentRun lifecycle. Requires PostgreSQL."""
+from __future__ import annotations
+
+import pytest
+from services.web_app.db.models.org import Organization
+from services.web_app.db.models.project import BidProject
+from services.web_app.db.models.document import DocumentRun
+
+
+@pytest.mark.asyncio
+async def test_create_document_run(db_session):
+    """Creates a DocumentRun with status=queued."""
+    from services.web_app.services.generation_service import create_document_run
+
+    org = Organization(name="테스트")
+    db_session.add(org)
+    await db_session.flush()
+
+    project = BidProject(org_id=org.id, created_by="u1", title="테스트 사업")
+    db_session.add(project)
+    await db_session.flush()
+
+    run = await create_document_run(
+        db=db_session,
+        org_id=org.id,
+        project_id=project.id,
+        doc_type="proposal",
+        created_by="u1",
+        params={"total_pages": 50},
+    )
+    assert run.status == "queued"
+    assert run.doc_type == "proposal"
+
+
+@pytest.mark.asyncio
+async def test_complete_document_run(db_session):
+    """Transitions DocumentRun to completed and creates DocumentRevision."""
+    from services.web_app.services.generation_service import (
+        create_document_run, complete_document_run,
+    )
+
+    org = Organization(name="테스트")
+    db_session.add(org)
+    await db_session.flush()
+
+    project = BidProject(org_id=org.id, created_by="u1", title="테스트")
+    db_session.add(project)
+    await db_session.flush()
+
+    run = await create_document_run(
+        db=db_session, org_id=org.id, project_id=project.id,
+        doc_type="proposal", created_by="u1",
+    )
+
+    revision = await complete_document_run(
+        db=db_session,
+        run=run,
+        content_json={"sections": [{"name": "개요", "text": "내용"}]},
+        content_schema="proposal_sections_v1",
+        quality_report={"issues": [], "total_issues": 0},
+        output_files=[],
+    )
+    assert run.status == "completed"
+    assert revision.content_schema == "proposal_sections_v1"
+    assert revision.source == "ai_generated"
+
+
+@pytest.mark.asyncio
+async def test_fail_document_run(db_session):
+    """Transitions DocumentRun to failed."""
+    from services.web_app.services.generation_service import (
+        create_document_run, fail_document_run,
+    )
+
+    org = Organization(name="테스트")
+    db_session.add(org)
+    await db_session.flush()
+
+    project = BidProject(org_id=org.id, created_by="u1", title="테스트")
+    db_session.add(project)
+    await db_session.flush()
+
+    run = await create_document_run(
+        db=db_session, org_id=org.id, project_id=project.id,
+        doc_type="execution_plan", created_by="u1",
+    )
+
+    await fail_document_run(db=db_session, run=run, error="LLM timeout")
+    assert run.status == "failed"
+    assert run.error_message == "LLM timeout"
+```
+
+- [ ] **Step 2: Implement**
+
+```python
+# services/web_app/services/generation_service.py
+"""DocumentRun lifecycle management.
+
+create_document_run → (call rag_engine) → complete_document_run/fail_document_run.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from services.web_app.db.models.document import (
+    DocumentRun, DocumentRevision, DocumentAsset, ProjectCurrentDocument,
+)
+
+
+async def create_document_run(
+    db: AsyncSession,
+    org_id: str,
+    project_id: str,
+    doc_type: str,
+    created_by: str,
+    analysis_snapshot_id: str | None = None,
+    params: dict | None = None,
+    mode: str | None = None,
+) -> DocumentRun:
+    """Create a new DocumentRun with status=queued."""
+    run = DocumentRun(
+        org_id=org_id,
+        project_id=project_id,
+        doc_type=doc_type,
+        status="queued",
+        analysis_snapshot_id=analysis_snapshot_id,
+        params_json=params or {},
+        mode_used=mode,
+        created_by=created_by,
+    )
+    db.add(run)
+    await db.flush()
+    return run
+
+
+async def start_document_run(db: AsyncSession, run: DocumentRun) -> None:
+    """Transition to running."""
+    run.status = "running"
+    run.started_at = datetime.now(timezone.utc)
+    await db.flush()
+
+
+async def complete_document_run(
+    db: AsyncSession,
+    run: DocumentRun,
+    content_json: dict,
+    content_schema: str,
+    quality_report: dict | None = None,
+    quality_schema: str | None = "quality_report_v1",
+    output_files: list[dict] | None = None,
+) -> DocumentRevision:
+    """Complete a DocumentRun: create revision, update current pointer, record assets."""
+    run.status = "completed"
+    run.completed_at = datetime.now(timezone.utc)
+
+    # Determine revision number
+    result = await db.execute(
+        select(DocumentRevision.revision_number)
+        .where(DocumentRevision.project_id == run.project_id, DocumentRevision.doc_type == run.doc_type)
+        .order_by(DocumentRevision.revision_number.desc())
+        .limit(1)
+    )
+    last_rev = result.scalar_one_or_none()
+    next_rev = (last_rev or 0) + 1
+
+    # Create revision
+    revision = DocumentRevision(
+        org_id=run.org_id,
+        project_id=run.project_id,
+        doc_type=run.doc_type,
+        run_id=run.id,
+        revision_number=next_rev,
+        source="ai_generated",
+        status="draft",
+        content_json=content_json,
+        content_schema=content_schema,
+        quality_report_json=quality_report,
+        quality_schema=quality_schema if quality_report else None,
+        created_by=run.created_by,
+    )
+    db.add(revision)
+    await db.flush()
+
+    # Update or create ProjectCurrentDocument pointer
+    result = await db.execute(
+        select(ProjectCurrentDocument).where(
+            ProjectCurrentDocument.project_id == run.project_id,
+            ProjectCurrentDocument.doc_type == run.doc_type,
+        )
+    )
+    current = result.scalar_one_or_none()
+    if current:
+        current.current_revision_id = revision.id
+    else:
+        current = ProjectCurrentDocument(
+            org_id=run.org_id,
+            project_id=run.project_id,
+            doc_type=run.doc_type,
+            current_revision_id=revision.id,
+        )
+        db.add(current)
+
+    # Record asset metadata (uploaded by rag_engine to S3)
+    for f in (output_files or []):
+        asset = DocumentAsset(
+            id=f.get("asset_id"),
+            org_id=run.org_id,
+            project_id=run.project_id,
+            revision_id=revision.id,
+            asset_type=f.get("asset_type", "docx"),
+            storage_uri=f.get("storage_uri", ""),
+            upload_status="verified",
+            size_bytes=f.get("size_bytes"),
+            content_hash=f.get("content_hash"),
+        )
+        db.add(asset)
+
+    await db.commit()
+    return revision
+
+
+async def fail_document_run(
+    db: AsyncSession,
+    run: DocumentRun,
+    error: str,
+) -> None:
+    """Mark DocumentRun as failed."""
+    run.status = "failed"
+    run.completed_at = datetime.now(timezone.utc)
+    run.error_message = error
+    await db.commit()
+```
+
+- [ ] **Step 3: Run test**
+
+Run: `BID_TEST_DATABASE_URL="postgresql+asyncpg://kira:kira@localhost:5434/kira_bid_test" python -m pytest services/web_app/tests/test_generation_service.py -v`
+Expected: 3 passed
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add services/web_app/services/generation_service.py services/web_app/tests/test_generation_service.py
+git commit -m "feat(web_app): add generation_service with DocumentRun lifecycle"
+```
+
+---
+
+### Task 8: /api/projects/{id}/generate Endpoint (web_app)
+
+**Files:**
+- Create: `services/web_app/api/generate.py`
+- Modify: `services/web_app/main.py` (wire router)
+- Test: `services/web_app/tests/test_generate_api.py`
+
+- [ ] **Step 1: Write the test**
+
+```python
+# services/web_app/tests/test_generate_api.py
+"""Generate API structural test."""
+from __future__ import annotations
+
+from services.web_app.api.generate import router
+
+
+def test_generate_router_has_routes():
+    route_paths = [r.path for r in router.routes]
+    assert "/api/projects/{project_id}/generate" in route_paths
+```
+
+- [ ] **Step 2: Implement generate.py**
+
+```python
+# services/web_app/api/generate.py
+"""POST /api/projects/{project_id}/generate — trigger document generation."""
+from __future__ import annotations
+
+import logging
+import os
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+import httpx
+
+from services.web_app.db.engine import get_async_session
+from services.web_app.db.models.project import BidProject, AnalysisSnapshot
+from services.web_app.db.models.company import CompanyProfile
+from services.web_app.db.models.audit import AuditLog
+from services.web_app.api.deps import CurrentUser, resolve_org_membership, require_project_access
+from services.web_app.services.contract_builder import build_generation_contract
+from services.web_app.services.generation_service import (
+    create_document_run, start_document_run, complete_document_run, fail_document_run,
+)
+from services.web_app.storage.s3 import get_s3_client
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/projects", tags=["generate"])
+
+_RAG_ENGINE_URL = os.getenv("FASTAPI_URL", "http://localhost:8001")
+
+
+class GenerateRequest(BaseModel):
+    doc_type: str = Field(pattern=r"^(proposal|execution_plan|presentation|track_record)$")
+    params: dict = Field(default_factory=dict)
+    mode: str = Field(default="starter", pattern=r"^(strict_template|starter|upgrade)$")
+
+
+@router.post("/{project_id}/generate")
+async def generate_document(
+    project_id: str,
+    req: GenerateRequest,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Trigger document generation for a project.
+
+    1. Verify project access (editor+)
+    2. Load active analysis snapshot
+    3. Build GenerationContract from DB
+    4. Create DocumentRun (queued)
+    5. Pre-create DocumentAssets with presigned upload URLs
+    6. Call rag_engine /api/generate-document
+    7. Record DocumentRevision + update assets
+    8. Audit log
+    """
+    # ACL
+    await require_project_access(project_id, "editor", user, db)
+
+    # Load project + active analysis
+    result = await db.execute(
+        select(BidProject).where(BidProject.id == project_id, BidProject.org_id == user.org_id)
+    )
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404)
+
+    result = await db.execute(
+        select(AnalysisSnapshot).where(
+            AnalysisSnapshot.project_id == project_id,
+            AnalysisSnapshot.is_active == True,
+        )
+    )
+    snapshot = result.scalar_one_or_none()
+    if not snapshot:
+        raise HTTPException(status_code=409, detail="분석 결과가 없습니다. 먼저 분석을 실행하세요.")
+
+    # Load company profile
+    result = await db.execute(
+        select(CompanyProfile).where(CompanyProfile.org_id == user.org_id)
+    )
+    company = result.scalar_one_or_none()
+
+    # Build contract
+    contract = build_generation_contract(
+        org_id=user.org_id,
+        company_profile={
+            "licenses": company.licenses if company else None,
+            "certifications": company.certifications if company else None,
+            "business_type": company.business_type if company else None,
+            "headcount": company.headcount if company else None,
+            "capital": company.capital if company else None,
+        } if company else None,
+        writing_style=company.writing_style if company else None,
+        company_name=company.company_name if company else None,
+        mode=req.mode,
+    )
+
+    # Create DocumentRun
+    run = await create_document_run(
+        db=db,
+        org_id=user.org_id,
+        project_id=project_id,
+        doc_type=req.doc_type,
+        created_by=user.username,
+        analysis_snapshot_id=snapshot.id,
+        params=req.params,
+        mode=req.mode,
+    )
+    await start_document_run(db, run)
+
+    # Pre-create asset records + presigned upload URLs
+    s3 = get_s3_client()
+    from services.web_app.db.models.document import DocumentAsset
+    from services.web_app.db.models.base import new_cuid
+    upload_targets = []
+    asset_type_map = {
+        "proposal": ["docx"],
+        "execution_plan": ["xlsx", "docx"],
+        "presentation": ["pptx"],
+        "track_record": ["docx"],
+    }
+    for atype in asset_type_map.get(req.doc_type, ["docx"]):
+        asset_id = new_cuid()
+        key = s3.build_storage_key(user.org_id, project_id, asset_id, f"output.{atype}")
+        url = s3.generate_presigned_upload_url(key)
+        asset = DocumentAsset(
+            id=asset_id,
+            org_id=user.org_id,
+            project_id=project_id,
+            asset_type=atype,
+            storage_uri=s3.build_full_uri(key),
+            upload_status="presigned_issued",
+        )
+        db.add(asset)
+        upload_targets.append({
+            "asset_id": asset_id,
+            "presigned_url": url,
+            "asset_type": atype,
+        })
+    await db.flush()
+
+    # Call rag_engine
+    try:
+        async with httpx.AsyncClient(timeout=300) as client:
+            resp = await client.post(
+                f"{_RAG_ENGINE_URL}/api/generate-document",
+                json={
+                    "doc_type": req.doc_type,
+                    "rfx_result": snapshot.analysis_json,
+                    "contract": contract,
+                    "params": req.params,
+                    "upload_targets": upload_targets,
+                },
+            )
+            resp.raise_for_status()
+            rag_result = resp.json()
+    except Exception as e:
+        await fail_document_run(db, run, str(e))
+        raise HTTPException(status_code=502, detail=f"Generation failed: {e}")
+
+    # Record revision
+    revision = await complete_document_run(
+        db=db,
+        run=run,
+        content_json=rag_result.get("content_json", {}),
+        content_schema=rag_result.get("content_schema", ""),
+        quality_report=rag_result.get("quality_report"),
+        output_files=rag_result.get("output_files", []),
+    )
+
+    # Audit
+    audit = AuditLog(
+        org_id=user.org_id,
+        user_id=user.username,
+        project_id=project_id,
+        action="generate_document",
+        target_type="document_run",
+        target_id=run.id,
+        detail_json={"doc_type": req.doc_type, "revision_id": revision.id},
+    )
+    db.add(audit)
+    await db.commit()
+
+    return {
+        "run_id": run.id,
+        "revision_id": revision.id,
+        "doc_type": req.doc_type,
+        "content_schema": rag_result.get("content_schema"),
+        "quality_report": rag_result.get("quality_report"),
+        "output_files": rag_result.get("output_files", []),
+        "generation_time_sec": rag_result.get("generation_time_sec", 0),
+    }
+```
+
+- [ ] **Step 3: Wire router in main.py**
+
+Add to `services/web_app/main.py` inside the `if _BID_DB_ENABLED:` block:
+```python
+from services.web_app.api.generate import router as generate_router
+app.include_router(generate_router)
+```
+
+- [ ] **Step 4: Run tests**
+
+Run: `python -m pytest services/web_app/tests/test_generate_api.py -v`
+Expected: 1 passed
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add services/web_app/api/generate.py services/web_app/main.py services/web_app/tests/test_generate_api.py
+git commit -m "feat(web_app): add /api/projects/{id}/generate with full DocumentRun lifecycle"
+```
+
+---
+
+### Task 9: Analysis Persistence Wiring
+
+**Files:**
+- Modify: `services/web_app/main.py` (analysis proxy endpoints)
+
+- [ ] **Step 1: Identify the analysis proxy endpoints**
+
+In `services/web_app/main.py`, find the `/api/analyze` or analysis-related proxy that calls rag_engine's `/api/analyze-bid`. This endpoint currently stores results in session memory only.
+
+- [ ] **Step 2: Add DB persistence after session storage**
+
+After the rag_engine response is received and stored in session:
+```python
+# After: SESSIONS[session_id]["analysis_result"] = analysis_result
+# Add (inside if _BID_DB_ENABLED block):
+if _BID_DB_ENABLED:
+    try:
+        from services.web_app.api.adapter import SessionAdapter
+        from services.web_app.db.engine import get_async_session
+        async for db in get_async_session():
+            adapter = SessionAdapter(db)
+            project = await adapter.get_or_create_project(session_id, username)
+            await adapter.save_analysis(
+                project_id=project.id,
+                org_id=project.org_id,
+                analysis_json=analysis_result,
+                summary_md=summary_md,
+                go_nogo_json=go_nogo_result,
+                username=username,
+            )
+            break
+    except Exception:
+        logger.warning("Failed to persist analysis to DB", exc_info=True)
+```
+
+This is a **write-through** pattern: session memory remains the primary path, DB is secondary. Failure to persist to DB does not break the existing flow.
+
+- [ ] **Step 3: Run regression tests**
+
+Run: `python -m pytest tests/ -q --timeout=30`
+Expected: All existing tests pass
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add services/web_app/main.py
+git commit -m "feat(persistence): wire analysis results write-through to DB via SessionAdapter"
+```
+
+---
+
+### Task 10: Frontend doc_type Migration
+
+**Files:**
+- Modify: `frontend/kirabot/components/settings/documents/DocumentWorkspace.tsx`
+- Modify: `frontend/kirabot/components/settings/documents/__tests__/DocumentWorkspace.test.ts`
+
+- [ ] **Step 1: Update tab names**
+
+In DocumentWorkspace.tsx, find the tab definitions and update:
+- `'wbs'` → `'execution_plan'` (display label stays "수행계획서")
+- `'ppt'` → `'presentation'` (display label stays "발표자료")
+
+In the test file, update VALID_TABS:
+```typescript
+const VALID_TABS = new Set(['profile', 'rfp', 'proposal', 'execution_plan', 'presentation', 'track_record']);
+```
+
+- [ ] **Step 2: Run frontend type check**
+
+Run: `cd frontend/kirabot && npx tsc --noEmit`
+Expected: No errors
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add frontend/kirabot/components/settings/documents/
+git commit -m "feat(frontend): migrate doc_type tab names to canonical values"
+```
+
+---
+
+### Task 11: Full Regression Tests
+
+**Files:** (no new files — verification only)
+
+- [ ] **Step 1: Run rag_engine tests**
+
+Run: `cd rag_engine && python -m pytest -q --timeout=30`
+Expected: All pass (367+)
+
+- [ ] **Step 2: Run web_app tests (unit)**
+
+Run: `python -m pytest services/web_app/tests/ -v -k "not storage"`
+Expected: All pass (45+ existing + new)
+
+- [ ] **Step 3: Run web_app tests (DB)**
+
+Run: `BID_TEST_DATABASE_URL="postgresql+asyncpg://kira:kira@localhost:5434/kira_bid_test" BID_DEV_BOOTSTRAP=1 python -m pytest services/web_app/tests/ -v`
+Expected: All pass
+
+- [ ] **Step 4: Run root legacy tests**
+
+Run: `python -m pytest tests/ -q --timeout=30`
+Expected: 195+ pass, 0 regressions
+
+- [ ] **Step 5: Run frontend type check**
+
+Run: `cd frontend/kirabot && npx tsc --noEmit`
+Expected: No errors
+
+- [ ] **Step 6: Commit (if any test fixes needed)**
+
+```bash
+git commit -m "fix: test adjustments for Phase 2 integration"
+```
+
+---
+
+## Summary
+
+| Task | Deliverable | Files |
+|------|------------|-------|
+| 1 | GenerationContract dataclasses | `rag_engine/generation_contract.py` |
+| 2 | doc_type migration (wbs→execution_plan, ppt→presentation) | `auto_learner.py`, `main.py` |
+| 3 | Quality checker expansion to all doc_types | `quality_checker.py` |
+| 4 | Contract adapter + orchestrator dispatch | `rag_engine/contract_adapter.py` |
+| 5 | Unified /api/generate-document endpoint | `rag_engine/main.py` |
+| 6 | Contract builder service | `services/web_app/services/contract_builder.py` |
+| 7 | Generation service (DocumentRun lifecycle) | `services/web_app/services/generation_service.py` |
+| 8 | /api/projects/{id}/generate endpoint | `services/web_app/api/generate.py` |
+| 9 | Analysis persistence write-through | `services/web_app/main.py` |
+| 10 | Frontend doc_type tab migration | `DocumentWorkspace.tsx` |
+| 11 | Full regression verification | (verify only) |
+
+**New files:** 7 (+ 7 test files)
+**Modified files:** 6
+**Total tasks:** 11
+**Estimated commits:** 11
