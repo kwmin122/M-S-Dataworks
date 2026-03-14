@@ -539,7 +539,29 @@ git commit -m "feat(quality): expand quality_checker to all doc_types via check_
 
 ### Task 4: Contract Adapter — Orchestrator Dispatch
 
+**Prerequisite: Extend orchestrator result types for content_json compliance**
+
+The spec's `presentation_slides_v1` requires `slides[{title, body, speaker_notes}]` and `track_record_v1` requires `records[{project_name, description, relevance_score}]` + `personnel[{name, role, match_reason}]`. Current result types only carry counts. We must add metadata fields to preserve structured data through the result.
+
+Add to `PptResult` in `rag_engine/phase2_models.py`:
+```python
+slides_metadata: list[dict] = field(default_factory=list)  # [{type, title, body, speaker_notes}]
+```
+
+Add to `TrackRecordDocResult` in `rag_engine/phase2_models.py`:
+```python
+records_data: list[dict] = field(default_factory=list)  # [{project_name, description, relevance_score}]
+personnel_data: list[dict] = field(default_factory=list)  # [{name, role, match_reason}]
+```
+
+Then in `ppt_orchestrator.py`, after `plan_slides()` returns the slide plan, populate `result.slides_metadata` with title/body/notes from the plan. In `track_record_orchestrator.py`, after writer returns matched records + personnel, populate `result.records_data` and `result.personnel_data`.
+
+These are additive-only changes (new optional fields with defaults) — no behavioral change to existing callers.
+
 **Files:**
+- Modify: `rag_engine/phase2_models.py` (add result metadata fields)
+- Modify: `rag_engine/ppt_orchestrator.py` (populate slides_metadata)
+- Modify: `rag_engine/track_record_orchestrator.py` (populate records_data, personnel_data)
 - Create: `rag_engine/contract_adapter.py`
 - Test: `rag_engine/tests/test_contract_adapter.py`
 
@@ -559,7 +581,7 @@ from rag_engine.generation_contract import (
 from rag_engine.contract_adapter import (
     generate_from_contract,
     _unwrap_for_proposal,
-    _unwrap_for_wbs,
+    _unwrap_for_execution_plan,
     _unwrap_for_ppt,
     _unwrap_for_track_record,
     DISPATCHER,
@@ -626,6 +648,12 @@ Expected: FAIL with `ModuleNotFoundError`
 
 Strategy: Thin wrappers that unwrap the contract into existing orchestrator params.
 No internal orchestrator refactoring — just bridge the interface gap.
+
+IMPORTANT: execution_plan routes through document_orchestrator.generate_document()
+(the pack-aware pipeline), NOT wbs_orchestrator.generate_wbs() (legacy).
+The pack pipeline handles: domain detection → pack resolution → schedule planning →
+section writing → quality check → DOCX assembly. XLSX/Gantt are generated separately
+from the returned DocumentResult.tasks.
 """
 from __future__ import annotations
 
@@ -665,17 +693,26 @@ def _unwrap_for_proposal(
     }
 
 
-def _unwrap_for_wbs(
+def _unwrap_for_execution_plan(
     contract: GenerationContract,
     rfx_result: dict,
     params: dict,
 ) -> dict:
-    """Unwrap contract → wbs_orchestrator.generate_wbs kwargs."""
-    methodology = params.get("methodology")
+    """Unwrap contract → document_orchestrator.generate_document kwargs.
+
+    Routes through the pack-aware pipeline (NOT legacy wbs_orchestrator).
+    document_orchestrator handles: domain detection, pack resolution, schedule planning,
+    section writing, quality check, and DOCX assembly.
+    """
     return {
         "rfx_result": rfx_result,
-        "methodology": methodology if methodology else None,
+        "doc_type": "execution_plan",
+        "company_name": params.get("company_name", ""),
+        "company_context": contract.company_context.profile_summary,
+        "company_id": params.get("company_id", "_default"),
         "api_key": params.get("api_key"),
+        "knowledge_db_path": params.get("knowledge_db_path", "./data/knowledge_db"),
+        "packs_dir": params.get("packs_dir", ""),
     }
 
 
@@ -833,29 +870,61 @@ def _map_proposal_result(raw, doc_type, elapsed):
     )
 
 
-def _map_wbs_result(raw, doc_type, elapsed):
+def _map_execution_plan_result(raw, doc_type, elapsed):
+    """Map DocumentResult (from document_orchestrator) → GenerationResult.
+
+    DocumentResult has: docx_path, tasks (list[WbsTask]), personnel (list[PersonnelAllocation]),
+    total_months, domain_type, quality_issues, sections (list[tuple[str, str]]).
+    Note: XLSX/Gantt are generated separately by caller from tasks/personnel.
+    """
     return GenerationResult(
         doc_type=doc_type,
         content_json={
             "tasks": [{"id": f"T{i}", "name": t.task_name, "phase": t.phase,
-                        "start_month": t.start_month, "end_month": t.end_month}
+                        "start_month": t.start_month,
+                        "duration_months": t.duration_months,
+                        "responsible_role": t.responsible_role,
+                        "man_months": t.man_months,
+                        "deliverables": t.deliverables}
                        for i, t in enumerate(raw.tasks, 1)],
+            "personnel": [{"role": p.role, "name": p.name or "", "man_months": p.man_months}
+                          for p in raw.personnel],
             "methodology": getattr(raw, "methodology", "waterfall"),
             "total_months": raw.total_months,
+            "domain_type": raw.domain_type,
+            "sections": [{"name": n, "text": t} for n, t in raw.sections],
         },
         content_schema="execution_plan_tasks_v1",
-        metadata={"xlsx_path": raw.xlsx_path, "gantt_path": raw.gantt_path, "docx_path": raw.docx_path},
+        metadata={"docx_path": raw.docx_path},
         generation_time_sec=elapsed,
     )
 
 
 def _map_ppt_result(raw, doc_type, elapsed):
-    # PptDocResult has: pptx_path, slide_count, qna_pairs, total_duration_min
-    # Slide content is baked into PPTX — store metadata + qna_pairs
+    """Map PptResult → GenerationResult with spec-compliant presentation_slides_v1.
+
+    PptResult has: pptx_path, slide_count, qna_pairs, total_duration_min, slides_metadata.
+    slides_metadata is populated by generate_ppt (see Task 4 Step 3b prerequisite).
+    Spec: slides[{slide_number, type, title, body, speaker_notes}], qna_pairs, total_duration_min.
+    """
+    slides = []
+    for i, s in enumerate(getattr(raw, "slides_metadata", []), 1):
+        slides.append({
+            "slide_number": i,
+            "type": s.get("type", "content"),
+            "title": s.get("title", ""),
+            "body": s.get("body", ""),
+            "speaker_notes": s.get("speaker_notes", ""),
+        })
+    # Fallback: if no slides_metadata, generate placeholder from count
+    if not slides:
+        slides = [{"slide_number": i + 1, "type": "content", "title": "", "body": "", "speaker_notes": ""}
+                  for i in range(raw.slide_count)]
+
     return GenerationResult(
         doc_type=doc_type,
         content_json={
-            "slide_count": raw.slide_count,
+            "slides": slides,
             "qna_pairs": [{"question": q.question, "answer": q.answer, "category": q.category}
                           for q in raw.qna_pairs],
             "total_duration_min": raw.total_duration_min,
@@ -867,13 +936,27 @@ def _map_ppt_result(raw, doc_type, elapsed):
 
 
 def _map_track_record_result(raw, doc_type, elapsed):
-    # TrackRecordDocResult has: docx_path, track_record_count, personnel_count
-    # Structured data is in the DOCX — store counts as content_json
+    """Map TrackRecordDocResult → GenerationResult with spec-compliant track_record_v1.
+
+    TrackRecordDocResult has: docx_path, track_record_count, personnel_count,
+    records_data, personnel_data (populated by generate_track_record_doc, see Task 4 Step 3b).
+    Spec: records[{project_name, description, relevance_score}], personnel[{name, role, match_reason}].
+    """
+    records = [
+        {"project_name": r.get("project_name", ""), "description": r.get("description", ""),
+         "relevance_score": r.get("relevance_score", 0.0)}
+        for r in getattr(raw, "records_data", [])
+    ]
+    personnel = [
+        {"name": p.get("name", ""), "role": p.get("role", ""), "match_reason": p.get("match_reason", "")}
+        for p in getattr(raw, "personnel_data", [])
+    ]
+
     return GenerationResult(
         doc_type=doc_type,
         content_json={
-            "track_record_count": raw.track_record_count,
-            "personnel_count": raw.personnel_count,
+            "records": records,
+            "personnel": personnel,
         },
         content_schema="track_record_v1",
         metadata={"docx_path": getattr(raw, "docx_path", "")},
@@ -887,9 +970,9 @@ def _lazy_import_proposal():
     from rag_engine.proposal_orchestrator import generate_proposal
     return generate_proposal
 
-def _lazy_import_wbs():
-    from rag_engine.wbs_orchestrator import generate_wbs
-    return generate_wbs
+def _lazy_import_execution_plan():
+    from rag_engine.document_orchestrator import generate_document
+    return generate_document
 
 def _lazy_import_ppt():
     from rag_engine.ppt_orchestrator import generate_ppt
@@ -904,7 +987,7 @@ def _lazy_import_track_record():
 # Using lazy imports to avoid circular dependencies at module load time
 DISPATCHER: dict[str, tuple] = {
     "proposal": (_unwrap_for_proposal, _lazy_import_proposal, _map_proposal_result),
-    "execution_plan": (_unwrap_for_wbs, _lazy_import_wbs, _map_wbs_result),
+    "execution_plan": (_unwrap_for_execution_plan, _lazy_import_execution_plan, _map_execution_plan_result),
     "presentation": (_unwrap_for_ppt, _lazy_import_ppt, _map_ppt_result),
     "track_record": (_unwrap_for_track_record, _lazy_import_track_record, _map_track_record_result),
 }
@@ -1454,7 +1537,11 @@ async def complete_document_run(
     for prev_run in result.scalars().all():
         prev_run.status = "superseded"
 
-    # Update pre-created asset records (from presigned_issued → verified)
+    # Update pre-created asset records: presigned_issued → uploaded (S3 confirmed)
+    # Phase 1 semantics: "verified" requires S3 head + ETag confirmation.
+    # rag_engine uploaded the file and returned size_bytes + content_hash (client-side).
+    # We set to "uploaded" here; the caller (generate endpoint) then calls
+    # confirm_upload_from_generation() to do S3 head + ETag → "verified".
     for f in (output_files or []):
         asset_id = f.get("asset_id")
         if asset_id:
@@ -1464,9 +1551,9 @@ async def complete_document_run(
             asset = result.scalar_one_or_none()
             if asset:
                 asset.revision_id = revision.id
-                asset.upload_status = "verified"
+                asset.upload_status = "uploaded"
                 asset.size_bytes = f.get("size_bytes")
-                asset.content_hash = f.get("content_hash")
+                asset.content_hash = f"client:{f.get('content_hash', '')}"
 
     # NOTE: caller owns the transaction — do NOT commit here
     await db.flush()
@@ -1692,7 +1779,7 @@ async def generate_document(
         await db.commit()
         raise HTTPException(status_code=502, detail=f"Generation failed: {e}")
 
-    # Record revision
+    # Record revision (assets set to "uploaded", not yet "verified")
     revision = await complete_document_run(
         db=db,
         run=run,
@@ -1701,6 +1788,30 @@ async def generate_document(
         quality_report=rag_result.get("quality_report"),
         output_files=rag_result.get("output_files", []),
     )
+
+    # Phase 1 verified semantics: S3 head + ETag confirmation for each asset
+    for f in rag_result.get("output_files", []):
+        aid = f.get("asset_id")
+        if not aid:
+            continue
+        try:
+            result = await db.execute(select(DocumentAsset).where(DocumentAsset.id == aid))
+            asset = result.scalar_one_or_none()
+            if asset and asset.storage_uri:
+                key = s3.parse_storage_uri(asset.storage_uri)
+                head = await asyncio.to_thread(s3.head_object, key)
+                s3_etag = head.get("ETag", "").strip('"')
+                actual_size = head.get("ContentLength", 0)
+                asset.size_bytes = actual_size
+                if s3_etag:
+                    client_hash = f.get("content_hash", "")
+                    asset.content_hash = f"etag:{s3_etag},client:{client_hash}"
+                    asset.upload_status = "verified"
+                else:
+                    logger.warning("No ETag from S3 for generated asset %s", aid)
+        except Exception:
+            logger.warning("S3 head verification failed for asset %s", aid, exc_info=True)
+    await db.flush()
 
     # Audit
     audit = AuditLog(
@@ -1751,49 +1862,75 @@ git commit -m "feat(web_app): add /api/projects/{id}/generate with full Document
 ### Task 9: Analysis Persistence Wiring
 
 **Files:**
-- Modify: `services/web_app/main.py` (analysis proxy endpoints)
+- Modify: `services/web_app/db/engine.py` (expose session factory helper)
+- Modify: `services/web_app/main.py` (analysis endpoint, line ~1908)
 
-- [ ] **Step 1: Identify the analysis proxy endpoints**
+**Context:** The analysis endpoint is `POST /api/analyze/upload` at `main.py:1800`. After analysis completes (line 1908), it stores:
+- `session.latest_rfx_analysis = analysis` (RFxAnalysisResult)
+- `session.latest_matching_result = matching` (MatchingResult | None)
+- `session.latest_document_name = primary_filename`
 
-In `services/web_app/main.py`, find the `/api/analyze` or analysis-related proxy that calls rag_engine's `/api/analyze-bid`. This endpoint currently stores results in session memory only.
+The variables in scope at line 1910 are: `analysis` (RFxAnalysisResult), `rfp_summary` (str), `matching` (MatchingResult | None), `session` (SessionState).
 
-- [ ] **Step 2: Add DB persistence after session storage**
+`SessionAdapter.save_analysis()` expects: `analysis_json: dict`, `summary_md: str | None`, `go_nogo_json: dict | None`, `username: str | None`.
 
-After the rag_engine response is received and stored in session:
+**Important:** `engine.py` keeps `_async_session_factory` private (line 12). We cannot import `AsyncSessionLocal`. We need a helper function.
+
+- [ ] **Step 1: Add `create_session()` helper to engine.py**
+
+Add after `get_async_session()` in `services/web_app/db/engine.py`:
 ```python
-# After: SESSIONS[session_id]["analysis_result"] = analysis_result
-# Add (inside if _BID_DB_ENABLED block):
-if _BID_DB_ENABLED:
-    try:
-        from services.web_app.api.adapter import SessionAdapter
-        from services.web_app.db.engine import AsyncSessionLocal
-        async with AsyncSessionLocal() as db:
-            adapter = SessionAdapter(db)
-            project = await adapter.get_or_create_project(session_id, username)
-            await adapter.save_analysis(
-                project_id=project.id,
-                org_id=project.org_id,
-                analysis_json=analysis_result,
-                summary_md=summary_md,
-                go_nogo_json=go_nogo_result,
-                username=username,
-            )
-            await db.commit()
-    except Exception:
-        logger.warning("Failed to persist analysis to DB", exc_info=True)
+def create_session() -> AsyncSession:
+    """Create a standalone AsyncSession (for non-Depends usage).
+
+    Caller is responsible for commit/close. Use with `async with`.
+    """
+    if _async_session_factory is None:
+        raise RuntimeError("Database not initialized. Call init_db() first.")
+    return _async_session_factory()
 ```
 
-This is a **write-through** pattern: session memory remains the primary path, DB is secondary. Failure to persist to DB does not break the existing flow.
+- [ ] **Step 2: Wire write-through persistence into analyze_uploaded_document**
+
+In `services/web_app/main.py`, after line 1910 (`session.latest_document_name = primary_filename`), add:
+
+```python
+    # Write-through: persist analysis to DB (non-blocking, graceful degradation)
+    if _BID_DB_ENABLED:
+        try:
+            from dataclasses import asdict as _asdict
+            from services.web_app.api.adapter import SessionAdapter
+            from services.web_app.db.engine import create_session
+
+            async with create_session() as _db:
+                _adapter = SessionAdapter(_db)
+                _project = await _adapter.get_or_create_project(
+                    session.session_id, session_id,  # session_id as username fallback
+                )
+                await _adapter.save_analysis(
+                    project_id=_project.id,
+                    org_id=_project.org_id,
+                    analysis_json=_asdict(analysis),
+                    summary_md=rfp_summary or None,
+                    go_nogo_json=_asdict(matching) if matching else None,
+                    username=session_id,
+                )
+                # save_analysis() commits internally (line 105 of adapter.py)
+        except Exception:
+            logger.warning("Failed to persist analysis to DB", exc_info=True)
+```
+
+Note: `save_analysis()` in adapter.py already calls `db.commit()` internally (line 105). No extra commit needed.
 
 - [ ] **Step 3: Run regression tests**
 
 Run: `python -m pytest tests/ -q --timeout=30`
-Expected: All existing tests pass
+Expected: All existing tests pass (DB code is behind `_BID_DB_ENABLED` flag)
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add services/web_app/main.py
+git add services/web_app/db/engine.py services/web_app/main.py
 git commit -m "feat(persistence): wire analysis results write-through to DB via SessionAdapter"
 ```
 
@@ -1801,31 +1938,87 @@ git commit -m "feat(persistence): wire analysis results write-through to DB via 
 
 ### Task 10: Frontend doc_type Migration
 
-**Files:**
-- Modify: `frontend/kirabot/components/settings/documents/DocumentWorkspace.tsx`
-- Modify: `frontend/kirabot/components/settings/documents/__tests__/DocumentWorkspace.test.ts`
+**Files to update** (all `'wbs'` → `'execution_plan'`, `'ppt'` → `'presentation'` as doc_type identifiers):
 
-- [ ] **Step 1: Update tab names**
+| File | Lines | What to change |
+|------|-------|----------------|
+| `components/settings/documents/DocumentTabNav.tsx` | 4, 15, 16 | `DocumentTab` type union + tab id values |
+| `components/settings/documents/DocumentWorkspace.tsx` | 11, 30, 31 | `VALID_TABS` set + conditional render |
+| `components/settings/documents/WbsViewer.tsx` | 17 | localStorage key stays `kira_last_wbs` (UI data, not API type) |
+| `components/settings/documents/PptViewer.tsx` | 17 | localStorage key stays `kira_last_ppt` (UI data, not API type) |
+| `components/settings/documents/__tests__/DocumentWorkspace.test.ts` | 6, 34-39 | VALID_TABS + test assertions |
+| `components/settings/documents/__tests__/viewerValidators.test.ts` | 124-143 | localStorage key refs (no change needed — UI keys) |
+| `hooks/useConversationFlow.ts` | 1462, 1502, 1514, 1551 | case labels + pushDocHistory keys |
+| `types.ts` | 385-386 | `generate_wbs` → `generate_execution_plan`, `generate_ppt` → `generate_presentation` |
+| `components/chat/messages/AnalysisResultView.tsx` | 266, 273 | action type dispatches |
 
-In DocumentWorkspace.tsx, find the tab definitions and update:
-- `'wbs'` → `'execution_plan'` (display label stays "수행계획서")
-- `'ppt'` → `'presentation'` (display label stays "발표자료")
+**Note:** File extension detection (`'.ppt'`, `'.pptx'` → DocFileType `'ppt'`) in `useConversationFlow.ts:57` and `ChatHeader.tsx:27` are about file format detection, NOT doc_type. These stay as-is.
 
-In the test file, update VALID_TABS:
+**Note:** `localStorage` keys (`kira_last_wbs`, `kira_last_ppt`) are UI storage keys, not API doc_type identifiers. These can stay as-is (renaming them would break existing users' cached data).
+
+- [ ] **Step 1: Update DocumentTabNav.tsx type + tab definitions**
+
 ```typescript
-const VALID_TABS = new Set(['profile', 'rfp', 'proposal', 'execution_plan', 'presentation', 'track_record']);
+// Line 4: Update type
+export type DocumentTab = 'profile' | 'rfp' | 'proposal' | 'execution_plan' | 'presentation' | 'track_record';
+
+// Lines 15-16: Update tab ids
+  { id: 'execution_plan', label: '수행계획서', icon: CalendarDays },
+  { id: 'presentation', label: '발표자료', icon: Presentation },
 ```
 
-- [ ] **Step 2: Run frontend type check**
+- [ ] **Step 2: Update DocumentWorkspace.tsx**
+
+```typescript
+// Line 11:
+const VALID_TABS: Set<string> = new Set(['profile', 'rfp', 'proposal', 'execution_plan', 'presentation', 'track_record']);
+
+// Lines 30-31:
+{activeTab === 'execution_plan' && <WbsViewer />}
+{activeTab === 'presentation' && <PptViewer />}
+```
+
+- [ ] **Step 3: Update types.ts action types**
+
+```typescript
+// Lines 385-386:
+  | { type: 'generate_execution_plan' }
+  | { type: 'generate_presentation' }
+```
+
+- [ ] **Step 4: Update useConversationFlow.ts case labels**
+
+```typescript
+// Line 1462: case 'generate_execution_plan':
+// Line 1514: case 'generate_presentation':
+// pushDocHistory keys stay as kira_last_wbs / kira_last_ppt (localStorage, not API)
+```
+
+- [ ] **Step 5: Update AnalysisResultView.tsx action dispatches**
+
+```typescript
+// Line 266: onClick={() => onAction?.({ type: 'generate_execution_plan' })}
+// Line 273: onClick={() => onAction?.({ type: 'generate_presentation' })}
+```
+
+- [ ] **Step 6: Update test files**
+
+DocumentWorkspace.test.ts:
+```typescript
+const VALID_TABS = new Set(['profile', 'rfp', 'proposal', 'execution_plan', 'presentation', 'track_record']);
+// Update test assertions for 'execution_plan' and 'presentation'
+```
+
+- [ ] **Step 7: Run frontend type check + build**
 
 Run: `cd frontend/kirabot && npx tsc --noEmit`
 Expected: No errors
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add frontend/kirabot/components/settings/documents/
-git commit -m "feat(frontend): migrate doc_type tab names to canonical values"
+git add frontend/kirabot/
+git commit -m "feat(frontend): migrate doc_type identifiers from wbs/ppt to execution_plan/presentation"
 ```
 
 ---
@@ -1874,16 +2067,16 @@ git commit -m "fix: test adjustments for Phase 2 integration"
 | 1 | GenerationContract dataclasses | `rag_engine/generation_contract.py` |
 | 2 | doc_type migration (wbs→execution_plan, ppt→presentation) | `auto_learner.py`, `main.py` |
 | 3 | Quality checker expansion to all doc_types | `quality_checker.py` |
-| 4 | Contract adapter + orchestrator dispatch | `rag_engine/contract_adapter.py` |
+| 4 | Contract adapter + orchestrator dispatch | `rag_engine/contract_adapter.py` + modify `phase2_models.py`, `ppt_orchestrator.py`, `track_record_orchestrator.py` |
 | 5 | Unified /api/generate-document endpoint | `rag_engine/main.py` |
 | 6 | Contract builder service | `services/web_app/services/contract_builder.py` |
 | 7 | Generation service (DocumentRun lifecycle) | `services/web_app/services/generation_service.py` |
 | 8 | /api/projects/{id}/generate endpoint | `services/web_app/api/generate.py` |
-| 9 | Analysis persistence write-through | `services/web_app/main.py` |
-| 10 | Frontend doc_type tab migration | `DocumentWorkspace.tsx` |
+| 9 | Analysis persistence write-through | `services/web_app/db/engine.py`, `services/web_app/main.py` |
+| 10 | Frontend doc_type tab migration | 9 files: `DocumentTabNav.tsx`, `DocumentWorkspace.tsx`, `types.ts`, `useConversationFlow.ts`, `AnalysisResultView.tsx`, + test files |
 | 11 | Full regression verification | (verify only) |
 
 **New files:** 7 (+ 7 test files)
-**Modified files:** 6
+**Modified files:** 12 (engine.py, main.py×2, quality_checker.py, phase2_models.py, ppt_orchestrator.py, track_record_orchestrator.py, + 5 frontend)
 **Total tasks:** 11
 **Estimated commits:** 11
