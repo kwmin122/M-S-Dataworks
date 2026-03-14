@@ -820,6 +820,35 @@ def generate_from_contract(
     # Map orchestrator result → GenerationResult
     gen_result = result_mapper(raw_result, doc_type, elapsed)
 
+    # --- Secondary outputs for execution_plan ---
+    # document_orchestrator returns DOCX + tasks/personnel data.
+    # XLSX (WBS table) and PNG (Gantt chart) must be generated separately
+    # from the structured tasks/personnel, using wbs_generator functions.
+    # This adapter is the integration layer — it bridges document_orchestrator
+    # output to the full output set the spec promises.
+    if doc_type == "execution_plan" and hasattr(raw_result, "tasks") and raw_result.tasks:
+        from rag_engine.wbs_generator import generate_wbs_xlsx, generate_gantt_chart
+
+        _title = rfx_result.get("title", "수행계획서")
+        _total_months = getattr(raw_result, "total_months", 12)
+
+        # XLSX — WBS table + personnel allocation + deliverables
+        _xlsx_path = os.path.join(work_dir, f"wbs_{_title[:30]}.xlsx")
+        try:
+            generate_wbs_xlsx(
+                raw_result.tasks, raw_result.personnel,
+                _title, _total_months, _xlsx_path,
+            )
+        except Exception:
+            logger.warning("XLSX generation failed for execution_plan", exc_info=True)
+
+        # PNG — Gantt chart (matplotlib optional, graceful degradation)
+        _gantt_path = os.path.join(work_dir, f"gantt_{_title[:30]}.png")
+        try:
+            generate_gantt_chart(raw_result.tasks, _total_months, _gantt_path)
+        except Exception:
+            logger.warning("Gantt chart generation failed (matplotlib may be unavailable)", exc_info=True)
+
     # Quality check
     from rag_engine.quality_checker import check_quality_for_doc_type
     text_for_check = _extract_text_for_quality(gen_result)
@@ -875,7 +904,8 @@ def _map_execution_plan_result(raw, doc_type, elapsed):
 
     DocumentResult has: docx_path, tasks (list[WbsTask]), personnel (list[PersonnelAllocation]),
     total_months, domain_type, quality_issues, sections (list[tuple[str, str]]).
-    Note: XLSX/Gantt are generated separately by caller from tasks/personnel.
+    XLSX + Gantt PNG are generated earlier in generate_from_contract() from
+    tasks/personnel and placed in work_dir alongside the DOCX.
     """
     return GenerationResult(
         doc_type=doc_type,
@@ -1721,51 +1751,53 @@ async def generate_document(
     )
     await start_document_run(db, run)
 
-    # Pre-create asset records + presigned upload URLs.
+    # Pre-create asset records + presigned upload URLs for ALL expected outputs.
     #
-    # IMPORTANT: Only pre-allocate the guaranteed primary output per doc_type.
-    # Optional/conditional outputs (hwpx, gantt PNG, xlsx) are created dynamically
-    # AFTER rag_engine returns, from the actual output_files list. This avoids
-    # orphaned asset rows when optional outputs aren't produced, and handles
-    # outputs that vary by params (e.g., proposal output_format="hwpx").
+    # Pre-allocate the full output set per doc_type. rag_engine's contract_adapter
+    # generates all files in work_dir and _collect_output_files() uploads each one
+    # to the matching presigned URL by extension. If an optional file isn't produced
+    # (e.g., Gantt PNG when matplotlib is unavailable), the unused asset record is
+    # cleaned up after generation completes.
     #
-    # Actual output sets:
-    #   proposal: docx OR hwpx (mutually exclusive, depends on output_format param)
-    #   execution_plan: docx (primary) + optional xlsx (WBS) + optional png (Gantt)
+    # Output sets:
+    #   proposal: docx OR hwpx (mutually exclusive, based on output_format param)
+    #   execution_plan: docx (primary) + xlsx (WBS table) + png (Gantt chart, optional)
     #   presentation: pptx
     #   track_record: docx
     s3 = get_s3_client()
     from services.web_app.db.models.document import DocumentAsset
     from services.web_app.db.models.base import new_cuid
 
-    def _primary_asset_type(doc_type: str, params: dict) -> str:
-        """Return the guaranteed primary output file extension."""
+    def _asset_types_for_doc_type(doc_type: str, params: dict) -> list[str]:
+        """Return all expected output file extensions for this doc_type."""
         if doc_type == "proposal":
             fmt = params.get("output_format", "docx")
-            return "hwpx" if fmt == "hwpx" else "docx"
+            return ["hwpx"] if fmt == "hwpx" else ["docx"]
+        if doc_type == "execution_plan":
+            return ["docx", "xlsx", "png"]  # DOCX primary + XLSX WBS + PNG Gantt
         if doc_type == "presentation":
-            return "pptx"
-        return "docx"  # execution_plan, track_record
+            return ["pptx"]
+        return ["docx"]  # track_record
 
     upload_targets = []
-    primary_atype = _primary_asset_type(req.doc_type, req.params)
-    asset_id = new_cuid()
-    key = s3.build_storage_key(user.org_id, project_id, asset_id, f"output.{primary_atype}")
-    url = s3.generate_presigned_upload_url(key)
-    asset = DocumentAsset(
-        id=asset_id,
-        org_id=user.org_id,
-        project_id=project_id,
-        asset_type=primary_atype,
-        storage_uri=s3.build_full_uri(key),
-        upload_status="presigned_issued",
-    )
-    db.add(asset)
-    upload_targets.append({
-        "asset_id": asset_id,
-        "presigned_url": url,
-        "asset_type": primary_atype,
-    })
+    for atype in _asset_types_for_doc_type(req.doc_type, req.params):
+        asset_id = new_cuid()
+        key = s3.build_storage_key(user.org_id, project_id, asset_id, f"output.{atype}")
+        url = s3.generate_presigned_upload_url(key)
+        asset = DocumentAsset(
+            id=asset_id,
+            org_id=user.org_id,
+            project_id=project_id,
+            asset_type=atype,
+            storage_uri=s3.build_full_uri(key),
+            upload_status="presigned_issued",
+        )
+        db.add(asset)
+        upload_targets.append({
+            "asset_id": asset_id,
+            "presigned_url": url,
+            "asset_type": atype,
+        })
     await db.flush()
 
     # Call rag_engine
@@ -1794,30 +1826,6 @@ async def generate_document(
         db.add(audit)
         await db.commit()
         raise HTTPException(status_code=502, detail=f"Generation failed: {e}")
-
-    # Create asset records for optional/secondary outputs returned by rag_engine
-    # (e.g., xlsx WBS, png Gantt chart, hwpx template output).
-    # The primary asset was pre-allocated above; any output_file without an
-    # asset_id was dynamically produced and needs a new DB record + presigned URL.
-    pre_allocated_ids = {t["asset_id"] for t in upload_targets}
-    for f in rag_result.get("output_files", []):
-        if f.get("asset_id") in pre_allocated_ids:
-            continue  # Already has a DB record
-        # Dynamic asset — create record now
-        dyn_id = new_cuid()
-        dyn_atype = f.get("asset_type", "bin")
-        dyn_key = s3.build_storage_key(user.org_id, project_id, dyn_id, f"output.{dyn_atype}")
-        dyn_asset = DocumentAsset(
-            id=dyn_id,
-            org_id=user.org_id,
-            project_id=project_id,
-            asset_type=dyn_atype,
-            storage_uri=s3.build_full_uri(dyn_key),
-            upload_status="uploaded",  # rag_engine already uploaded it
-        )
-        db.add(dyn_asset)
-        f["asset_id"] = dyn_id  # Patch so complete_document_run can reference it
-    await db.flush()
 
     # Record revision (assets set to "uploaded", not yet "verified")
     revision = await complete_document_run(
@@ -1851,6 +1859,20 @@ async def generate_document(
                     logger.warning("No ETag from S3 for generated asset %s", aid)
         except Exception:
             logger.warning("S3 head verification failed for asset %s", aid, exc_info=True)
+
+    # Clean up unused pre-allocated assets (e.g., Gantt PNG when matplotlib unavailable).
+    # If a pre-allocated asset was never uploaded (still "presigned_issued"),
+    # delete the orphaned record — it was an optional output that wasn't produced.
+    uploaded_ids = {f.get("asset_id") for f in rag_result.get("output_files", [])}
+    for t in upload_targets:
+        if t["asset_id"] not in uploaded_ids:
+            result = await db.execute(
+                select(DocumentAsset).where(DocumentAsset.id == t["asset_id"])
+            )
+            orphan = result.scalar_one_or_none()
+            if orphan and orphan.upload_status == "presigned_issued":
+                await db.delete(orphan)
+                logger.info("Cleaned up unused asset %s (type=%s)", t["asset_id"], t["asset_type"])
     await db.flush()
 
     # Audit
