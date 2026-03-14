@@ -931,6 +931,8 @@ _RUN_STATUSES = "status IN ('queued','running','completed','failed','superseded'
 _REV_STATUSES = "status IN ('draft','review_requested','in_review','changes_requested','approved','locked','submitted')"
 _REV_SOURCES = "source IN ('ai_generated','user_edited','reassembled','imported_final')"
 _UPLOAD_STATUSES = "upload_status IN ('presigned_issued','uploading','uploaded','verified','failed')"
+_MODE_USED = "mode_used IN ('strict_template','starter','upgrade') OR mode_used IS NULL"
+_ASSET_TYPES = "asset_type IN ('original','docx','xlsx','pptx','pdf','png','json')"
 
 
 class DocumentRun(CuidPkMixin, CreatedAtMixin, Base):
@@ -960,6 +962,7 @@ class DocumentRun(CuidPkMixin, CreatedAtMixin, Base):
     __table_args__ = (
         CheckConstraint(_DOC_TYPE_CHECK, name="ck_doc_runs_doc_type"),
         CheckConstraint(_RUN_STATUSES, name="ck_doc_runs_status"),
+        CheckConstraint(_MODE_USED, name="ck_doc_runs_mode_used"),
     )
 
 
@@ -1030,6 +1033,7 @@ class DocumentAsset(CuidPkMixin, CreatedAtMixin, Base):
 
     __table_args__ = (
         CheckConstraint(_UPLOAD_STATUSES, name="ck_doc_assets_upload_status"),
+        CheckConstraint(_ASSET_TYPES, name="ck_doc_assets_asset_type"),
         Index("idx_doc_assets_org_project", "org_id", "project_id"),
         Index("idx_doc_assets_revision", "revision_id"),
     )
@@ -1289,8 +1293,8 @@ class AuditLog(CreatedAtMixin, Base):
     target_type: Mapped[str | None] = mapped_column(Text)
     target_id: Mapped[str | None] = mapped_column(Text)
     detail_json: Mapped[dict | None] = mapped_column(JSONB)
-    # NOTE: Use INET on PostgreSQL for IP validation. Falls back to Text on SQLite tests.
-    ip_address: Mapped[str | None] = mapped_column(Text)  # Alembic migration uses INET type
+    # PostgreSQL INET — validates IP format at DB level. No SQLite fallback needed.
+    ip_address: Mapped[str | None] = mapped_column(INET)
     user_agent: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (
@@ -2380,6 +2384,7 @@ async def upload_source(
         parse_status="pending",
     )
     db.add(source_doc)
+    await db.flush()  # generate source_doc.id before using it in audit
 
     audit = AuditLog(
         org_id=user.org_id,
@@ -2387,7 +2392,7 @@ async def upload_source(
         project_id=project_id,
         action="upload_source",
         target_type="source_document",
-        target_id=source_doc.id,
+        target_id=source_doc.id,  # now guaranteed to be populated
         detail_json={"filename": req.filename, "kind": req.document_kind},
     )
     db.add(audit)
@@ -2589,6 +2594,7 @@ class SessionAdapter:
         admin invite flow). Unconditional org creation = ghost org risk.
         """
         import os
+        import logging as _logging
 
         result = await self._db.execute(
             select(Membership).where(
@@ -2596,9 +2602,22 @@ class SessionAdapter:
                 Membership.is_active == True,
             )
         )
-        membership = result.scalar_one_or_none()
-        if membership is not None:
-            return membership.org_id
+        memberships = result.scalars().all()
+
+        # v1 invariant: single-org only (same check as resolve_org_membership)
+        if len(memberships) > 1:
+            org_ids = [m.org_id for m in memberships]
+            _logging.getLogger(__name__).error(
+                "v1 invariant violation in adapter: user '%s' has %d active memberships (orgs: %s)",
+                username, len(memberships), org_ids,
+            )
+            raise ValueError(
+                f"User '{username}' has multiple active memberships. "
+                "Multi-org not supported in v1."
+            )
+
+        if memberships:
+            return memberships[0].org_id
 
         # Guard: ONLY auto-provision in dev mode
         dev_bootstrap = os.getenv("BID_DEV_BOOTSTRAP", "").lower() in ("1", "true")
@@ -2608,8 +2627,7 @@ class SessionAdapter:
                 "In production, users must be invited to an existing org."
             )
 
-        import logging
-        logging.getLogger(__name__).warning(
+        _logging.getLogger(__name__).warning(
             "DEV_BOOTSTRAP: adapter auto-creating org for user=%s", username
         )
 
