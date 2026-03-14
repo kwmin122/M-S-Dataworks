@@ -53,6 +53,9 @@ if _WEB_APP_DIR not in sys.path:
 
 load_dotenv(ROOT_DIR / ".env")
 
+# Only init Bid Workspace DB if BID_DATABASE_URL is set (gradual rollout)
+_BID_DB_ENABLED = bool(os.getenv("BID_DATABASE_URL"))
+
 logger = logging.getLogger(__name__)
 
 from engine import RAGEngine  # noqa: E402
@@ -215,6 +218,11 @@ class WebRuntimeSession:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if _BID_DB_ENABLED:
+        from services.web_app.db import init_db, close_db
+        await init_db()
+        logger.info("Bid Workspace DB initialized")
+
     task = asyncio.create_task(_alert_scheduler_loop())
     logger.info("Alert scheduler started")
     yield
@@ -224,6 +232,11 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         pass
 
+    if _BID_DB_ENABLED:
+        from services.web_app.db import close_db
+        await close_db()
+        logger.info("Bid Workspace DB closed")
+
 
 # Rate limiting
 limiter = Limiter(key_func=get_remote_address)
@@ -231,6 +244,13 @@ limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="Kira Web Runtime", version="0.1.0", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Bid Workspace routers (only when DB is configured)
+if _BID_DB_ENABLED:
+    from services.web_app.api.projects import router as projects_router
+    from services.web_app.api.assets import router as assets_router
+    app.include_router(projects_router)
+    app.include_router(assets_router)
 
 app.add_middleware(
     CORSMiddleware,
