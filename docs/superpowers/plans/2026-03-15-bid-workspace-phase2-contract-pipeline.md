@@ -1870,9 +1870,25 @@ git commit -m "feat(web_app): add /api/projects/{id}/generate with full Document
 - `session.latest_matching_result = matching` (MatchingResult | None)
 - `session.latest_document_name = primary_filename`
 
-The variables in scope at line 1910 are: `analysis` (RFxAnalysisResult), `rfp_summary` (str), `matching` (MatchingResult | None), `session` (SessionState).
+The variables in scope at line 1910 are: `analysis` (RFxAnalysisResult), `rfp_summary` (str), `matching` (MatchingResult | None), `session` (SessionState), `request` (Request).
 
 `SessionAdapter.save_analysis()` expects: `analysis_json: dict`, `summary_md: str | None`, `go_nogo_json: dict | None`, `username: str | None`.
+
+**Two critical boundaries this task must respect:**
+
+1. **Identity resolution**: `SessionAdapter.get_or_create_project(session_id, username)` passes
+   `username` to `_ensure_org()` (adapter.py:127) which queries `Membership.user_id == username`.
+   Using `session_id` as username would create ghost orgs in dev bootstrap or fail membership
+   resolution in production. Must use `_resolve_usage_actor(request, session_id)` at line 392
+   to get the real authenticated username. Anonymous users (empty username) must be skipped.
+
+2. **Serialization boundary**: `RFxAnalysisResult.evaluation_criteria` stores `{category, item,
+   score, detail}` (rfx_analyzer.py:69), but Task 8's generate endpoint sends
+   `snapshot.analysis_json` directly as `rfx_result` to rag_engine, where `RfxResultInput`
+   (main.py:385) expects `{category, max_score, description}`. Raw `_asdict(analysis)` would
+   silently zero-out `max_score` (field name mismatch: `score` vs `max_score`) and lose
+   `description` (field name mismatch: `item`+`detail` vs `description`). Need a canonical
+   serialization function.
 
 **Important:** `engine.py` keeps `_async_session_factory` private (line 12). We cannot import `AsyncSessionLocal`. We need a helper function.
 
@@ -1890,44 +1906,130 @@ def create_session() -> AsyncSession:
     return _async_session_factory()
 ```
 
-- [ ] **Step 2: Wire write-through persistence into analyze_uploaded_document**
+- [ ] **Step 2: Add `_serialize_for_rfx_input()` conversion function**
+
+Add in `services/web_app/main.py` (near other helper functions, e.g. after `_resolve_usage_actor`):
+
+```python
+def _serialize_for_rfx_input(analysis) -> dict:
+    """Convert RFxAnalysisResult → dict matching RfxResultInput schema.
+
+    RFxAnalysisResult stores evaluation_criteria as {category, item, score, detail}
+    but RfxResultInput (rag_engine) expects {category, max_score, description}.
+    Raw _asdict() would silently lose/zero-out fields at the Pydantic boundary.
+    This function produces a canonical shape that round-trips cleanly through
+    AnalysisSnapshot.analysis_json → generate endpoint → RfxResultInput validation.
+    """
+    from dataclasses import asdict as _asdict
+
+    raw = _asdict(analysis)
+
+    # Map evaluation_criteria: score→max_score, item+detail→description
+    canonical_criteria = []
+    for ec in raw.get("evaluation_criteria", []):
+        desc_parts = [ec.get("item", ""), ec.get("detail", "")]
+        canonical_criteria.append({
+            "category": ec.get("category", ""),
+            "max_score": ec.get("score", 0.0),
+            "description": " — ".join(p for p in desc_parts if p),
+        })
+
+    # Map requirements: category+description only (Pydantic ignores extras)
+    canonical_reqs = []
+    for req in raw.get("requirements", []):
+        canonical_reqs.append({
+            "category": req.get("category", ""),
+            "description": req.get("description", ""),
+        })
+
+    return {
+        "title": raw.get("title", ""),
+        "issuing_org": raw.get("issuing_org", ""),
+        "budget": raw.get("budget", ""),
+        "project_period": raw.get("project_period", ""),
+        "evaluation_criteria": canonical_criteria,
+        "requirements": canonical_reqs,
+        "rfp_text_summary": raw.get("raw_text", "")[:10000],  # truncate for storage
+        # Preserve extra metadata for audit (Pydantic ignores unknown fields)
+        "announcement_number": raw.get("announcement_number", ""),
+        "deadline": raw.get("deadline", ""),
+        "required_documents": raw.get("required_documents", []),
+        "special_notes": raw.get("special_notes", []),
+        "document_type": raw.get("document_type", "unknown"),
+        "is_rfx_like": raw.get("is_rfx_like", True),
+    }
+```
+
+Key mappings:
+- `RFxEvaluationCriteria.score` → `EvaluationCriterionInput.max_score`
+- `RFxEvaluationCriteria.item` + `.detail` → `EvaluationCriterionInput.description`
+- Extra metadata preserved under known keys (Pydantic v2 ignores extras by default)
+- `raw_text` truncated to 10KB for `rfp_text_summary` (full text is in session memory)
+
+- [ ] **Step 3: Wire write-through persistence into analyze_uploaded_document**
 
 In `services/web_app/main.py`, after line 1910 (`session.latest_document_name = primary_filename`), add:
 
 ```python
     # Write-through: persist analysis to DB (non-blocking, graceful degradation)
+    # Only for authenticated users — anonymous sessions don't have org membership
     if _BID_DB_ENABLED:
         try:
-            from dataclasses import asdict as _asdict
             from services.web_app.api.adapter import SessionAdapter
             from services.web_app.db.engine import create_session
 
-            async with create_session() as _db:
-                _adapter = SessionAdapter(_db)
-                _project = await _adapter.get_or_create_project(
-                    session.session_id, session_id,  # session_id as username fallback
-                )
-                await _adapter.save_analysis(
-                    project_id=_project.id,
-                    org_id=_project.org_id,
-                    analysis_json=_asdict(analysis),
-                    summary_md=rfp_summary or None,
-                    go_nogo_json=_asdict(matching) if matching else None,
-                    username=session_id,
-                )
-                # save_analysis() commits internally (line 105 of adapter.py)
+            _, _username = _resolve_usage_actor(request, session_id)
+            if _username:  # Skip for anonymous users (no org to map to)
+                async with create_session() as _db:
+                    _adapter = SessionAdapter(_db)
+                    _project = await _adapter.get_or_create_project(
+                        session.session_id, _username,
+                    )
+                    await _adapter.save_analysis(
+                        project_id=_project.id,
+                        org_id=_project.org_id,
+                        analysis_json=_serialize_for_rfx_input(analysis),
+                        summary_md=rfp_summary or None,
+                        go_nogo_json=_asdict(matching) if matching else None,
+                        username=_username,
+                    )
+                    # save_analysis() commits internally (line 105 of adapter.py)
         except Exception:
             logger.warning("Failed to persist analysis to DB", exc_info=True)
 ```
 
-Note: `save_analysis()` in adapter.py already calls `db.commit()` internally (line 105). No extra commit needed.
+**Identity resolution** (vs round 2 bug):
+- `_resolve_usage_actor(request, session_id)` at line 392 resolves the authenticated
+  username from the auth cookie, returning `(scope, username)`.
+- `username` is the real user identity that `_ensure_org()` can resolve membership for.
+- If anonymous (`username == ""`), skip DB persistence entirely — anonymous users
+  don't have org membership, and persisting with empty username would either fail
+  `_ensure_org()` in production or create ghost orgs in dev bootstrap.
+- `session_id` (first arg to `get_or_create_project`) is still used for the
+  `legacy_session_id` lookup/mapping — that's correct (it's the session key, not the user identity).
 
-- [ ] **Step 3: Run regression tests**
+**Serialization boundary** (vs round 2 bug):
+- `_serialize_for_rfx_input(analysis)` produces a dict matching `RfxResultInput` schema.
+- Task 8's generate endpoint at line 1762 sends `snapshot.analysis_json` directly as
+  `rfx_result` to rag_engine — this now round-trips cleanly through Pydantic validation.
+- `_asdict(matching)` for go_nogo_json is fine — it's stored separately and consumed
+  by the frontend, never sent through RfxResultInput.
+
+Note: `save_analysis()` in adapter.py already calls `db.commit()` internally (line 105). No extra commit needed.
+Note: `_asdict` import for matching serialization moves to top of the try block:
+```python
+        try:
+            from dataclasses import asdict as _asdict
+            from services.web_app.api.adapter import SessionAdapter
+            ...
+```
+
+- [ ] **Step 4: Run regression tests**
 
 Run: `python -m pytest tests/ -q --timeout=30`
 Expected: All existing tests pass (DB code is behind `_BID_DB_ENABLED` flag)
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add services/web_app/db/engine.py services/web_app/main.py
