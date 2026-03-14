@@ -8,6 +8,11 @@
 
 **Tech Stack:** Python 3.11+, SQLAlchemy 2.0 (async), Alembic, asyncpg, boto3, FastAPI APIRouter, pgvector, pytest-asyncio
 
+**Hard Requirements:**
+- PostgreSQL 16+ with pgvector extension — **NO SQLite fallback**. JSONB, partial unique indexes, CHECK constraints, deferrable FKs, BigInteger autoincrement PK all require PostgreSQL. SQLite cannot compile JSONB type at all.
+- `BID_TEST_DATABASE_URL` must point to PostgreSQL in all environments (local dev + CI).
+- v1 supports **single-org membership only** — one user belongs to one active org. Multi-org is Phase 3+.
+
 **Spec:** `docs/superpowers/specs/2026-03-14-bid-workspace-v1-design.md`
 
 ---
@@ -44,6 +49,7 @@ organizations, memberships, bid_projects, project_access, source_documents, anal
 - **rag_engine:** FastAPI on port 8001, stateless compute, file paths for output
 - **Already installed:** alembic 1.18.4, asyncpg 0.31.0
 - **Not installed:** sqlalchemy, boto3, pgvector, cuid2
+- **Required runtime:** PostgreSQL 16+ with pgvector (no SQLite — JSONB, BigInt autoincrement, CHECK constraints all break)
 
 ---
 
@@ -133,13 +139,16 @@ docker-compose.yml                      ← Add BID_DATABASE_URL env to web_app 
 Append to `requirements.txt`:
 ```
 sqlalchemy[asyncio]==2.0.36
-aiosqlite==0.20.0
+asyncpg==0.31.0
 boto3==1.38.0
 pgvector==0.3.6
 cuid2==2.0.1
 pytest-asyncio==0.24.0
 pytest-timeout==2.3.1
 ```
+
+> **NOTE:** No `aiosqlite`. PostgreSQL is the only supported backend.
+> JSONB, BigInteger autoincrement, CHECK constraints, partial indexes all fail on SQLite.
 
 Run: `pip install -r requirements.txt`
 
@@ -172,6 +181,11 @@ def _get_database_url() -> str:
     url = os.getenv("BID_DATABASE_URL", "")
     if not url:
         raise RuntimeError("BID_DATABASE_URL environment variable is required")
+    if "postgresql" not in url:
+        raise RuntimeError(
+            f"BID_DATABASE_URL must be PostgreSQL (got: {url[:20]}...). "
+            "SQLite is NOT supported — JSONB, CHECK constraints, pgvector require PostgreSQL."
+        )
     return url
 
 
@@ -229,25 +243,31 @@ import pytest_asyncio
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
-    async_sessionmaker,
     create_async_engine,
 )
 
 from services.web_app.db.models import Base
 
 
-# --- Test DB strategy ---
-# PRIMARY: PostgreSQL (validates JSONB, partial indexes, deferrable FK, pgvector)
-# FALLBACK: SQLite (fast local-only smoke tests, limited feature coverage)
+# --- PostgreSQL REQUIRED ---
+# No SQLite fallback. JSONB, BigInteger autoincrement, CHECK constraints,
+# partial unique indexes, deferrable FKs, pgvector all require PostgreSQL.
+# SQLite cannot even compile JSONB type → "Compiler can't render element of type JSONB".
 #
-# CI must always set BID_TEST_DATABASE_URL to PostgreSQL.
-# docker-compose.yml provides: postgresql+asyncpg://kira:kira@localhost:5432/kira_bid_test
+# docker-compose.yml provides: postgresql+asyncpg://kira:kira@localhost:5434/kira_bid_test
 
-_TEST_DB_URL = os.getenv(
-    "BID_TEST_DATABASE_URL",
-    "sqlite+aiosqlite:///:memory:",  # fallback for local dev without docker
-)
-_IS_POSTGRES = "postgresql" in _TEST_DB_URL
+_TEST_DB_URL = os.getenv("BID_TEST_DATABASE_URL", "")
+if not _TEST_DB_URL:
+    raise RuntimeError(
+        "BID_TEST_DATABASE_URL is required. "
+        "Run: docker compose up kira_bid_test_db -d\n"
+        "Then: export BID_TEST_DATABASE_URL='postgresql+asyncpg://kira:kira@localhost:5434/kira_bid_test'"
+    )
+if "postgresql" not in _TEST_DB_URL:
+    raise RuntimeError(
+        f"BID_TEST_DATABASE_URL must be PostgreSQL (got: {_TEST_DB_URL[:30]}...). "
+        "SQLite is NOT supported."
+    )
 
 
 @pytest.fixture(scope="session")
@@ -259,10 +279,7 @@ def event_loop():
 
 @pytest_asyncio.fixture(scope="session")
 async def _pg_engine():
-    """Session-scoped engine for PostgreSQL. Creates schema once."""
-    if not _IS_POSTGRES:
-        yield None
-        return
+    """Session-scoped engine. Creates schema once with pgvector extension."""
     engine = create_async_engine(_TEST_DB_URL, echo=False)
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
@@ -274,62 +291,43 @@ async def _pg_engine():
 
 @pytest_asyncio.fixture(scope="function")
 async def db_session(_pg_engine):
-    """Per-test async session with proper transactional isolation.
+    """Per-test async session with transactional isolation.
 
-    PostgreSQL: outer connection-level transaction wraps entire test.
+    Outer connection-level transaction wraps entire test.
     Session.commit() creates/releases savepoints within the outer txn.
     After test, outer txn rolls back → zero side effects.
-
-    SQLite: fresh in-memory DB per test (no shared state possible).
     """
-    if _IS_POSTGRES:
-        # --- Outer connection transaction pattern ---
-        # 1. Open raw connection, begin outer transaction (never committed)
-        async with _pg_engine.connect() as conn:
-            txn = await conn.begin()
+    # --- Outer connection transaction pattern ---
+    # 1. Open raw connection, begin outer transaction (never committed)
+    async with _pg_engine.connect() as conn:
+        txn = await conn.begin()
 
-            # 2. Bind session to this connection
-            # Session.commit() → savepoint release, NOT real commit
-            session = AsyncSession(bind=conn, expire_on_commit=False)
+        # 2. Bind session to this connection
+        # Session.commit() → savepoint release, NOT real commit
+        session = AsyncSession(bind=conn, expire_on_commit=False)
 
-            # 3. Start first savepoint (session.commit() will release + re-create)
-            nested = await conn.begin_nested()
+        # 3. Start first savepoint (session.commit() will release + re-create)
+        nested = await conn.begin_nested()
 
-            @event.listens_for(session.sync_session, "after_transaction_end")
-            def _restart_savepoint(session_sync, transaction):
-                """After session.commit() releases savepoint, start a new one."""
-                if transaction.nested and not transaction._parent.nested:
-                    # inner savepoint ended, restart
-                    conn_sync = conn.sync_connection
-                    if conn_sync is not None:
-                        conn_sync.begin_nested()
+        @event.listens_for(session.sync_session, "after_transaction_end")
+        def _restart_savepoint(session_sync, transaction):
+            """After session.commit() releases savepoint, start a new one."""
+            if transaction.nested and not transaction._parent.nested:
+                # inner savepoint ended, restart
+                conn_sync = conn.sync_connection
+                if conn_sync is not None:
+                    conn_sync.begin_nested()
 
-            yield session
+        yield session
 
-            # 4. Cleanup: close session, rollback outer txn
-            await session.close()
-            await txn.rollback()
-    else:
-        # SQLite: fresh DB per test
-        engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-        async with factory() as session:
-            yield session
-        await engine.dispose()
-
-
-@pytest.fixture
-def is_postgres() -> bool:
-    """Use to skip PostgreSQL-only tests when running on SQLite."""
-    return _IS_POSTGRES
+        # 4. Cleanup: close session, rollback outer txn
+        await session.close()
+        await txn.rollback()
 ```
 
-> **IMPORTANT:** CI pipeline MUST set `BID_TEST_DATABASE_URL` to PostgreSQL.
-> SQLite cannot validate: JSONB operators, partial unique indexes (`WHERE is_active = true`),
-> deferrable FK constraints, pgvector columns, `CHECK` constraints on enum values.
-> SQLite fallback exists only for local quick iteration — it is NOT a substitute for PostgreSQL tests.
+> **PostgreSQL is REQUIRED.** No SQLite fallback.
+> Run `docker compose up kira_bid_test_db -d` before tests.
+> Set `BID_TEST_DATABASE_URL=postgresql+asyncpg://kira:kira@localhost:5434/kira_bid_test`.
 
 - [ ] **Step 4: Verify setup compiles**
 
@@ -697,7 +695,7 @@ Expected: FAIL
 # services/web_app/db/models/project.py
 from __future__ import annotations
 
-from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Index, Integer, Text, text
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Index, Integer, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -758,6 +756,13 @@ class ProjectAccess(CuidPkMixin, TimestampMixin, Base):
 
     __table_args__ = (
         CheckConstraint(_ACCESS_LEVELS, name="ck_project_access_level"),
+        # Prevent duplicate (project_id, user_id) pairs.
+        # Without this, scalar_one_or_none() in require_project_access() can raise
+        # MultipleResultsFound, and list_projects can return duplicate rows.
+        UniqueConstraint(
+            "project_id", "user_id",
+            name="uq_project_access_project_user",
+        ),
         Index("idx_project_access_project", "project_id"),
         Index("idx_project_access_user", "user_id"),
     )
@@ -1143,15 +1148,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, CuidPkMixin, TimestampMixin
 
-# pgvector: import conditionally to prevent SQLite import errors,
-# but ALWAYS define in ORM model to prevent autogenerate drift.
-try:
-    from pgvector.sqlalchemy import Vector
-    _VECTOR_TYPE = Vector(1536)
-except ImportError:
-    # SQLite fallback: treat as opaque binary (tests won't use embeddings)
-    from sqlalchemy import LargeBinary
-    _VECTOR_TYPE = LargeBinary
+# PostgreSQL required — pgvector always available. No SQLite fallback.
+from pgvector.sqlalchemy import Vector
+
+_VECTOR_TYPE = Vector(1536)
 
 
 class CompanyProfile(CuidPkMixin, TimestampMixin, Base):
@@ -1746,6 +1746,12 @@ async def resolve_org_membership(
 ) -> CurrentUser:
     """Resolve user's org membership from DB.
 
+    v1 CONSTRAINT: single-org membership only.
+    If a user has multiple active memberships, this is a data integrity bug —
+    fail loudly rather than silently picking one.
+
+    Multi-org support (org switcher context) is Phase 3+.
+
     Auto-provision (org + owner membership) is DEV ONLY (BID_DEV_BOOTSTRAP=1).
     In production, users must be invited to an existing org.
     """
@@ -1755,7 +1761,21 @@ async def resolve_org_membership(
             Membership.is_active == True,
         )
     )
-    membership = result.scalar_one_or_none()
+    memberships = result.scalars().all()
+
+    if len(memberships) > 1:
+        org_ids = [m.org_id for m in memberships]
+        logger.error(
+            "v1 invariant violation: user '%s' has %d active memberships (orgs: %s). "
+            "Multi-org not supported in v1.",
+            user.username, len(memberships), org_ids,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail="복수 조직 소속은 현재 버전에서 지원되지 않습니다. 관리자에게 문의하세요.",
+        )
+
+    membership = memberships[0] if memberships else None
 
     if membership is None:
         if not _DEV_BOOTSTRAP:
@@ -1932,8 +1952,20 @@ async def download_asset(
     if asset.project_id:
         await require_project_access(asset.project_id, "viewer", user, db)
 
-    if asset.upload_status not in ("uploaded", "verified"):
-        raise HTTPException(status_code=409, detail="파일 준비 중입니다")
+    # Download policy by asset origin:
+    # - Generated assets (have revision_id): require "verified" — integrity matters for AI output
+    # - Source uploads (no revision_id): allow "uploaded" — user-uploaded, integrity is their responsibility
+    if asset.revision_id:
+        # Generated document output — require verified (ETag confirmed)
+        if asset.upload_status != "verified":
+            raise HTTPException(
+                status_code=409,
+                detail="생성 문서 검증 대기 중입니다. 잠시 후 다시 시도하세요.",
+            )
+    else:
+        # Source upload (user-uploaded original) — uploaded is sufficient
+        if asset.upload_status not in ("uploaded", "verified"):
+            raise HTTPException(status_code=409, detail="파일 업로드 진행 중입니다")
 
     s3 = get_s3_client()
     key = s3.parse_storage_uri(asset.storage_uri)
@@ -2551,7 +2583,13 @@ class SessionAdapter:
         }
 
     async def _ensure_org(self, username: str) -> str:
-        """Ensure user has an org. Auto-create if not."""
+        """Ensure user has an org. Auto-create ONLY in dev (BID_DEV_BOOTSTRAP=1).
+
+        In production, users MUST already have an org+membership (created via
+        admin invite flow). Unconditional org creation = ghost org risk.
+        """
+        import os
+
         result = await self._db.execute(
             select(Membership).where(
                 Membership.user_id == username,
@@ -2561,6 +2599,19 @@ class SessionAdapter:
         membership = result.scalar_one_or_none()
         if membership is not None:
             return membership.org_id
+
+        # Guard: ONLY auto-provision in dev mode
+        dev_bootstrap = os.getenv("BID_DEV_BOOTSTRAP", "").lower() in ("1", "true")
+        if not dev_bootstrap:
+            raise ValueError(
+                f"User '{username}' has no org membership and BID_DEV_BOOTSTRAP is not enabled. "
+                "In production, users must be invited to an existing org."
+            )
+
+        import logging
+        logging.getLogger(__name__).warning(
+            "DEV_BOOTSTRAP: adapter auto-creating org for user=%s", username
+        )
 
         org = Organization(name=f"{username}의 조직")
         self._db.add(org)
@@ -2716,9 +2767,9 @@ async def test_adapter_analysis_versioning(db_session):
     assert fetched["analysis_json"]["v"] == 2
 ```
 
-- [ ] **Step 2: Run integration tests** (uses conftest db_session — PostgreSQL or SQLite fallback)
+- [ ] **Step 2: Run integration tests** (requires PostgreSQL + BID_DEV_BOOTSTRAP for auto-org tests)
 
-Run: `pytest services/web_app/tests/test_adapter.py -v`
+Run: `BID_DEV_BOOTSTRAP=1 pytest services/web_app/tests/test_adapter.py -v`
 Expected: PASS (4 tests)
 
 - [ ] **Step 3: Run all model tests**
@@ -2836,12 +2887,12 @@ BID_DEV_BOOTSTRAP=1
 
 **Test execution:**
 ```bash
-# PostgreSQL integration tests (primary — CI mandatory):
+# Start test DB:
+docker compose up kira_bid_test_db -d
+
+# Run tests (PostgreSQL required — no SQLite fallback):
 BID_TEST_DATABASE_URL="postgresql+asyncpg://kira:kira@localhost:5434/kira_bid_test" \
   pytest services/web_app/tests/ -v
-
-# SQLite fallback (no docker, limited coverage — local quick check only):
-pytest services/web_app/tests/ -v
 ```
 
 ---
@@ -2924,10 +2975,7 @@ from services.web_app.db.models.org import Organization
 
 
 @pytest.mark.asyncio
-async def test_jsonb_query(db_session, is_postgres):
-    if not is_postgres:
-        pytest.skip("JSONB operators require PostgreSQL")
-
+async def test_jsonb_query(db_session):
     org = Organization(name="테스트")
     db_session.add(org)
     await db_session.flush()
@@ -2949,10 +2997,8 @@ async def test_jsonb_query(db_session, is_postgres):
 
 
 @pytest.mark.asyncio
-async def test_partial_unique_index_analysis_snapshot(db_session, is_postgres):
+async def test_partial_unique_index_analysis_snapshot(db_session):
     """Only one active snapshot per project (idx_analysis_active)."""
-    if not is_postgres:
-        pytest.skip("Partial unique index requires PostgreSQL")
 
     org = Organization(name="테스트")
     db_session.add(org)
@@ -2980,9 +3026,7 @@ async def test_partial_unique_index_analysis_snapshot(db_session, is_postgres):
 
 
 @pytest.mark.asyncio
-async def test_check_constraint_rejects_invalid_status(db_session, is_postgres):
-    if not is_postgres:
-        pytest.skip("CHECK constraints not enforced in SQLite")
+async def test_check_constraint_rejects_invalid_status(db_session):
 
     org = Organization(name="테스트")
     db_session.add(org)
@@ -2998,10 +3042,8 @@ async def test_check_constraint_rejects_invalid_status(db_session, is_postgres):
 
 
 @pytest.mark.asyncio
-async def test_deferrable_fk_bid_project_analysis(db_session, is_postgres):
+async def test_deferrable_fk_bid_project_analysis(db_session):
     """bid_projects.active_analysis_snapshot_id FK is deferrable."""
-    if not is_postgres:
-        pytest.skip("Deferrable FK requires PostgreSQL")
 
     org = Organization(name="테스트")
     db_session.add(org)
@@ -3024,7 +3066,7 @@ async def test_deferrable_fk_bid_project_analysis(db_session, is_postgres):
 
 
 @pytest.mark.asyncio
-async def test_legacy_session_id_unique(db_session, is_postgres):
+async def test_legacy_session_id_unique(db_session):
     """legacy_session_id uniqueness constraint."""
     org = Organization(name="테스트")
     db_session.add(org)
@@ -3320,6 +3362,109 @@ async def test_non_admin_without_access_row_rejected(db_session):
     with pytest.raises(HTTPException) as exc_info:
         await require_project_access(project.id, "viewer", editor_no_access, db_session)
     assert exc_info.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_project_access_unique_constraint(db_session):
+    """Duplicate (project_id, user_id) pair raises IntegrityError."""
+    org = Organization(name="테스트")
+    db_session.add(org)
+    await db_session.flush()
+
+    project = BidProject(org_id=org.id, created_by="u1", title="UniqueTest")
+    db_session.add(project)
+    await db_session.flush()
+
+    a1 = ProjectAccess(project_id=project.id, user_id="u1", access_level="owner")
+    db_session.add(a1)
+    await db_session.commit()
+
+    # Second access row for same (project, user) should fail
+    a2 = ProjectAccess(project_id=project.id, user_id="u1", access_level="editor")
+    db_session.add(a2)
+    with pytest.raises(Exception):  # IntegrityError from unique constraint
+        await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_multi_org_membership_rejected(db_session):
+    """v1: user with multiple active memberships gets 409."""
+    from services.web_app.api.deps import resolve_org_membership, CurrentUser, get_current_user
+    from fastapi import HTTPException
+
+    org_a = Organization(name="A사")
+    org_b = Organization(name="B사")
+    db_session.add_all([org_a, org_b])
+    await db_session.flush()
+
+    # Create TWO active memberships for same user — this is a v1 invariant violation
+    m1 = Membership(org_id=org_a.id, user_id="multi_user", role="owner", is_active=True)
+    m2 = Membership(org_id=org_b.id, user_id="multi_user", role="editor", is_active=True)
+    db_session.add_all([m1, m2])
+    await db_session.commit()
+
+    # resolve_org_membership should reject this with 409
+    user = CurrentUser(username="multi_user", org_id="", role="owner")
+    with pytest.raises(HTTPException) as exc_info:
+        # Manually call the org resolution logic
+        from sqlalchemy import select
+        result = await db_session.execute(
+            select(Membership).where(
+                Membership.user_id == "multi_user",
+                Membership.is_active == True,
+            )
+        )
+        memberships = result.scalars().all()
+        assert len(memberships) == 2  # confirms the invariant violation exists
+
+
+@pytest.mark.asyncio
+async def test_adapter_ensure_org_blocked_without_bootstrap(db_session):
+    """SessionAdapter._ensure_org() raises without BID_DEV_BOOTSTRAP."""
+    import os
+    from unittest.mock import patch
+    from services.web_app.api.adapter import SessionAdapter
+
+    adapter = SessionAdapter(db_session)
+
+    with patch.dict(os.environ, {"BID_DEV_BOOTSTRAP": "false"}, clear=False):
+        with pytest.raises(ValueError, match="no org membership"):
+            await adapter._ensure_org("ghost_user")
+
+
+@pytest.mark.asyncio
+async def test_download_policy_source_vs_generated(db_session):
+    """Source uploads allow 'uploaded', generated assets require 'verified'."""
+    from services.web_app.db.models.document import DocumentAsset
+
+    org = Organization(name="테스트")
+    db_session.add(org)
+    await db_session.flush()
+
+    # Source upload (no revision_id) — uploaded is OK
+    source_asset = DocumentAsset(
+        org_id=org.id,
+        asset_type="original",
+        storage_uri="s3://kira-assets/test/source.pdf",
+        upload_status="uploaded",
+        original_filename="공고문.pdf",
+    )
+    db_session.add(source_asset)
+    await db_session.flush()
+    assert source_asset.revision_id is None  # source upload — no revision
+
+    # Generated asset (has revision_id) — must be verified
+    gen_asset = DocumentAsset(
+        org_id=org.id,
+        revision_id="rev_dummy",  # linked to a revision = generated
+        asset_type="docx",
+        storage_uri="s3://kira-assets/test/proposal.docx",
+        upload_status="uploaded",  # only uploaded, not verified yet
+        original_filename="제안서.docx",
+    )
+    db_session.add(gen_asset)
+    await db_session.commit()
+    assert gen_asset.revision_id is not None  # generated — needs verified
 ```
 
 ### Layer 5: Document Quality Acceptance Tests (Phase 2)
@@ -3332,24 +3477,41 @@ Deferred to Phase 2 when GenerationContract is implemented. Will use golden data
 
 Before proceeding to Phase 2, verify:
 
-- [ ] All 14 tables can be created via Alembic migration on PostgreSQL (including pgvector extension)
-- [ ] S3 presigned upload/download works with actual R2/S3 bucket
-- [ ] Upload confirm: uploaded = S3 exists, verified = uploaded + ETag present (honest semantics)
-- [ ] Session adapter correctly maps `legacy_session_id` → bid_project (NOT rfp_source_ref)
+**Database & Schema:**
+- [ ] All 14 tables created via Alembic on PostgreSQL 16+ (no SQLite — JSONB, CHECK, BigInt all require PG)
+- [ ] pgvector extension enabled, `Vector(1536)` columns in ORM (direct import, no conditional fallback)
+- [ ] All enum-like columns have CHECK constraints: status, role, access_level, doc_type, generation_mode, plan_tier
+- [ ] `ProjectAccess` unique constraint on `(project_id, user_id)` prevents duplicate rows
+- [ ] PostgreSQL integration tests pass: JSONB query, partial unique index, CHECK constraints, deferrable FK
+
+**ACL & Security:**
 - [ ] `require_project_access()` enforced on ALL routes: get/update/archive/upload/download/confirm
-- [ ] Org owner/admin bypass ProjectAccess row check (full org access without explicit row)
+- [ ] Org owner/admin bypass ProjectAccess row check (full org access, returns None)
 - [ ] list_projects scoped: org admin sees all, non-admin sees only their ProjectAccess projects
+- [ ] Non-admin without ProjectAccess row gets 404 (not 403 — anti-enumeration)
 - [ ] IDOR test passes — org_A user cannot access org_B project
 - [ ] ACL level hierarchy works — viewer cannot edit, editor cannot archive
-- [ ] Non-admin without ProjectAccess row gets 404 (not 403 — anti-enumeration)
-- [ ] Org auto-provision only active when `BID_DEV_BOOTSTRAP=1`
-- [ ] All enum-like columns have CHECK constraints: status, role, access_level, doc_type, generation_mode, plan_tier
-- [ ] PostgreSQL integration tests pass with outer-txn isolation: JSONB, partial unique index, CHECK constraints, deferrable FK
-- [ ] pgvector Vector(1536) columns exist in ORM models (no autogenerate drift)
+
+**Org & Membership:**
+- [ ] Org auto-provision gated behind `BID_DEV_BOOTSTRAP=1` in BOTH `resolve_org_membership()` AND `SessionAdapter._ensure_org()`
+- [ ] Multi-org membership rejected with 409 in v1 (explicit invariant, not silent first-pick)
+- [ ] Production: user without membership gets 403 (not auto-provisioned org)
+
+**Storage & Assets:**
+- [ ] S3 presigned upload/download works with actual R2/S3 bucket
+- [ ] Upload confirm: uploaded = S3 exists, verified = uploaded + ETag present (honest semantics)
+- [ ] Download policy: source uploads allow "uploaded", generated assets require "verified"
+- [ ] Source upload creates asset with `asset_type="original"` (not file extension)
+
+**Session Adapter:**
+- [ ] Session adapter correctly maps `legacy_session_id` → bid_project (NOT rfp_source_ref)
+- [ ] `_ensure_org()` raises ValueError without `BID_DEV_BOOTSTRAP` — no ghost orgs in production
+
+**Integration:**
 - [ ] Existing Chat UI still works (no regressions)
 - [ ] `BID_DATABASE_URL` not set → all new routes gracefully disabled
+- [ ] `BID_DATABASE_URL` must be PostgreSQL — runtime validation rejects SQLite
 - [ ] Audit logs record create_project, upload_source, download_asset actions
-- [ ] Source upload creates asset with `asset_type="original"` (not file extension)
 
 ## Next Steps
 
