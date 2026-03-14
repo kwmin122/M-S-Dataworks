@@ -116,11 +116,12 @@ async def test_create_company_profile(db_session):
     profile = CompanyProfile(
         org_id=org.id,
         company_name="MS솔루션",
-        profile_json={"specialties": ["SI", "SW개발"]},
+        licenses={"specialties": ["SI", "SW개발"]},
     )
     db_session.add(profile)
     await db_session.commit()
     assert profile.id is not None
+    assert profile.company_name == "MS솔루션"
 
 
 @pytest.mark.asyncio
@@ -138,4 +139,4 @@ async def test_create_audit_log(db_session):
     )
     db_session.add(audit)
     await db_session.commit()
-    assert audit.seq is not None
+    assert audit.id is not None
