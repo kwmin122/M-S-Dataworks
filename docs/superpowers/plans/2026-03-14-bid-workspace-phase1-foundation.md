@@ -3429,26 +3429,11 @@ async def test_multi_org_membership_rejected(db_session):
     db_session.add_all([m1, m2])
     await db_session.commit()
 
-    # Call resolve_org_membership directly — it should raise 409
+    # resolve_org_membership is an async def with Depends() defaults,
+    # but it's still a plain async callable — pass args directly.
     user = CurrentUser(username="multi_user", org_id="", role="owner")
     with pytest.raises(HTTPException) as exc_info:
-        # resolve_org_membership is a FastAPI dependency, but the core logic
-        # (query + multi-org check) can be called with (user, db) args directly.
-        # We replicate the inner logic here since the Depends() wrapper
-        # can't be invoked outside a request context.
-        from sqlalchemy import select as _sel
-        result = await db_session.execute(
-            _sel(Membership).where(
-                Membership.user_id == user.username,
-                Membership.is_active == True,
-            )
-        )
-        memberships = result.scalars().all()
-        if len(memberships) > 1:
-            raise HTTPException(
-                status_code=409,
-                detail="복수 조직 소속은 현재 버전에서 지원되지 않습니다.",
-            )
+        await resolve_org_membership(user=user, db=db_session)
     assert exc_info.value.status_code == 409
 
 
@@ -3489,59 +3474,41 @@ async def test_adapter_ensure_org_blocked_without_bootstrap(db_session):
             await adapter._ensure_org("ghost_user")
 
 
+def _make_asset_stub(revision_id=None, upload_status="uploaded"):
+    """Lightweight stub for check_download_policy — only reads revision_id + upload_status."""
+    from types import SimpleNamespace
+    return SimpleNamespace(revision_id=revision_id, upload_status=upload_status)
+
+
 def test_download_policy_source_uploaded_allowed():
     """Source uploads (no revision_id) allow 'uploaded' status."""
     from services.web_app.api.assets import check_download_policy
-    from services.web_app.db.models.document import DocumentAsset
-
-    # Build a minimal asset object without DB — just set the fields the policy checks
-    asset = DocumentAsset.__new__(DocumentAsset)
-    asset.revision_id = None  # source upload
-    asset.upload_status = "uploaded"
-
-    # Should NOT raise
-    check_download_policy(asset)
+    check_download_policy(_make_asset_stub(revision_id=None, upload_status="uploaded"))
 
 
 def test_download_policy_source_verified_allowed():
     """Source uploads also accept 'verified'."""
     from services.web_app.api.assets import check_download_policy
-    from services.web_app.db.models.document import DocumentAsset
-
-    asset = DocumentAsset.__new__(DocumentAsset)
-    asset.revision_id = None
-    asset.upload_status = "verified"
-
-    check_download_policy(asset)
+    check_download_policy(_make_asset_stub(revision_id=None, upload_status="verified"))
 
 
 def test_download_policy_source_presigned_rejected():
     """Source uploads with 'presigned_issued' are not ready."""
     from services.web_app.api.assets import check_download_policy
-    from services.web_app.db.models.document import DocumentAsset
     from fastapi import HTTPException
 
-    asset = DocumentAsset.__new__(DocumentAsset)
-    asset.revision_id = None
-    asset.upload_status = "presigned_issued"
-
     with pytest.raises(HTTPException) as exc_info:
-        check_download_policy(asset)
+        check_download_policy(_make_asset_stub(revision_id=None, upload_status="presigned_issued"))
     assert exc_info.value.status_code == 409
 
 
 def test_download_policy_generated_requires_verified():
     """Generated assets (have revision_id) MUST be 'verified'."""
     from services.web_app.api.assets import check_download_policy
-    from services.web_app.db.models.document import DocumentAsset
     from fastapi import HTTPException
 
-    asset = DocumentAsset.__new__(DocumentAsset)
-    asset.revision_id = "rev_abc123"  # generated asset
-    asset.upload_status = "uploaded"  # not yet verified
-
     with pytest.raises(HTTPException) as exc_info:
-        check_download_policy(asset)
+        check_download_policy(_make_asset_stub(revision_id="rev_abc123", upload_status="uploaded"))
     assert exc_info.value.status_code == 409
     assert "검증" in exc_info.value.detail
 
@@ -3549,13 +3516,7 @@ def test_download_policy_generated_requires_verified():
 def test_download_policy_generated_verified_allowed():
     """Generated assets with 'verified' pass the check."""
     from services.web_app.api.assets import check_download_policy
-    from services.web_app.db.models.document import DocumentAsset
-
-    asset = DocumentAsset.__new__(DocumentAsset)
-    asset.revision_id = "rev_abc123"
-    asset.upload_status = "verified"
-
-    check_download_policy(asset)
+    check_download_policy(_make_asset_stub(revision_id="rev_abc123", upload_status="verified"))
 ```
 
 ### Layer 5: Document Quality Acceptance Tests (Phase 2)
