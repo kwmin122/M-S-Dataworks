@@ -1721,35 +1721,51 @@ async def generate_document(
     )
     await start_document_run(db, run)
 
-    # Pre-create asset records + presigned upload URLs
+    # Pre-create asset records + presigned upload URLs.
+    #
+    # IMPORTANT: Only pre-allocate the guaranteed primary output per doc_type.
+    # Optional/conditional outputs (hwpx, gantt PNG, xlsx) are created dynamically
+    # AFTER rag_engine returns, from the actual output_files list. This avoids
+    # orphaned asset rows when optional outputs aren't produced, and handles
+    # outputs that vary by params (e.g., proposal output_format="hwpx").
+    #
+    # Actual output sets:
+    #   proposal: docx OR hwpx (mutually exclusive, depends on output_format param)
+    #   execution_plan: docx (primary) + optional xlsx (WBS) + optional png (Gantt)
+    #   presentation: pptx
+    #   track_record: docx
     s3 = get_s3_client()
     from services.web_app.db.models.document import DocumentAsset
     from services.web_app.db.models.base import new_cuid
+
+    def _primary_asset_type(doc_type: str, params: dict) -> str:
+        """Return the guaranteed primary output file extension."""
+        if doc_type == "proposal":
+            fmt = params.get("output_format", "docx")
+            return "hwpx" if fmt == "hwpx" else "docx"
+        if doc_type == "presentation":
+            return "pptx"
+        return "docx"  # execution_plan, track_record
+
     upload_targets = []
-    asset_type_map = {
-        "proposal": ["docx"],
-        "execution_plan": ["xlsx", "docx"],
-        "presentation": ["pptx"],
-        "track_record": ["docx"],
-    }
-    for atype in asset_type_map.get(req.doc_type, ["docx"]):
-        asset_id = new_cuid()
-        key = s3.build_storage_key(user.org_id, project_id, asset_id, f"output.{atype}")
-        url = s3.generate_presigned_upload_url(key)
-        asset = DocumentAsset(
-            id=asset_id,
-            org_id=user.org_id,
-            project_id=project_id,
-            asset_type=atype,
-            storage_uri=s3.build_full_uri(key),
-            upload_status="presigned_issued",
-        )
-        db.add(asset)
-        upload_targets.append({
-            "asset_id": asset_id,
-            "presigned_url": url,
-            "asset_type": atype,
-        })
+    primary_atype = _primary_asset_type(req.doc_type, req.params)
+    asset_id = new_cuid()
+    key = s3.build_storage_key(user.org_id, project_id, asset_id, f"output.{primary_atype}")
+    url = s3.generate_presigned_upload_url(key)
+    asset = DocumentAsset(
+        id=asset_id,
+        org_id=user.org_id,
+        project_id=project_id,
+        asset_type=primary_atype,
+        storage_uri=s3.build_full_uri(key),
+        upload_status="presigned_issued",
+    )
+    db.add(asset)
+    upload_targets.append({
+        "asset_id": asset_id,
+        "presigned_url": url,
+        "asset_type": primary_atype,
+    })
     await db.flush()
 
     # Call rag_engine
@@ -1778,6 +1794,30 @@ async def generate_document(
         db.add(audit)
         await db.commit()
         raise HTTPException(status_code=502, detail=f"Generation failed: {e}")
+
+    # Create asset records for optional/secondary outputs returned by rag_engine
+    # (e.g., xlsx WBS, png Gantt chart, hwpx template output).
+    # The primary asset was pre-allocated above; any output_file without an
+    # asset_id was dynamically produced and needs a new DB record + presigned URL.
+    pre_allocated_ids = {t["asset_id"] for t in upload_targets}
+    for f in rag_result.get("output_files", []):
+        if f.get("asset_id") in pre_allocated_ids:
+            continue  # Already has a DB record
+        # Dynamic asset — create record now
+        dyn_id = new_cuid()
+        dyn_atype = f.get("asset_type", "bin")
+        dyn_key = s3.build_storage_key(user.org_id, project_id, dyn_id, f"output.{dyn_atype}")
+        dyn_asset = DocumentAsset(
+            id=dyn_id,
+            org_id=user.org_id,
+            project_id=project_id,
+            asset_type=dyn_atype,
+            storage_uri=s3.build_full_uri(dyn_key),
+            upload_status="uploaded",  # rag_engine already uploaded it
+        )
+        db.add(dyn_asset)
+        f["asset_id"] = dyn_id  # Patch so complete_document_run can reference it
+    await db.flush()
 
     # Record revision (assets set to "uploaded", not yet "verified")
     revision = await complete_document_run(
@@ -1865,12 +1905,18 @@ git commit -m "feat(web_app): add /api/projects/{id}/generate with full Document
 - Modify: `services/web_app/db/engine.py` (expose session factory helper)
 - Modify: `services/web_app/main.py` (analysis endpoint, line ~1908)
 
-**Context:** The analysis endpoint is `POST /api/analyze/upload` at `main.py:1800`. After analysis completes (line 1908), it stores:
-- `session.latest_rfx_analysis = analysis` (RFxAnalysisResult)
-- `session.latest_matching_result = matching` (MatchingResult | None)
-- `session.latest_document_name = primary_filename`
+**Context:** There are **3 analysis entry points** that store results to session memory.
+All 3 must have a DB write-through persistence policy for Phase 2's goal of "all analysis
+snapshots in DB" to be honest.
 
-The variables in scope at line 1910 are: `analysis` (RFxAnalysisResult), `rfp_summary` (str), `matching` (MatchingResult | None), `session` (SessionState), `request` (Request).
+| Entry point | Line | Async? | Stores to session at line |
+|---|---|---|---|
+| `POST /api/analyze/upload` | 1800 | async | 1908-1910 |
+| `POST /api/analyze/text` | 1939 | **sync** (needs async conversion) | 1973-1975 |
+| `POST /api/bids/analyze` | 2278 | async | 2385-2387 |
+
+All 3 follow the same pattern: `session.latest_rfx_analysis = analysis` + Redis backup.
+All 3 have `request: Request` in scope for identity resolution.
 
 `SessionAdapter.save_analysis()` expects: `analysis_json: dict`, `summary_md: str | None`, `go_nogo_json: dict | None`, `username: str | None`.
 
@@ -1966,74 +2012,117 @@ Key mappings:
 - Extra metadata preserved under known keys (Pydantic v2 ignores extras by default)
 - `raw_text` truncated to 10KB for `rfp_text_summary` (full text is in session memory)
 
-- [ ] **Step 3: Wire write-through persistence into analyze_uploaded_document**
+- [ ] **Step 3: Extract `_persist_analysis_to_db()` async helper**
 
-In `services/web_app/main.py`, after line 1910 (`session.latest_document_name = primary_filename`), add:
+All 3 analysis entry points must persist to DB. Extract a reusable helper:
 
 ```python
-    # Write-through: persist analysis to DB (non-blocking, graceful degradation)
-    # Only for authenticated users — anonymous sessions don't have org membership
-    if _BID_DB_ENABLED:
-        try:
-            from services.web_app.api.adapter import SessionAdapter
-            from services.web_app.db.engine import create_session
+async def _persist_analysis_to_db(
+    request: Request,
+    session_id: str,
+    session,  # SessionState
+    analysis,  # RFxAnalysisResult
+    rfp_summary: str,
+    matching,  # MatchingResult | None
+) -> None:
+    """Write-through: persist analysis snapshot to DB.
 
-            _, _username = _resolve_usage_actor(request, session_id)
-            if _username:  # Skip for anonymous users (no org to map to)
-                async with create_session() as _db:
-                    _adapter = SessionAdapter(_db)
-                    _project = await _adapter.get_or_create_project(
-                        session.session_id, _username,
-                    )
-                    await _adapter.save_analysis(
-                        project_id=_project.id,
-                        org_id=_project.org_id,
-                        analysis_json=_serialize_for_rfx_input(analysis),
-                        summary_md=rfp_summary or None,
-                        go_nogo_json=_asdict(matching) if matching else None,
-                        username=_username,
-                    )
-                    # save_analysis() commits internally (line 105 of adapter.py)
-        except Exception:
-            logger.warning("Failed to persist analysis to DB", exc_info=True)
+    Graceful degradation — never raises, only logs.
+    Skipped for anonymous users (no org membership to resolve).
+    """
+    if not _BID_DB_ENABLED:
+        return
+    try:
+        from dataclasses import asdict as _asdict
+        from services.web_app.api.adapter import SessionAdapter
+        from services.web_app.db.engine import create_session
+
+        _, _username = _resolve_usage_actor(request, session_id)
+        if not _username:  # Anonymous — no org to map to
+            return
+        async with create_session() as _db:
+            _adapter = SessionAdapter(_db)
+            _project = await _adapter.get_or_create_project(
+                session.session_id, _username,
+            )
+            await _adapter.save_analysis(
+                project_id=_project.id,
+                org_id=_project.org_id,
+                analysis_json=_serialize_for_rfx_input(analysis),
+                summary_md=rfp_summary or None,
+                go_nogo_json=_asdict(matching) if matching else None,
+                username=_username,
+            )
+            # save_analysis() commits internally (adapter.py:105)
+    except Exception:
+        logger.warning("Failed to persist analysis to DB", exc_info=True)
 ```
 
-**Identity resolution** (vs round 2 bug):
+- [ ] **Step 4: Wire into entry point 1 — `POST /api/analyze/upload` (line 1800, async)**
+
+After line 1910 (`session.latest_document_name = primary_filename`), add:
+
+```python
+    await _persist_analysis_to_db(request, session_id, session, analysis, rfp_summary, matching)
+```
+
+- [ ] **Step 5: Wire into entry point 2 — `POST /api/analyze/text` (line 1939)**
+
+This endpoint is currently sync (`def analyze_text`). Convert to `async def` — FastAPI
+handles both, and the function does no blocking I/O itself (analyzer.analyze_text is
+already fast for inline text). After line 1975 (`session.latest_document_name = ...`), add:
+
+```python
+    await _persist_analysis_to_db(request, payload.session_id, session, analysis, "", matching)
+```
+
+Note: `rfp_summary` is empty string here because `analyze_text` doesn't generate a
+separate summary (the input text IS the document). The second arg is `payload.session_id`
+(the Form field name differs from the upload endpoint).
+
+Also change the function signature from `def analyze_text(...)` to `async def analyze_text(...)`.
+
+- [ ] **Step 6: Wire into entry point 3 — `POST /api/bids/analyze` (line 2278, async)**
+
+After line 2387 (`session.latest_document_name = best["fileNm"]`), add:
+
+```python
+    await _persist_analysis_to_db(request, payload.session_id, session, analysis, rfp_summary, matching)
+```
+
+**Three entry points, one helper** — complete persistence policy:
+
+| Entry point | Line | Async? | session_id source |
+|---|---|---|---|
+| `POST /api/analyze/upload` | 1800 | yes | `session_id` (Form param) |
+| `POST /api/analyze/text` | 1939 | convert to async | `payload.session_id` |
+| `POST /api/bids/analyze` | 2278 | yes | `payload.session_id` |
+
+**Identity resolution**:
 - `_resolve_usage_actor(request, session_id)` at line 392 resolves the authenticated
   username from the auth cookie, returning `(scope, username)`.
 - `username` is the real user identity that `_ensure_org()` can resolve membership for.
 - If anonymous (`username == ""`), skip DB persistence entirely — anonymous users
-  don't have org membership, and persisting with empty username would either fail
-  `_ensure_org()` in production or create ghost orgs in dev bootstrap.
-- `session_id` (first arg to `get_or_create_project`) is still used for the
-  `legacy_session_id` lookup/mapping — that's correct (it's the session key, not the user identity).
+  don't have org membership.
+- `session.session_id` (first arg to `get_or_create_project`) is the session key for
+  `legacy_session_id` lookup — correct (it's the session identifier, not the user identity).
 
-**Serialization boundary** (vs round 2 bug):
-- `_serialize_for_rfx_input(analysis)` produces a dict matching `RfxResultInput` schema.
+**Serialization boundary**:
+- `_serialize_for_rfx_input(analysis)` produces canonical dict matching `RfxResultInput`.
 - Task 8's generate endpoint at line 1762 sends `snapshot.analysis_json` directly as
-  `rfx_result` to rag_engine — this now round-trips cleanly through Pydantic validation.
-- `_asdict(matching)` for go_nogo_json is fine — it's stored separately and consumed
-  by the frontend, never sent through RfxResultInput.
+  `rfx_result` to rag_engine — round-trips cleanly through Pydantic validation.
+- `_asdict(matching)` for go_nogo_json is fine — stored separately, consumed by frontend.
 
-Note: `save_analysis()` in adapter.py already calls `db.commit()` internally (line 105). No extra commit needed.
-Note: `_asdict` import for matching serialization moves to top of the try block:
-```python
-        try:
-            from dataclasses import asdict as _asdict
-            from services.web_app.api.adapter import SessionAdapter
-            ...
-```
-
-- [ ] **Step 4: Run regression tests**
+- [ ] **Step 7: Run regression tests**
 
 Run: `python -m pytest tests/ -q --timeout=30`
 Expected: All existing tests pass (DB code is behind `_BID_DB_ENABLED` flag)
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add services/web_app/db/engine.py services/web_app/main.py
-git commit -m "feat(persistence): wire analysis results write-through to DB via SessionAdapter"
+git commit -m "feat(persistence): wire analysis write-through to DB for all 3 entry points"
 ```
 
 ---
@@ -2173,8 +2262,8 @@ git commit -m "fix: test adjustments for Phase 2 integration"
 | 5 | Unified /api/generate-document endpoint | `rag_engine/main.py` |
 | 6 | Contract builder service | `services/web_app/services/contract_builder.py` |
 | 7 | Generation service (DocumentRun lifecycle) | `services/web_app/services/generation_service.py` |
-| 8 | /api/projects/{id}/generate endpoint | `services/web_app/api/generate.py` |
-| 9 | Analysis persistence write-through | `services/web_app/db/engine.py`, `services/web_app/main.py` |
+| 8 | /api/projects/{id}/generate endpoint | `services/web_app/api/generate.py` (dynamic asset allocation) |
+| 9 | Analysis persistence write-through (all 3 entry points) | `services/web_app/db/engine.py`, `services/web_app/main.py` |
 | 10 | Frontend doc_type tab migration | 9 files: `DocumentTabNav.tsx`, `DocumentWorkspace.tsx`, `types.ts`, `useConversationFlow.ts`, `AnalysisResultView.tsx`, + test files |
 | 11 | Full regression verification | (verify only) |
 
