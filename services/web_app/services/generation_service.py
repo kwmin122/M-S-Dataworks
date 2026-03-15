@@ -4,11 +4,14 @@ Orchestrates document generation runs and revisions.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, UTC
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from services.web_app.db.models.document import (
     DocumentRun,
