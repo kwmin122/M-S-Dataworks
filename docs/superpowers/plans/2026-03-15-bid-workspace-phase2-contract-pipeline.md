@@ -226,7 +226,7 @@ def test_doc_type_canonical_values():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cd rag_engine && python -m pytest tests/test_generation_contract.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'rag_engine.generation_contract'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'generation_contract'`
 
 - [ ] **Step 3: Implement the module**
 
@@ -630,10 +630,14 @@ def test_unwrap_for_proposal_extracts_company_context():
     assert kwargs["total_pages"] == 30
 
 
-def test_unwrap_for_wbs_extracts_methodology():
-    contract = GenerationContract()
-    kwargs = _unwrap_for_wbs(contract, {"title": "테스트"}, {"methodology": "agile"})
-    assert "methodology" not in kwargs or kwargs.get("methodology") is None or kwargs.get("methodology") == "agile"
+def test_unwrap_for_execution_plan_routes_to_document_orchestrator():
+    contract = GenerationContract(
+        company_context=CompanyContext(profile_summary="MS솔루션"),
+    )
+    kwargs = _unwrap_for_execution_plan(contract, {"title": "테스트"}, {"company_id": "cid1"})
+    assert kwargs["doc_type"] == "execution_plan"
+    assert kwargs["company_context"] == "MS솔루션"
+    assert kwargs["company_id"] == "cid1"
 
 
 def test_unwrap_for_ppt_extracts_params():
