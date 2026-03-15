@@ -47,7 +47,8 @@ services/web_app/main.py (include_router)
 **Session Strategy**: **Reuse request-scoped session (Depends injection)**
 - FastAPI's `Depends(get_async_session)` provides ONE session per request
 - Multiple `await db.commit()` calls in same session = normal SQLAlchemy pattern
-- After commit, ORM instances become detached → use `await db.refresh(obj)` to re-attach
+- Engine configured with `expire_on_commit=False` → ORM instances stay attached after commit
+- `await db.refresh(obj)` optional (use only if need to reload from DB, not for re-attachment)
 - **No new session creation needed** (avoids engine.py modification)
 
 **Phase 1: Pre-execution**
@@ -59,24 +60,26 @@ async def generate_document(
     user: CurrentUser = Depends(resolve_org_membership),
     db: AsyncSession = Depends(get_async_session),  # ← SAME session for all phases
 ):
-    # 1. Validate project access (user.org_id == project.org_id)
+    # 1. ACL check: require_project_access(project_id, "editor", user, db)
+    #    - Verifies project exists + belongs to user's org → 404 if not
+    #    - Org owner/admin → bypass (full access)
+    #    - Others → require ProjectAccess row with level >= "editor"
+    #    - Returns ProjectAccess or None (org bypass)
     # 2. Load contract data (CompanyProfile, etc.)
     # 3. Create DocumentRun (status=queued)
     # 4. Pre-create DocumentAssets (upload_status=presigned_issued)
     # 5. await db.commit() → run.id + asset.id persisted
-    # 6. Keep run, asset_ids in memory (run ORM instance now detached)
+    # 6. Keep run, asset_ids in memory (ORM instances still attached due to expire_on_commit=False)
 ```
-**Outcome**: DocumentRun persisted, run ORM instance available but detached.
+**Outcome**: DocumentRun persisted, run ORM instance still attached (no refresh needed immediately).
 
 **Phase 2: Transition to running + rag_engine call**
 ```python
-    # 7. Refresh run ORM (same session, detached after commit)
-    await db.refresh(run)  # Re-attach to session after Phase 1 commit
-
-    # 8. start_document_run(db=db, run=run)
+    # 7. start_document_run(db=db, run=run)
     #    - run.status = "running"
     #    - run.started_at = now()
-    # 9. await db.commit()
+    #    (no refresh needed, expire_on_commit=False keeps ORM attached)
+    # 8. await db.commit()
 
     # 10. Generate S3 presigned URLs (no DB, uses asset_ids from Phase 1)
     # 11. Call rag_engine /api/generate-document (timeout 300s)
@@ -86,37 +89,33 @@ async def generate_document(
 
 **Phase 3A: Success path**
 ```python
-    # 12. Refresh run ORM (same session)
-    await db.refresh(run)
-
-    # 13. complete_document_run(
-    #         db=db, run=run,
-    #         content_json, content_schema, output_files
-    #     )
-    #     - run.status = "completed"
-    #     - create DocumentRevision
-    #     - link assets (by asset_ids) to revision (upload_status → uploaded)
-    #     - call _verify_output_assets (S3 head → verified)
-    # 14. await db.commit()
+    # 9. complete_document_run(
+    #        db=db, run=run,
+    #        content_json, content_schema, output_files
+    #    )
+    #    - run.status = "completed"
+    #    - create DocumentRevision
+    #    - link assets (by asset_ids) to revision (upload_status → uploaded)
+    #    - call _verify_output_assets (S3 head → verified)
+    #    (no refresh needed, ORM still attached)
+    # 10. await db.commit()
 ```
 
 **Phase 3B: Failure path**
 ```python
-    # 12. Refresh run ORM (same session)
-    await db.refresh(run)
-
-    # 13. fail_document_run(db=db, run=run, error=str(exception))
-    #     - run.status = "failed"
-    #     - run.error_message = ...
-    # 14. Mark assets (by asset_ids from Phase 1) as failed:
+    # 9. fail_document_run(db=db, run=run, error=str(exception))
+    #    - run.status = "failed"
+    #    - run.error_message = ...
+    #    (no refresh needed, ORM still attached)
+    # 10. Mark assets (by asset_ids from Phase 1) as failed:
     #     UPDATE document_assets SET upload_status='failed'
     #     WHERE id IN asset_ids
-    # 15. await db.commit()
+    # 11. await db.commit()
 ```
 
 **Rationale**:
 - **Same session reuse**: Standard SQLAlchemy pattern, multiple commits in one session OK
-- **refresh() pattern**: Re-attaches detached ORM instances after commit
+- **expire_on_commit=False**: ORM instances stay attached after commit (no refresh needed)
 - **In-memory asset_ids**: DocumentAsset has no run_id FK, must track in endpoint scope
 - **running transition**: Visibility during long generation (300s), enables stale run detection
 - **Explicit asset IDs**: Prevents concurrent requests from marking each other's assets
@@ -255,7 +254,8 @@ class OutputFileMetadata(BaseModel):
 POST /api/projects/{project_id}/generate
   ↓
 [Phase 1: Pre-execution - db session from Depends]
-1. Validate user.org_id == project.org_id (CurrentUser + resolve_org_membership)
+1. ACL check: require_project_access(project_id, "editor", user, db)
+   - Verifies org + ProjectAccess row + anti-enumeration (404 on deny)
 2. Load project, snapshot (analysis_json), company profile
 3. Build GenerationContract (contract_builder.build_generation_contract)
 4. Create DocumentRun (status=queued)
@@ -263,29 +263,27 @@ POST /api/projects/{project_id}/generate
 6. await db.commit() → capture run_id, asset_ids in memory
   ↓
 [Phase 2: Transition to running + rag_engine call]
-7. await db.refresh(run) → re-attach ORM after Phase 1 commit
-8. start_document_run(db, run) → status=running
-9. await db.commit()
-10. Generate S3 presigned URLs (s3.generate_presigned_upload_url)
-11. Call rag_engine /api/generate-document (timeout 300s)
+7. start_document_run(db, run) → status=running (ORM still attached, no refresh needed)
+8. await db.commit()
+9. Generate S3 presigned URLs (s3.generate_presigned_upload_url)
+10. Call rag_engine /api/generate-document (timeout 300s)
     {doc_type, rfx_result, contract, params, upload_targets}
   ↓
 [Phase 3A: Success path]
-12. await db.refresh(run) → re-attach after Phase 2 commit
-13. complete_document_run(db, run, content_json, ..., output_files)
+11. complete_document_run(db, run, content_json, ..., output_files)
     - status=completed
     - create DocumentRevision
     - link assets (WHERE id IN asset_ids) to revision
     - _verify_output_assets (S3 head → verified)
-14. await db.commit()
-15. Return 200 {run_id, revision_id, output_files, download_urls}
+    (ORM still attached, no refresh needed)
+12. await db.commit()
+13. Return 200 {run_id, revision_id, output_files, download_urls}
 
 [Phase 3B: Failure path - rag_engine error]
-12. await db.refresh(run) → re-attach
-13. fail_document_run(db, run, error=str(exception))
-14. Mark assets failed: UPDATE WHERE id IN asset_ids SET upload_status='failed'
-15. await db.commit()
-16. Raise HTTPException 502 Bad Gateway (upstream rag_engine failure)
+11. fail_document_run(db, run, error=str(exception))
+12. Mark assets failed: UPDATE WHERE id IN asset_ids SET upload_status='failed'
+13. await db.commit()
+14. Raise HTTPException 502 Bad Gateway (upstream rag_engine failure)
     OR HTTPException 504 Gateway Timeout (rag_engine timeout)
 ```
 
@@ -336,7 +334,10 @@ This distinction helps monitoring/alerting:
 
 ## Security
 
-- **ACL**: Validate `user.org_id == project.org_id` (CurrentUser from Depends(resolve_org_membership))
+- **ACL**: `require_project_access(project_id, "editor", user, db)` (enforces org + ProjectAccess row + anti-enumeration)
+  - Org owner/admin: bypass project_access check (full access)
+  - Other users: require ProjectAccess row with level >= "editor"
+  - Unauthorized: 404 (not 403, prevents IDOR enumeration)
 - **IDOR**: Snapshot must belong to project (`snapshot.project_id == project_id`)
 - **Input validation**: Pydantic models with Field constraints
 - **S3 presigned URLs**: Expire in 3600s, scoped to org prefix
@@ -358,12 +359,13 @@ This distinction helps monitoring/alerting:
 ## Testing Strategy
 
 **Unit tests** (`tests/web_app/api/test_generate.py`):
-1. Happy path: project exists, snapshot exists → 200 + revision_id
+1. Happy path: project exists, snapshot exists, user has access → 200 + revision_id
 2. Project not found → 404
-3. No snapshot → 400
-4. Snapshot IDOR (wrong project) → 404
-5. rag_engine returns error → 500 + DocumentRun.status=failed
-6. rag_engine timeout → 500 + assets marked failed
+3. User lacks project access (not editor) → 404
+4. No snapshot → 400
+5. Snapshot IDOR (wrong project) → 404
+6. rag_engine returns error → **502 Bad Gateway** + DocumentRun.status=failed
+7. rag_engine timeout → **504 Gateway Timeout** + assets marked failed
 
 **Integration test** (requires PostgreSQL + S3 mock):
 1. Full flow: create project → analyze → generate → verify assets linked to revision
