@@ -148,8 +148,23 @@ async def complete_document_run(
         db=db, project_id=run.project_id, doc_type=run.doc_type, current_run_id=run.id
     )
 
-    # 6. Handle output files (Phase 1: mark assets as verified if uploaded)
+    # 6. Link output files to revision (CRITICAL: must happen before verification)
     if output_files:
+        for f in output_files:
+            asset_id = f.get("asset_id")
+            if asset_id:
+                result = await db.execute(
+                    select(DocumentAsset).where(DocumentAsset.id == asset_id)
+                )
+                asset = result.scalar_one_or_none()
+                if asset:
+                    asset.revision_id = revision.id  # Link to revision!
+                    asset.upload_status = "uploaded"
+                    asset.size_bytes = f.get("size_bytes")
+                    asset.content_hash = f"client:{f.get('content_hash', '')}"
+        await db.flush()
+
+        # 7. Verify uploaded assets (now that revision_id is set)
         await _verify_output_assets(db=db, revision_id=revision.id, files=output_files)
 
     await db.flush()

@@ -13,7 +13,7 @@ _REV_STATUSES = "status IN ('draft','review_requested','in_review','changes_requ
 _REV_SOURCES = "source IN ('ai_generated','user_edited','reassembled','imported_final')"
 _UPLOAD_STATUSES = "upload_status IN ('presigned_issued','uploading','uploaded','verified','failed')"
 _MODE_USED = "mode_used IN ('strict_template','starter','upgrade') OR mode_used IS NULL"
-_ASSET_TYPES = "asset_type IN ('original','docx','xlsx','pptx','pdf','png','json')"
+_ASSET_TYPES = "asset_type IN ('original','docx','hwpx','xlsx','pptx','pdf','png','json')"
 
 
 class DocumentRun(CuidPkMixin, CreatedAtMixin, Base):

@@ -120,6 +120,13 @@ def _collect_output_files(output_dir: str, upload_targets: list[UploadTarget]) -
         # Find matching file in output_dir by asset_type extension
         ext = target.asset_type
         candidates = [f for f in os.listdir(output_dir) if f.endswith(f".{ext}")]
+
+        # HWPX fallback: proposal_orchestrator may generate DOCX instead of HWPX
+        if not candidates and ext == "hwpx":
+            candidates = [f for f in os.listdir(output_dir) if f.endswith(".docx")]
+            if candidates:
+                logger.info("HWPX requested but not generated for asset %s, uploading DOCX as fallback", target.asset_id)
+
         if not candidates:
             logger.warning("No .%s file found in %s for asset %s", ext, output_dir, target.asset_id)
             continue
