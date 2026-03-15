@@ -1626,6 +1626,15 @@ class RollbackProfileRequest(BaseModel):
     target_version: int = Field(ge=1)
 
 
+class GenerateDocumentRequest(BaseModel):
+    """Unified document generation request — dispatches via GenerationContract."""
+    doc_type: str = Field(pattern=r"^(proposal|execution_plan|presentation|track_record|wbs|ppt)$")
+    rfx_result: RfxResultInput
+    contract: dict = Field(default_factory=dict)
+    params: dict = Field(default_factory=dict)
+    upload_targets: list[dict] = Field(default_factory=list)
+
+
 _NON_EDITABLE_SECTIONS = {"학습 이력"}
 
 
@@ -1771,6 +1780,71 @@ async def rollback_profile_md(req: RollbackProfileRequest):
 # ---------------------------------------------------------------------------
 # HWP parsing
 # ---------------------------------------------------------------------------
+
+@app.post("/api/generate-document")
+async def generate_document_unified(req: GenerateDocumentRequest):
+    """Unified document generation endpoint. Dispatches by doc_type via GenerationContract."""
+    from generation_contract import (
+        GenerationContract, CompanyContext, QualityRules,
+        UploadTarget, normalize_doc_type,
+    )
+    from contract_adapter import generate_from_contract
+
+    doc_type = normalize_doc_type(req.doc_type)
+
+    # Rebuild contract from dict — explicit field mapping
+    cc = req.contract.get("company_context", {})
+    qr = req.contract.get("quality_rules", {})
+    contract = GenerationContract(
+        company_context=CompanyContext(
+            profile_summary=cc.get("profile_summary", ""),
+            similar_projects=cc.get("similar_projects", []),
+            matching_personnel=cc.get("matching_personnel", []),
+            licenses=cc.get("licenses", []),
+            certifications=cc.get("certifications", []),
+        ),
+        company_profile_md=req.contract.get("company_profile_md"),
+        writing_style=req.contract.get("writing_style"),
+        knowledge_units=req.contract.get("knowledge_units", []),
+        learned_patterns=req.contract.get("learned_patterns", []),
+        pack_config=req.contract.get("pack_config"),
+        mode=req.contract.get("mode", "starter"),
+        template_source=req.contract.get("template_source"),
+        quality_rules=QualityRules(
+            blind_words=qr.get("blind_words", []),
+            custom_forbidden=qr.get("custom_forbidden", []),
+            min_section_length=qr.get("min_section_length", 0),
+            max_ambiguity_score=qr.get("max_ambiguity_score", 1.0),
+        ),
+        required_checks=req.contract.get("required_checks", []),
+        pass_threshold=req.contract.get("pass_threshold", 0.0),
+    )
+
+    upload_targets = [UploadTarget(**t) for t in req.upload_targets]
+
+    result = await asyncio.to_thread(
+        generate_from_contract,
+        doc_type=doc_type,
+        contract=contract,
+        rfx_result=req.rfx_result.model_dump(),
+        params=req.params,
+        upload_targets=upload_targets,
+    )
+
+    return {
+        "doc_type": result.doc_type,
+        "content_json": result.content_json,
+        "content_schema": result.content_schema,
+        "quality_report": result.quality_report,
+        "quality_schema": result.quality_schema,
+        "output_files": [
+            {"asset_id": f.asset_id, "asset_type": f.asset_type,
+             "size_bytes": f.size_bytes, "content_hash": f.content_hash}
+            for f in result.output_files
+        ],
+        "generation_time_sec": result.generation_time_sec,
+    }
+
 
 @app.post("/api/parse-hwp")
 async def parse_hwp(file: UploadFile = File(...)) -> dict:
