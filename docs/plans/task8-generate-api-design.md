@@ -400,10 +400,10 @@ This distinction helps monitoring/alerting:
    - Field is `analysis_json`, NOT `rfp_summary_json`
    - `db/models/project.py:114` `analysis_json: Mapped[dict]`
 
-6. **Session factory**: ✅ CONFIRMED
+6. **Session strategy**: ✅ FINALIZED
    - `db/engine.py:57` `get_async_session()` is FastAPI Depends generator
-   - For manual session: use `_async_session_factory()` (module private)
-   - Recommendation: Use Depends pattern consistently
+   - `db/engine.py:39` `expire_on_commit=False` → ORM stays attached after commit
+   - **Design decision**: Reuse same request-scoped session (no manual factory needed)
 
 ---
 
