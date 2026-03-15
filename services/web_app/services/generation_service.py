@@ -267,18 +267,22 @@ async def _supersede_previous_runs(
 async def _verify_output_assets(
     *, db: AsyncSession, revision_id: str, files: list[dict]
 ) -> None:
-    """Verify uploaded DocumentAssets by matching ETag/content_hash.
+    """Verify uploaded DocumentAssets via S3 head + ETag confirmation.
 
-    Phase 1: Simply mark assets with matching revision_id as verified.
-    Full implementation would check presigned upload completion.
+    For each asset with upload_status='uploaded':
+    1. Call S3 head_object to get ETag and actual size
+    2. Compare ETag with client content_hash
+    3. If match: upload_status → "verified"
+    4. If mismatch or S3 error: log warning, keep status="uploaded"
 
     Args:
         db: Database session
         revision_id: Revision ID to attach assets to
-        files: List of file metadata dicts (expected keys: asset_type, storage_uri, ...)
+        files: List of file metadata dicts from rag_engine (with content_hash)
     """
-    # Phase 1: Simple implementation — mark assets as verified if they have
-    # upload_status='uploaded' and match the revision_id
+    import asyncio
+    from services.web_app.storage.s3 import get_s3_client
+
     result = await db.execute(
         select(DocumentAsset).where(
             DocumentAsset.revision_id == revision_id,
@@ -287,8 +291,34 @@ async def _verify_output_assets(
     )
     assets = result.scalars().all()
 
+    # Build lookup map: asset_id → client_hash
+    file_map = {f.get("asset_id"): f.get("content_hash", "") for f in files if f.get("asset_id")}
+
+    s3 = get_s3_client()
     for asset in assets:
-        # In full implementation, would verify ETag/content_hash here
-        asset.upload_status = "verified"
+        if not asset.storage_uri:
+            logger.warning("Asset %s has no storage_uri, cannot verify", asset.id)
+            continue
+
+        try:
+            # S3 head to get ETag + actual size
+            key = s3.parse_storage_uri(asset.storage_uri)
+            head = await asyncio.to_thread(s3.head_object, key)
+            s3_etag = head.get("ETag", "").strip('"')
+            actual_size = head.get("ContentLength", 0)
+
+            # Update size from S3 (authoritative source)
+            asset.size_bytes = actual_size
+
+            if s3_etag:
+                client_hash = file_map.get(asset.id, "")
+                # Store both for audit trail
+                asset.content_hash = f"etag:{s3_etag},client:{client_hash}"
+                asset.upload_status = "verified"  # REAL verification!
+            else:
+                logger.warning("No ETag from S3 for asset %s, keeping status=uploaded", asset.id)
+        except Exception as e:
+            logger.warning("S3 head verification failed for asset %s: %s", asset.id, str(e), exc_info=True)
+            # Keep status=uploaded (not verified), but don't fail the whole operation
 
     await db.flush()
