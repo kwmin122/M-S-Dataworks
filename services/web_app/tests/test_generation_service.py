@@ -177,7 +177,7 @@ async def test_verify_assets_with_etag_success(db_session):
     mock_s3.parse_storage_uri.return_value = "test.docx"
     mock_s3.head_object.return_value = {"ETag": '"abc123"', "ContentLength": 5000}
 
-    with patch("services.web_app.services.generation_service.get_s3_client", return_value=mock_s3):
+    with patch("services.web_app.storage.s3.get_s3_client", return_value=mock_s3):
         await _verify_output_assets(
             db=db_session,
             revision_id="rev1",
@@ -220,7 +220,7 @@ async def test_verify_assets_without_etag_stays_uploaded(db_session):
     mock_s3.parse_storage_uri.return_value = "test.docx"
     mock_s3.head_object.return_value = {"ContentLength": 5000}  # No ETag!
 
-    with patch("services.web_app.services.generation_service.get_s3_client", return_value=mock_s3):
+    with patch("services.web_app.storage.s3.get_s3_client", return_value=mock_s3):
         await _verify_output_assets(
             db=db_session,
             revision_id="rev1",
@@ -261,7 +261,7 @@ async def test_verify_assets_s3_error_stays_uploaded(db_session):
     mock_s3.parse_storage_uri.return_value = "test.docx"
     mock_s3.head_object.side_effect = Exception("S3 connection failed")
 
-    with patch("services.web_app.services.generation_service.get_s3_client", return_value=mock_s3):
+    with patch("services.web_app.storage.s3.get_s3_client", return_value=mock_s3):
         # Should not raise, graceful degradation
         await _verify_output_assets(
             db=db_session,

@@ -270,13 +270,13 @@ async def _supersede_previous_runs(
 async def _verify_output_assets(
     *, db: AsyncSession, revision_id: str, files: list[dict]
 ) -> None:
-    """Verify uploaded DocumentAssets via S3 head + ETag confirmation.
+    """Verify uploaded DocumentAssets via S3 head + ETag recording.
 
     For each asset with upload_status='uploaded':
     1. Call S3 head_object to get ETag and actual size
-    2. Compare ETag with client content_hash
-    3. If match: upload_status → "verified"
-    4. If mismatch or S3 error: log warning, keep status="uploaded"
+    2. Record both S3 ETag and client content_hash in content_hash field
+    3. If ETag present: upload_status → "verified"
+    4. If no ETag or S3 error: log warning, keep status="uploaded"
 
     Args:
         db: Database session
