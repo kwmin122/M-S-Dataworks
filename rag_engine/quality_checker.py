@@ -78,6 +78,59 @@ def check_quality(
     return issues
 
 
+# Doc-type-aware quality rules
+_DOC_TYPE_CHECKS: dict[str, dict] = {
+    "proposal": {"blind": True, "ambiguity": True},
+    "execution_plan": {"blind": False, "ambiguity": True},
+    "presentation": {"blind": False, "ambiguity": False},
+    "track_record": {"blind": True, "ambiguity": True},
+    "checklist": {"blind": False, "ambiguity": False},
+}
+
+
+def check_quality_for_doc_type(
+    text: str,
+    doc_type: str,
+    company_name: str | None = None,
+    custom_forbidden: list[str] | None = None,
+) -> list[QualityIssue]:
+    """Run quality checks appropriate for the given doc_type.
+
+    Composes with existing check_quality() rather than duplicating logic.
+    proposal/track_record: blind + ambiguity checks.
+    execution_plan: ambiguity only.
+    presentation/checklist: minimal (custom_forbidden only).
+    """
+    checks = _DOC_TYPE_CHECKS.get(doc_type, {"blind": True, "ambiguity": True})
+    issues: list[QualityIssue] = []
+
+    # Compose with existing check_quality() — pass company_name only when blind check enabled
+    if checks.get("blind") or checks.get("ambiguity"):
+        base_issues = check_quality(
+            text,
+            company_name=company_name if checks.get("blind") else None,
+        )
+        # Filter out vague_claim if ambiguity check is disabled
+        if not checks.get("ambiguity"):
+            base_issues = [i for i in base_issues if i.category != "vague_claim"]
+        # Filter out blind_violation if blind check is disabled
+        if not checks.get("blind"):
+            base_issues = [i for i in base_issues if i.category != "blind_violation"]
+        issues.extend(base_issues)
+
+    if custom_forbidden:
+        for pattern in custom_forbidden:
+            if pattern in text:
+                issues.append(QualityIssue(
+                    category="custom_forbidden",
+                    severity="warning",
+                    detail=f"금지 표현 발견: {pattern}",
+                    location="",
+                ))
+
+    return issues
+
+
 def check_quality_with_pack(
     text: str,
     company_name: Optional[str] = None,
