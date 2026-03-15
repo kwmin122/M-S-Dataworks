@@ -1047,7 +1047,7 @@ class EditFeedbackRequest(BaseModel):
     section_name: str = Field(min_length=1, max_length=512)
     original_text: str = Field(max_length=50_000)
     edited_text: str = Field(max_length=50_000)
-    doc_type: str = Field(default="proposal", pattern=r"^(proposal|wbs|ppt|track_record)$")
+    doc_type: str = Field(default="proposal", pattern=r"^(proposal|execution_plan|presentation|track_record|wbs|ppt)$")
 
 
 @app.post("/api/edit-feedback")
@@ -1070,13 +1070,15 @@ async def edit_feedback_endpoint(req: EditFeedbackRequest):
             except Exception as exc:
                 logger.debug("Profile update from callback skipped: %s", exc)
 
+        from generation_contract import normalize_doc_type as _norm_dt
+        doc_type = _norm_dt(req.doc_type) if req.doc_type != "proposal" else req.doc_type
         result = await asyncio.to_thread(
             process_edit_feedback,
             company_id=req.company_id,
             section_name=req.section_name,
             original_text=req.original_text,
             edited_text=req.edited_text,
-            doc_type=req.doc_type,
+            doc_type=doc_type,
             on_pattern_promoted=_on_pattern_promoted,
         )
     except Exception as exc:
@@ -1100,11 +1102,16 @@ async def edit_feedback_endpoint(req: EditFeedbackRequest):
 @app.get("/api/pending-knowledge")
 async def get_pending_knowledge_endpoint(
     company_id: str = Query(min_length=1, max_length=256),
-    doc_type: str = Query(default="proposal", pattern=r"^(proposal|wbs|ppt|track_record)$"),
+    doc_type: str = Query(default="proposal", pattern=r"^(proposal|execution_plan|presentation|track_record|wbs|ppt)$"),
 ):
     """Get pending patterns awaiting user approval."""
     try:
         from auto_learner import get_pending_patterns
+        from generation_contract import normalize_doc_type as _norm_dt
+        try:
+            doc_type = _norm_dt(doc_type)
+        except ValueError:
+            doc_type = "proposal"
         patterns = await asyncio.to_thread(get_pending_patterns, company_id, doc_type)
         return {
             "patterns": [
@@ -1129,7 +1136,7 @@ async def get_pending_knowledge_endpoint(
 class ApproveKnowledgeRequest(BaseModel):
     company_id: str = Field(min_length=1, max_length=256)
     pattern_key: str = Field(min_length=1)
-    doc_type: str = Field(default="proposal", pattern=r"^(proposal|wbs|ppt|track_record)$")
+    doc_type: str = Field(default="proposal", pattern=r"^(proposal|execution_plan|presentation|track_record|wbs|ppt)$")
 
 
 @app.post("/api/approve-knowledge")
@@ -1137,7 +1144,12 @@ async def approve_knowledge_endpoint(req: ApproveKnowledgeRequest):
     """Approve a pending pattern → confirmed."""
     try:
         from auto_learner import approve_pattern
-        success = await asyncio.to_thread(approve_pattern, req.company_id, req.pattern_key, req.doc_type)
+        from generation_contract import normalize_doc_type as _norm_dt
+        try:
+            doc_type = _norm_dt(req.doc_type)
+        except ValueError:
+            doc_type = "proposal"
+        success = await asyncio.to_thread(approve_pattern, req.company_id, req.pattern_key, doc_type)
         if not success:
             raise HTTPException(status_code=404, detail="패턴을 찾을 수 없거나 이미 승인되었습니다")
         return {"success": True, "message": "학습 패턴이 승인되었습니다"}
@@ -1151,7 +1163,7 @@ async def approve_knowledge_endpoint(req: ApproveKnowledgeRequest):
 class RejectKnowledgeRequest(BaseModel):
     company_id: str = Field(min_length=1, max_length=256)
     pattern_key: str = Field(min_length=1)
-    doc_type: str = Field(default="proposal", pattern=r"^(proposal|wbs|ppt|track_record)$")
+    doc_type: str = Field(default="proposal", pattern=r"^(proposal|execution_plan|presentation|track_record|wbs|ppt)$")
 
 
 @app.delete("/api/reject-knowledge")
@@ -1159,7 +1171,12 @@ async def reject_knowledge_endpoint(req: RejectKnowledgeRequest):
     """Reject (remove) a pending pattern."""
     try:
         from auto_learner import reject_pattern
-        success = await asyncio.to_thread(reject_pattern, req.company_id, req.pattern_key, req.doc_type)
+        from generation_contract import normalize_doc_type as _norm_dt
+        try:
+            doc_type = _norm_dt(req.doc_type)
+        except ValueError:
+            doc_type = "proposal"
+        success = await asyncio.to_thread(reject_pattern, req.company_id, req.pattern_key, doc_type)
         if not success:
             raise HTTPException(status_code=404, detail="패턴을 찾을 수 없거나 이미 삭제되었습니다")
         return {"success": True, "message": "학습 패턴이 거부되었습니다"}

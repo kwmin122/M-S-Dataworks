@@ -25,6 +25,7 @@ from diff_tracker import (
     detect_recurring_patterns,
     compute_edit_rate,
 )
+from generation_contract import DOC_TYPE_CANONICAL, normalize_doc_type
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ _lock = threading.Lock()
 PATTERN_THRESHOLD = 3
 
 
-VALID_DOC_TYPES = {"proposal", "wbs", "ppt", "track_record"}
+VALID_DOC_TYPES = set(DOC_TYPE_CANONICAL) - {"checklist"}
 
 
 def process_edit_feedback(
@@ -83,6 +84,10 @@ def process_edit_feedback(
     Returns:
         LearningResult with edit rate, new diffs, promoted patterns, notifications.
     """
+    try:
+        doc_type = normalize_doc_type(doc_type)
+    except ValueError:
+        doc_type = "proposal"
     if doc_type not in VALID_DOC_TYPES:
         doc_type = "proposal"
 
@@ -116,7 +121,12 @@ def process_edit_feedback(
         existing_patterns = {p.pattern_key: p for p in _learned_patterns[composite_key]}
         new_promoted: list[LearnedPattern] = []
         notifications: list[str] = []
-        doc_type_label = {"proposal": "제안서", "wbs": "WBS", "ppt": "PPT", "track_record": "실적기술서"}.get(doc_type, doc_type)
+        doc_type_label = {
+            "proposal": "제안서",
+            "execution_plan": "수행계획서",
+            "presentation": "발표자료",
+            "track_record": "실적기술서",
+        }.get(doc_type, doc_type)
 
         # Check all patterns in history (not just recurring ones)
         for pattern_key, count in history.pattern_counts.items():
