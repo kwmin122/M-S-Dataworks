@@ -42,78 +42,89 @@ services/web_app/main.py (include_router)
 
 ### 2. Transaction Boundaries
 
-**Decision**: Three-phase with session re-opening and in-memory asset tracking.
+**Decision**: Three-phase with SAME session + multiple commits + refresh pattern.
 
-**Phase 1: Pre-execution (FastAPI Depends injection)**
+**Session Strategy**: **Reuse request-scoped session (Depends injection)**
+- FastAPI's `Depends(get_async_session)` provides ONE session per request
+- Multiple `await db.commit()` calls in same session = normal SQLAlchemy pattern
+- After commit, ORM instances become detached → use `await db.refresh(obj)` to re-attach
+- **No new session creation needed** (avoids engine.py modification)
+
+**Phase 1: Pre-execution**
 ```python
 @router.post("/projects/{project_id}/generate")
 async def generate_document(
     project_id: str,
     request: GenerateDocumentProjectRequest,
     user: CurrentUser = Depends(resolve_org_membership),
-    db: AsyncSession = Depends(get_async_session),
+    db: AsyncSession = Depends(get_async_session),  # ← SAME session for all phases
 ):
     # 1. Validate project access (user.org_id == project.org_id)
     # 2. Load contract data (CompanyProfile, etc.)
     # 3. Create DocumentRun (status=queued)
     # 4. Pre-create DocumentAssets (upload_status=presigned_issued)
     # 5. await db.commit() → run.id + asset.id persisted
-    # 6. Keep run_id, asset_ids in memory
+    # 6. Keep run, asset_ids in memory (run ORM instance now detached)
 ```
-**Outcome**: DocumentRun persisted with status=queued, asset IDs captured.
+**Outcome**: DocumentRun persisted, run ORM instance available but detached.
 
 **Phase 2: Transition to running + rag_engine call**
 ```python
-    # 7. Re-open session (new Depends injection or manual factory)
-    # 8. Load run by run_id
-    # 9. start_document_run(db=session2, run=run_orm)
+    # 7. Refresh run ORM (same session, detached after commit)
+    await db.refresh(run)  # Re-attach to session after Phase 1 commit
+
+    # 8. start_document_run(db=db, run=run)
     #    - run.status = "running"
     #    - run.started_at = now()
-    # 10. await session2.commit()
+    # 9. await db.commit()
 
-    # 11. Generate S3 presigned URLs (no DB, uses asset_ids from Phase 1)
-    # 12. Call rag_engine /api/generate-document (timeout 300s)
+    # 10. Generate S3 presigned URLs (no DB, uses asset_ids from Phase 1)
+    # 11. Call rag_engine /api/generate-document (timeout 300s)
     #     - On success → Phase 3A
     #     - On failure → Phase 3B
 ```
 
 **Phase 3A: Success path**
 ```python
-    # 13. Re-open session (session3)
-    # 14. Load run by run_id
-    # 15. complete_document_run(
-    #         db=session3, run=run_orm,
+    # 12. Refresh run ORM (same session)
+    await db.refresh(run)
+
+    # 13. complete_document_run(
+    #         db=db, run=run,
     #         content_json, content_schema, output_files
     #     )
     #     - run.status = "completed"
     #     - create DocumentRevision
     #     - link assets (by asset_ids) to revision (upload_status → uploaded)
     #     - call _verify_output_assets (S3 head → verified)
-    # 16. await session3.commit()
+    # 14. await db.commit()
 ```
 
 **Phase 3B: Failure path**
 ```python
-    # 13. Re-open session (session3)
-    # 14. Load run by run_id
-    # 15. fail_document_run(db=session3, run=run_orm, error=str(exception))
+    # 12. Refresh run ORM (same session)
+    await db.refresh(run)
+
+    # 13. fail_document_run(db=db, run=run, error=str(exception))
     #     - run.status = "failed"
     #     - run.error_message = ...
-    # 16. Mark assets (by asset_ids from Phase 1) as failed:
+    # 14. Mark assets (by asset_ids from Phase 1) as failed:
     #     UPDATE document_assets SET upload_status='failed'
     #     WHERE id IN asset_ids
-    # 17. await session3.commit()
+    # 15. await db.commit()
 ```
 
 **Rationale**:
-- **Depends(get_async_session)**: Existing pattern, auto-manages session lifecycle
-- **Re-open sessions**: generation_service functions require ORM instance bound to active session
+- **Same session reuse**: Standard SQLAlchemy pattern, multiple commits in one session OK
+- **refresh() pattern**: Re-attaches detached ORM instances after commit
 - **In-memory asset_ids**: DocumentAsset has no run_id FK, must track in endpoint scope
 - **running transition**: Visibility during long generation (300s), enables stale run detection
 - **Explicit asset IDs**: Prevents concurrent requests from marking each other's assets
+- **No engine.py changes**: Uses existing public API (Depends), avoids exposing private factory
 
 **Not doing**:
-- Single session across 300s rag_engine call (connection pool exhaustion)
+- Create new sessions for each phase (unnecessary complexity)
+- Query by run_id after each commit (wasteful, have ORM instance already)
 - Query assets by revision_id in failure path (revision doesn't exist yet)
 - Add run_id FK to DocumentAsset (out of scope, requires migration)
 
@@ -252,32 +263,30 @@ POST /api/projects/{project_id}/generate
 6. await db.commit() → capture run_id, asset_ids in memory
   ↓
 [Phase 2: Transition to running + rag_engine call]
-7. Re-open session (manual get from factory or new Depends scope)
-8. Load run by run_id → run_orm
-9. start_document_run(db, run_orm) → status=running
-10. await db.commit()
-11. Generate S3 presigned URLs (s3.generate_presigned_upload_url)
-12. Call rag_engine /api/generate-document (timeout 300s)
+7. await db.refresh(run) → re-attach ORM after Phase 1 commit
+8. start_document_run(db, run) → status=running
+9. await db.commit()
+10. Generate S3 presigned URLs (s3.generate_presigned_upload_url)
+11. Call rag_engine /api/generate-document (timeout 300s)
     {doc_type, rfx_result, contract, params, upload_targets}
   ↓
 [Phase 3A: Success path]
-13. Re-open session
-14. Load run by run_id → run_orm
-15. complete_document_run(db, run_orm, content_json, ..., output_files)
+12. await db.refresh(run) → re-attach after Phase 2 commit
+13. complete_document_run(db, run, content_json, ..., output_files)
     - status=completed
     - create DocumentRevision
     - link assets (WHERE id IN asset_ids) to revision
     - _verify_output_assets (S3 head → verified)
-16. await db.commit()
-17. Return 200 {run_id, revision_id, output_files, download_urls}
+14. await db.commit()
+15. Return 200 {run_id, revision_id, output_files, download_urls}
 
-[Phase 3B: Failure path]
-13. Re-open session
-14. Load run by run_id → run_orm
-15. fail_document_run(db, run_orm, error=str(exception))
-16. Mark assets failed: UPDATE WHERE id IN asset_ids SET upload_status='failed'
-17. await db.commit()
-18. Raise HTTPException 500 {run_id, status=failed, error}
+[Phase 3B: Failure path - rag_engine error]
+12. await db.refresh(run) → re-attach
+13. fail_document_run(db, run, error=str(exception))
+14. Mark assets failed: UPDATE WHERE id IN asset_ids SET upload_status='failed'
+15. await db.commit()
+16. Raise HTTPException 502 Bad Gateway (upstream rag_engine failure)
+    OR HTTPException 504 Gateway Timeout (rag_engine timeout)
 ```
 
 ---
@@ -301,14 +310,25 @@ POST /api/projects/{project_id}/generate
 
 ## Error Cases
 
-| Scenario | HTTP Status | DocumentRun.status | Asset.upload_status |
-|----------|-------------|-------------------|---------------------|
-| Project not found | 404 | N/A | N/A |
-| No analysis snapshot | 400 | N/A | N/A |
-| Snapshot not in project | 404 | N/A | N/A |
-| rag_engine timeout | 500 | failed | failed |
-| rag_engine returns error | 500 | failed | failed |
-| DB commit failure (Phase 3A) | 500 | running (stale) | uploaded (stale) |
+| Scenario | HTTP Status | DocumentRun.status | Asset.upload_status | Rationale |
+|----------|-------------|-------------------|---------------------|-----------|
+| Project not found | 404 | N/A | N/A | Client error (bad project_id) |
+| No analysis snapshot | 400 | N/A | N/A | Client error (must analyze RFP first) |
+| Snapshot not in project | 404 | N/A | N/A | Client error (IDOR or wrong snapshot_id) |
+| rag_engine timeout (>300s) | **504 Gateway Timeout** | failed | failed | **Upstream timeout, not internal bug** |
+| rag_engine returns error | **502 Bad Gateway** | failed | failed | **Upstream failure, not internal bug** |
+| DB commit failure (Phase 3A) | 500 Internal Server Error | running (stale) | uploaded (stale) | **Internal DB issue** |
+| Contract build failure | 500 Internal Server Error | N/A | N/A | **Internal logic error** |
+
+**Error Code Semantics**:
+- **4xx**: Client error (bad request, not found, access denied)
+- **500**: Internal server error (web_app bug, DB failure, code error)
+- **502**: Upstream service (rag_engine) returned error response
+- **504**: Upstream service (rag_engine) timed out
+
+This distinction helps monitoring/alerting:
+- 500 → page web_app oncall (our bug)
+- 502/504 → page rag_engine oncall (their bug)
 
 **Stale state recovery**: Future background job can detect `status=running AND completed_at IS NULL AND created_at < now() - 1 hour` → mark as failed.
 
@@ -316,7 +336,7 @@ POST /api/projects/{project_id}/generate
 
 ## Security
 
-- **ACL**: Validate `session.user.organizationId == project.org_id`
+- **ACL**: Validate `user.org_id == project.org_id` (CurrentUser from Depends(resolve_org_membership))
 - **IDOR**: Snapshot must belong to project (`snapshot.project_id == project_id`)
 - **Input validation**: Pydantic models with Field constraints
 - **S3 presigned URLs**: Expire in 3600s, scoped to org prefix
@@ -325,16 +345,13 @@ POST /api/projects/{project_id}/generate
 
 ## Dependencies
 
-**Already implemented**:
-- `generation_service.py`: create_document_run, complete_document_run, fail_document_run ✓
+**Already implemented** (verified):
+- `generation_service.py`: create_document_run, start_document_run, complete_document_run, fail_document_run ✓
 - `contract_builder.py`: build_generation_contract ✓
 - `rag_engine /api/generate-document`: Unified endpoint ✓
-- `storage/s3.py`: generate_presigned_put_url (assumed exists)
-
-**Need to verify**:
-- `storage/s3.py`: Does `generate_presigned_put_url(key)` exist?
-- `db/models/project.py`: Does `BidProject.active_analysis_snapshot_id` exist?
-- Session middleware: Does `request.state.user` have `organizationId`?
+- `storage/s3.py`: `generate_presigned_upload_url(key, expires_in=3600)` ✓
+- `db/models/project.py`: `BidProject.active_analysis_snapshot_id` ✓
+- `api/deps.py`: `CurrentUser.org_id`, `Depends(resolve_org_membership)` ✓
 
 ---
 
