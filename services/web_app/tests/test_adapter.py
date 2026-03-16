@@ -13,6 +13,17 @@ def test_adapter_class_exists():
 
 @pytest.mark.asyncio
 async def test_adapter_creates_project_on_first_call(db_session):
+    from services.web_app.db.models.org import Organization, Membership
+
+    # Setup: org + membership
+    org = Organization(name="테스트회사")
+    db_session.add(org)
+    await db_session.flush()
+
+    member = Membership(org_id=org.id, user_id="testuser", role="owner", is_active=True)
+    db_session.add(member)
+    await db_session.commit()
+
     adapter = SessionAdapter(db_session)
     project = await adapter.get_or_create_project(
         session_id="sess_001",
@@ -22,11 +33,22 @@ async def test_adapter_creates_project_on_first_call(db_session):
     assert project.id is not None
     assert project.title == "XX기관 사업"
     assert project.legacy_session_id == "sess_001"
-    assert project.org_id
+    assert project.org_id == org.id
 
 
 @pytest.mark.asyncio
 async def test_adapter_returns_same_project_for_same_session(db_session):
+    from services.web_app.db.models.org import Organization, Membership
+
+    # Setup: org + membership
+    org = Organization(name="테스트회사")
+    db_session.add(org)
+    await db_session.flush()
+
+    member = Membership(org_id=org.id, user_id="testuser", role="owner", is_active=True)
+    db_session.add(member)
+    await db_session.commit()
+
     adapter = SessionAdapter(db_session)
     p1 = await adapter.get_or_create_project("sess_001", "testuser")
     p2 = await adapter.get_or_create_project("sess_001", "testuser")
@@ -35,6 +57,17 @@ async def test_adapter_returns_same_project_for_same_session(db_session):
 
 @pytest.mark.asyncio
 async def test_adapter_save_and_get_analysis(db_session):
+    from services.web_app.db.models.org import Organization, Membership
+
+    # Setup: org + membership
+    org = Organization(name="테스트회사")
+    db_session.add(org)
+    await db_session.flush()
+
+    member = Membership(org_id=org.id, user_id="testuser", role="owner", is_active=True)
+    db_session.add(member)
+    await db_session.commit()
+
     adapter = SessionAdapter(db_session)
     project = await adapter.get_or_create_project("sess_002", "testuser")
 
@@ -56,6 +89,17 @@ async def test_adapter_save_and_get_analysis(db_session):
 
 @pytest.mark.asyncio
 async def test_adapter_analysis_versioning(db_session):
+    from services.web_app.db.models.org import Organization, Membership
+
+    # Setup: org + membership
+    org = Organization(name="테스트회사")
+    db_session.add(org)
+    await db_session.flush()
+
+    member = Membership(org_id=org.id, user_id="testuser", role="owner", is_active=True)
+    db_session.add(member)
+    await db_session.commit()
+
     adapter = SessionAdapter(db_session)
     project = await adapter.get_or_create_project("sess_003", "testuser")
 

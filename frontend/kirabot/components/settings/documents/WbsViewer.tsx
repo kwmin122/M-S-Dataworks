@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { CalendarDays, Download, RefreshCw, Table2, BarChart3, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { generateWbs, getFileDownloadUrl } from '../../../services/kiraApiService';
+import { generateExecutionPlan, getFileDownloadUrl } from '../../../services/kiraApiService';
 import type { WbsResponse } from '../../../services/kiraApiService';
 import { useDocumentHistory } from '../../../hooks/useDocumentHistory';
 import DocumentHistorySelect from '../../common/DocumentHistorySelect';
@@ -14,7 +14,7 @@ function isValidWbsResponse(data: unknown): data is WbsResponse {
 
 export default function WbsViewer() {
   const { entries, selected, selectedId, setSelectedId, push, remove, loading } = useDocumentHistory<WbsResponse>(
-    'kira_last_wbs',
+    'kira_last_execution_plan',
     isValidWbsResponse,
   );
   const wbs = selected?.data ?? null;
@@ -51,7 +51,7 @@ export default function WbsViewer() {
     try {
       const usePack = localStorage.getItem('kira_use_pack') === 'true';
       const companyId = sessionStorage.getItem('kira_company_id') || '_default';
-      const result = await generateWbs(sessionId, undefined, usePack, companyId);
+      const result = await generateExecutionPlan(sessionId, undefined, usePack, companyId);
       if (!mountedRef.current) return;
       push(result, '수행계획서');
       showToast('WBS가 재생성되었습니다.');

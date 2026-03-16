@@ -382,8 +382,8 @@ export type MessageAction =
   | { type: 'undo_company_upload'; sourceFiles: string[] }
   | { type: 'ask_about_doc'; sourceFile: string }
   | { type: 'view_checklist' }
-  | { type: 'generate_wbs' }
-  | { type: 'generate_ppt' }
+  | { type: 'generate_execution_plan' }
+  | { type: 'generate_presentation' }
   | { type: 'generate_track_record' }
   | { type: 'open_company_onboarding' }
   | { type: 'open_pending_knowledge' };

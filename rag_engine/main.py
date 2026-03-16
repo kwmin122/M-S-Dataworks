@@ -1194,6 +1194,7 @@ async def reject_knowledge_endpoint(req: RejectKnowledgeRequest):
 _company_db_cache: dict[str, "CompanyDB"] = {}  # type: ignore[name-defined]
 _company_db_init_lock = threading.Lock()
 _company_db_profile_lock: asyncio.Lock | None = None
+_company_db_embedding_fn = None  # Patchable: set to a callable to override OpenAI embeddings in tests
 
 _SAFE_COMPANY_ID_RE = _re.compile(r"^[a-zA-Z0-9가-힣._\-]+$")
 _COMPANY_DB_BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "company_db")
@@ -1227,7 +1228,10 @@ def _get_company_db(company_id: str = "_default"):
                 if not os.path.realpath(db_path).startswith(os.path.realpath(_COMPANY_DB_BASE)):
                     raise HTTPException(status_code=400, detail="Invalid company_id path")
                 os.makedirs(db_path, exist_ok=True)
-                _company_db_cache[company_id] = CompanyDB(persist_directory=db_path)
+                _company_db_cache[company_id] = CompanyDB(
+                    persist_directory=db_path,
+                    embedding_function=_company_db_embedding_fn,
+                )
     return _company_db_cache[company_id]
 
 

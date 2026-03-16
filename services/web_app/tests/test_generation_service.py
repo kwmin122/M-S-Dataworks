@@ -155,16 +155,62 @@ async def test_verify_assets_with_etag_success(db_session):
     """S3 head succeeds with ETag → verified."""
     from unittest.mock import Mock, patch
     from services.web_app.services.generation_service import _verify_output_assets
-    from services.web_app.db.models.document import DocumentAsset
+    from services.web_app.db.models.document import DocumentAsset, DocumentRun, DocumentRevision
+    from services.web_app.db.models.project import BidProject, AnalysisSnapshot
+    from services.web_app.db.models.org import Organization, Membership
     from services.web_app.db.models.base import new_cuid
     from sqlalchemy import select
+
+    # Setup: org, project, snapshot, run, revision
+    org = Organization(name="테스트회사")
+    db_session.add(org)
+    await db_session.flush()
+
+    member = Membership(org_id=org.id, user_id="user1", role="owner", is_active=True)
+    db_session.add(member)
+
+    project = BidProject(org_id=org.id, created_by="user1", title="테스트", status="ready_for_generation")
+    db_session.add(project)
+    await db_session.flush()
+
+    snapshot = AnalysisSnapshot(
+        org_id=org.id,
+        project_id=project.id,
+        version=1,
+        analysis_json={"title": "테스트"},
+        is_active=True,
+    )
+    db_session.add(snapshot)
+    await db_session.flush()
+
+    run = DocumentRun(
+        org_id=org.id,
+        project_id=project.id,
+        analysis_snapshot_id=snapshot.id,
+        doc_type="proposal",
+        status="running",
+        created_by="user1",
+    )
+    db_session.add(run)
+    await db_session.flush()
+
+    revision = DocumentRevision(
+        org_id=org.id,
+        project_id=project.id,
+        doc_type="proposal",
+        run_id=run.id,
+        status="draft",
+        source="ai_generated",
+    )
+    db_session.add(revision)
+    await db_session.flush()
 
     asset_id = new_cuid()
     asset = DocumentAsset(
         id=asset_id,
-        org_id="org1",
-        project_id="proj1",
-        revision_id="rev1",
+        org_id=org.id,
+        project_id=project.id,
+        revision_id=revision.id,
         asset_type="docx",
         storage_uri="s3://bucket/test.docx",
         upload_status="uploaded",
@@ -180,7 +226,7 @@ async def test_verify_assets_with_etag_success(db_session):
     with patch("services.web_app.storage.s3.get_s3_client", return_value=mock_s3):
         await _verify_output_assets(
             db=db_session,
-            revision_id="rev1",
+            revision_id=revision.id,
             files=[{"asset_id": asset_id, "content_hash": "client456"}],
         )
 
@@ -198,16 +244,62 @@ async def test_verify_assets_without_etag_stays_uploaded(db_session):
     """S3 head succeeds but no ETag → uploaded 유지."""
     from unittest.mock import Mock, patch
     from services.web_app.services.generation_service import _verify_output_assets
-    from services.web_app.db.models.document import DocumentAsset
+    from services.web_app.db.models.document import DocumentAsset, DocumentRun, DocumentRevision
+    from services.web_app.db.models.project import BidProject, AnalysisSnapshot
+    from services.web_app.db.models.org import Organization, Membership
     from services.web_app.db.models.base import new_cuid
     from sqlalchemy import select
+
+    # Setup: org, project, snapshot, run, revision
+    org = Organization(name="테스트회사")
+    db_session.add(org)
+    await db_session.flush()
+
+    member = Membership(org_id=org.id, user_id="user1", role="owner", is_active=True)
+    db_session.add(member)
+
+    project = BidProject(org_id=org.id, created_by="user1", title="테스트", status="ready_for_generation")
+    db_session.add(project)
+    await db_session.flush()
+
+    snapshot = AnalysisSnapshot(
+        org_id=org.id,
+        project_id=project.id,
+        version=1,
+        analysis_json={"title": "테스트"},
+        is_active=True,
+    )
+    db_session.add(snapshot)
+    await db_session.flush()
+
+    run = DocumentRun(
+        org_id=org.id,
+        project_id=project.id,
+        analysis_snapshot_id=snapshot.id,
+        doc_type="proposal",
+        status="running",
+        created_by="user1",
+    )
+    db_session.add(run)
+    await db_session.flush()
+
+    revision = DocumentRevision(
+        org_id=org.id,
+        project_id=project.id,
+        doc_type="proposal",
+        run_id=run.id,
+        status="draft",
+        source="ai_generated",
+    )
+    db_session.add(revision)
+    await db_session.flush()
 
     asset_id = new_cuid()
     asset = DocumentAsset(
         id=asset_id,
-        org_id="org1",
-        project_id="proj1",
-        revision_id="rev1",
+        org_id=org.id,
+        project_id=project.id,
+        revision_id=revision.id,
         asset_type="docx",
         storage_uri="s3://bucket/test.docx",
         upload_status="uploaded",
@@ -223,7 +315,7 @@ async def test_verify_assets_without_etag_stays_uploaded(db_session):
     with patch("services.web_app.storage.s3.get_s3_client", return_value=mock_s3):
         await _verify_output_assets(
             db=db_session,
-            revision_id="rev1",
+            revision_id=revision.id,
             files=[{"asset_id": asset_id, "content_hash": "client456"}],
         )
 
@@ -239,16 +331,62 @@ async def test_verify_assets_s3_error_stays_uploaded(db_session):
     """S3 head 실패 → uploaded 유지 (graceful degradation)."""
     from unittest.mock import Mock, patch
     from services.web_app.services.generation_service import _verify_output_assets
-    from services.web_app.db.models.document import DocumentAsset
+    from services.web_app.db.models.document import DocumentAsset, DocumentRun, DocumentRevision
+    from services.web_app.db.models.project import BidProject, AnalysisSnapshot
+    from services.web_app.db.models.org import Organization, Membership
     from services.web_app.db.models.base import new_cuid
     from sqlalchemy import select
+
+    # Setup: org, project, snapshot, run, revision
+    org = Organization(name="테스트회사")
+    db_session.add(org)
+    await db_session.flush()
+
+    member = Membership(org_id=org.id, user_id="user1", role="owner", is_active=True)
+    db_session.add(member)
+
+    project = BidProject(org_id=org.id, created_by="user1", title="테스트", status="ready_for_generation")
+    db_session.add(project)
+    await db_session.flush()
+
+    snapshot = AnalysisSnapshot(
+        org_id=org.id,
+        project_id=project.id,
+        version=1,
+        analysis_json={"title": "테스트"},
+        is_active=True,
+    )
+    db_session.add(snapshot)
+    await db_session.flush()
+
+    run = DocumentRun(
+        org_id=org.id,
+        project_id=project.id,
+        analysis_snapshot_id=snapshot.id,
+        doc_type="proposal",
+        status="running",
+        created_by="user1",
+    )
+    db_session.add(run)
+    await db_session.flush()
+
+    revision = DocumentRevision(
+        org_id=org.id,
+        project_id=project.id,
+        doc_type="proposal",
+        run_id=run.id,
+        status="draft",
+        source="ai_generated",
+    )
+    db_session.add(revision)
+    await db_session.flush()
 
     asset_id = new_cuid()
     asset = DocumentAsset(
         id=asset_id,
-        org_id="org1",
-        project_id="proj1",
-        revision_id="rev1",
+        org_id=org.id,
+        project_id=project.id,
+        revision_id=revision.id,
         asset_type="docx",
         storage_uri="s3://bucket/test.docx",
         upload_status="uploaded",
@@ -265,7 +403,7 @@ async def test_verify_assets_s3_error_stays_uploaded(db_session):
         # Should not raise, graceful degradation
         await _verify_output_assets(
             db=db_session,
-            revision_id="rev1",
+            revision_id=revision.id,
             files=[{"asset_id": asset_id, "content_hash": "client456"}],
         )
 

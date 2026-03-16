@@ -119,19 +119,19 @@ describe('isValidTrackRecordResponse', () => {
 });
 
 describe('localStorage round-trip with validators', () => {
-  it('WBS: stores and retrieves valid data', () => {
+  it('Execution Plan: stores and retrieves valid data', () => {
     const wbs = { tasks_count: 10, total_months: 6, xlsx_filename: 'test.xlsx', gantt_filename: 'test.png', docx_filename: 'test.docx', generation_time_sec: 5 };
-    localStorage.setItem('kira_last_wbs', JSON.stringify(wbs));
-    const raw = localStorage.getItem('kira_last_wbs');
+    localStorage.setItem('kira_last_execution_plan', JSON.stringify(wbs));
+    const raw = localStorage.getItem('kira_last_execution_plan');
     const parsed = raw ? JSON.parse(raw) : null;
     expect(isValidWbsResponse(parsed)).toBe(true);
   });
 
-  it('WBS: rejects corrupt localStorage data', () => {
-    localStorage.setItem('kira_last_wbs', 'not-json{');
+  it('Execution Plan: rejects corrupt localStorage data', () => {
+    localStorage.setItem('kira_last_execution_plan', 'not-json{');
     let parsed: unknown = null;
     try {
-      const raw = localStorage.getItem('kira_last_wbs');
+      const raw = localStorage.getItem('kira_last_execution_plan');
       parsed = raw ? JSON.parse(raw) : null;
     } catch {
       parsed = null;
@@ -139,8 +139,8 @@ describe('localStorage round-trip with validators', () => {
     expect(isValidWbsResponse(parsed)).toBe(false);
   });
 
-  it('PPT: returns null for empty localStorage', () => {
-    const raw = localStorage.getItem('kira_last_ppt');
+  it('Presentation: returns null for empty localStorage', () => {
+    const raw = localStorage.getItem('kira_last_presentation');
     expect(raw).toBeNull();
     expect(isValidPptResponse(null)).toBe(false);
   });

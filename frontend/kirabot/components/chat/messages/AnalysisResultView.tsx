@@ -263,14 +263,14 @@ const AnalysisResultView: React.FC<Props> = ({ message, onAction }) => {
       {/* Phase 2 문서 생성 버튼 */}
       <div className="mt-2 flex flex-wrap gap-2">
         <button type="button"
-          onClick={() => onAction?.({ type: 'generate_wbs' })}
+          onClick={() => onAction?.({ type: 'generate_execution_plan' })}
           className="flex items-center gap-1.5 rounded-lg border border-kira-200 bg-white px-3 py-1.5 text-xs font-medium text-kira-700 shadow-sm hover:bg-kira-50 transition-all"
         >
           <CalendarDays size={14} />
           수행계획서/WBS
         </button>
         <button type="button"
-          onClick={() => onAction?.({ type: 'generate_ppt' })}
+          onClick={() => onAction?.({ type: 'generate_presentation' })}
           className="flex items-center gap-1.5 rounded-lg border border-kira-200 bg-white px-3 py-1.5 text-xs font-medium text-kira-700 shadow-sm hover:bg-kira-50 transition-all"
         >
           <Presentation size={14} />

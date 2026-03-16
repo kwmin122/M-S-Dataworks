@@ -59,3 +59,17 @@ async def get_async_session() -> AsyncSession:
         raise RuntimeError("Database not initialized. Call init_db() first.")
     async with _async_session_factory() as session:
         yield session
+
+
+def get_async_session_factory() -> async_sessionmaker[AsyncSession]:
+    """Return the global async session factory for manual session creation.
+
+    Used by write-through paths that need to create their own async context
+    outside of FastAPI dependency injection.
+
+    Raises:
+        RuntimeError: If database not initialized (call init_db() first)
+    """
+    if _async_session_factory is None:
+        raise RuntimeError("Database not initialized. Call init_db() first.")
+    return _async_session_factory

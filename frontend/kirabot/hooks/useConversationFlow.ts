@@ -1459,7 +1459,7 @@ export function useConversationFlow() {
           break;
         }
 
-        case 'generate_wbs': {
+        case 'generate_execution_plan': {
           if (!conversation.sessionId) {
             pushStatus('error', '세션이 없습니다. 먼저 문서를 분석해주세요.');
             break;
@@ -1479,7 +1479,7 @@ export function useConversationFlow() {
           try {
             const usePack = localStorage.getItem('kira_use_pack') === 'true';
             const companyId = sessionStorage.getItem('kira_company_id') || '_default';
-            const result = await api.generateWbs(conversation.sessionId, undefined, usePack, companyId);
+            const result = await api.generateExecutionPlan(conversation.sessionId, undefined, usePack, companyId);
             removeLastStatus();
 
             let msg = `수행계획서/WBS가 생성되었습니다! (${result.generation_time_sec}초)\n\n`;
@@ -1498,9 +1498,9 @@ export function useConversationFlow() {
               msg += `[📄 수행계획서 DOCX 다운로드](${url})`;
             }
             pushText(msg);
-            // Save WBS result to localStorage for DocumentWorkspace WBS tab
-            pushDocHistory('kira_last_wbs', result, conversation.title || 'WBS');
-            trackEvent('wbs_generated', { time: result.generation_time_sec });
+            // Save execution plan result to localStorage for DocumentWorkspace execution plan tab
+            pushDocHistory('kira_last_execution_plan', result, conversation.title || '수행계획서');
+            trackEvent('execution_plan_generated', { time: result.generation_time_sec });
           } catch (error) {
             removeLastStatus();
             const msg = error instanceof Error ? error.message : '알 수 없는 오류';
@@ -1511,7 +1511,7 @@ export function useConversationFlow() {
           break;
         }
 
-        case 'generate_ppt': {
+        case 'generate_presentation': {
           if (!conversation.sessionId) {
             pushStatus('error', '세션이 없습니다. 먼저 문서를 분석해주세요.');
             break;
@@ -1530,7 +1530,7 @@ export function useConversationFlow() {
           const companyId = sessionStorage.getItem('kira_company_id') || '_default';
 
           try {
-            const result = await api.generatePpt(conversation.sessionId, 30, 10, companyId);
+            const result = await api.generatePresentation(conversation.sessionId, 30, 10, companyId);
             removeLastStatus();
 
             let msg = `PPT 발표자료가 생성되었습니다! (${result.generation_time_sec}초)\n\n`;
@@ -1547,9 +1547,9 @@ export function useConversationFlow() {
               });
             }
             pushText(msg);
-            // Save PPT result to localStorage for DocumentWorkspace PPT tab
-            pushDocHistory('kira_last_ppt', result, conversation.title || 'PPT');
-            trackEvent('ppt_generated', { time: result.generation_time_sec });
+            // Save presentation result to localStorage for DocumentWorkspace presentation tab
+            pushDocHistory('kira_last_presentation', result, conversation.title || '발표자료');
+            trackEvent('presentation_generated', { time: result.generation_time_sec });
           } catch (error) {
             removeLastStatus();
             const msg = error instanceof Error ? error.message : '알 수 없는 오류';
