@@ -26,6 +26,7 @@ import DocumentWorkspace from './components/settings/documents/DocumentWorkspace
 import ForecastPage from './components/forecast/ForecastPage';
 import AdminPage from './components/admin/AdminPage';
 import AlertsPage from './components/alerts/AlertsPage';
+import StudioHome from './pages/StudioHome';
 import PaymentModal from './components/PaymentModal';
 import SubscriptionPage from './components/settings/SubscriptionPage';
 import type { User } from './types';
@@ -71,10 +72,9 @@ function AppRoutes() {
         const currentUser = await getCurrentGoogleUser();
         if (!currentUser) return;
         setUser(currentUser);
-        if (consumePostLoginTarget()) {
-          const raw = searchParams.get('redirect') || '/chat';
-          const redirect = raw.startsWith('/') && !raw.startsWith('//') ? raw : '/chat';
-          navigate(redirect, { replace: true });
+        const postLoginTarget = consumePostLoginTarget();
+        if (postLoginTarget) {
+          navigate(postLoginTarget, { replace: true });
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : '로그인 상태 확인 중 오류가 발생했습니다.';
@@ -92,6 +92,17 @@ function AppRoutes() {
       navigate('/chat');
       return;
     }
+    setIsLoginModalOpen(true);
+  }, [user, navigate]);
+
+  const handleStartStudio = useCallback(() => {
+    setAuthError('');
+    if (user) {
+      navigate('/studio');
+      return;
+    }
+    // Store redirect target for post-login
+    sessionStorage.setItem('kira_post_login_target', '/studio');
     setIsLoginModalOpen(true);
   }, [user, navigate]);
 
@@ -175,7 +186,7 @@ function AppRoutes() {
         onScrollToSection={scrollToSection}
       />
       <main className="flex-grow">
-        <Hero onStart={handleStart} onAlertSetup={handleAlertSetup} />
+        <Hero onStart={handleStart} onStartStudio={handleStartStudio} onAlertSetup={handleAlertSetup} />
         <HowItWorks />
         <Marquee text="/ 검색 / 분석 / 판단 / 생성 / 학습 /" />
         <Solutions />
@@ -231,6 +242,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }>
           <Route path="/chat" element={<ChatPage user={user} />} />
+          <Route path="/studio" element={<StudioHome />} />
           <Route path="/alerts" element={<AlertsPage />} />
           <Route path="/forecast" element={<ForecastPage />} />
           <Route path="/admin" element={user?.isAdmin ? <AdminPage /> : <Navigate to="/chat" replace />} />

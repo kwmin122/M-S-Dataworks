@@ -47,11 +47,11 @@ export function isGoogleOAuthConfigured(): boolean {
   return Boolean(GOOGLE_LOGIN_URL);
 }
 
-export async function signInWithGoogle(): Promise<void> {
+export async function signInWithGoogle(redirectTo: string = '/chat'): Promise<void> {
   if (!GOOGLE_LOGIN_URL) {
     throw new Error('VITE_GOOGLE_LOGIN_URL 환경변수를 설정해주세요. 예: http://localhost:8000/auth/google/login');
   }
-  sessionStorage.setItem('kira_post_login_target', 'dashboard');
+  sessionStorage.setItem('kira_post_login_target', redirectTo);
   window.location.assign(GOOGLE_LOGIN_URL);
 }
 
@@ -79,17 +79,25 @@ export async function getCurrentGoogleUser(): Promise<User | null> {
   return mapAuthUser(payload.user);
 }
 
-export function consumePostLoginTarget(): boolean {
+/**
+ * Consume and return the post-login redirect target path.
+ * Returns the stored path (e.g. '/chat', '/studio') or null if none.
+ */
+export function consumePostLoginTarget(): string | null {
   const value = sessionStorage.getItem('kira_post_login_target');
   if (!value) {
-    return false;
+    return null;
   }
   sessionStorage.removeItem('kira_post_login_target');
-  return value === 'dashboard';
+  // Validate: must start with / and not // (prevent open redirect)
+  if (value.startsWith('/') && !value.startsWith('//')) {
+    return value;
+  }
+  return '/chat';
 }
 
-export async function signInWithKakao(): Promise<void> {
-  sessionStorage.setItem('kira_post_login_target', 'dashboard');
+export async function signInWithKakao(redirectTo: string = '/chat'): Promise<void> {
+  sessionStorage.setItem('kira_post_login_target', redirectTo);
   window.location.assign(KAKAO_LOGIN_URL);
 }
 

@@ -4,12 +4,13 @@ import { trackEvent } from '../utils/analytics';
 
 interface HeroProps {
   onStart: () => void;
+  onStartStudio?: () => void;
   onAlertSetup?: () => void;
 }
 
 const SPLINE_URL = 'https://my.spline.design/interactiveaiwebsite-WIBfsJZbIYpUeijSVLawHWPr/';
 
-const Hero: React.FC<HeroProps> = ({ onStart, onAlertSetup }) => {
+const Hero: React.FC<HeroProps> = ({ onStart, onStartStudio, onAlertSetup }) => {
   const [splineLoaded, setSplineLoaded] = useState(false);
 
   const handleIframeLoad = useCallback(() => {
@@ -65,10 +66,17 @@ const Hero: React.FC<HeroProps> = ({ onStart, onAlertSetup }) => {
             </p>
 
             <div className="mt-10 flex flex-col sm:flex-row items-start sm:items-center gap-4">
-              <Button onClick={() => { trackEvent('landing_cta_clicked', { button: 'kirabot_start' }); onStart(); }} size="lg" className="rounded-full px-10 h-14 text-lg font-bold shadow-xl shadow-primary-900/10">
-                무료로 시작하기
+              <Button onClick={() => { trackEvent('landing_cta_clicked', { button: 'bid_search' }); onStart(); }} size="lg" className="rounded-full px-10 h-14 text-lg font-bold shadow-xl shadow-primary-900/10">
+                공고 탐색하기
               </Button>
-              {onAlertSetup && (
+              {onStartStudio && (
+                <Button onClick={() => { trackEvent('landing_cta_clicked', { button: 'bid_studio' }); onStartStudio(); }} size="lg" variant="secondary" className="rounded-full px-10 h-14 text-lg font-bold border-2 border-slate-300 hover:border-kira-500 shadow-lg">
+                  입찰 문서 AI 작성
+                </Button>
+              )}
+            </div>
+            {onAlertSetup && (
+              <div className="mt-4">
                 <button
                   type="button"
                   onClick={() => { trackEvent('landing_cta_clicked', { button: 'alert_setup' }); onAlertSetup?.(); }}
@@ -77,8 +85,8 @@ const Hero: React.FC<HeroProps> = ({ onStart, onAlertSetup }) => {
                   맞춤 공고 알림 설정
                   <span className="inline-block transition-transform duration-200 group-hover:translate-x-1">&rarr;</span>
                 </button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
       </div>
     </section>
