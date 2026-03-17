@@ -151,10 +151,30 @@ def generate_track_record_doc(
         company_name=company_name or "",
     )
 
+    # Populate records_data and personnel_data for contract adapter
+    records_data = [
+        {
+            "project_name": rec.project_name,
+            "description": rec.generated_text or rec.description,
+            "relevance_score": rec.relevance_score,
+        }
+        for rec in records
+    ]
+    personnel_data = [
+        {
+            "name": person.name,
+            "role": person.role,
+            "match_reason": person.generated_text or "",  # generated_text serves as match_reason
+        }
+        for person in personnel
+    ]
+
     elapsed = round(time.time() - start, 1)
     return TrackRecordDocResult(
         docx_path=docx_path,
         track_record_count=len(records),
         personnel_count=len(personnel),
         generation_time_sec=elapsed,
+        records_data=records_data,
+        personnel_data=personnel_data,
     )

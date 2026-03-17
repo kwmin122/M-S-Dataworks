@@ -175,6 +175,17 @@ def generate_ppt(
     # Calculate total duration
     total_duration = sum(s.duration_sec for s in slides) / 60.0
 
+    # Populate slides_metadata for contract adapter
+    slides_metadata = [
+        {
+            "type": s.slide_type.value,
+            "title": s.title,
+            "body": s.body,
+            "speaker_notes": s.speaker_notes,
+        }
+        for s in slides
+    ]
+
     elapsed = round(time.time() - start, 1)
     return PptResult(
         pptx_path=pptx_path,
@@ -182,4 +193,5 @@ def generate_ppt(
         qna_pairs=qna_pairs,
         total_duration_min=round(total_duration, 1),
         generation_time_sec=elapsed,
+        slides_metadata=slides_metadata,
     )

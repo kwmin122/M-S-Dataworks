@@ -1,7 +1,7 @@
 import React from 'react';
 import { Settings, FileText, ClipboardList, CalendarDays, Presentation, Award } from 'lucide-react';
 
-export type DocumentTab = 'profile' | 'rfp' | 'proposal' | 'wbs' | 'ppt' | 'track_record';
+export type DocumentTab = 'profile' | 'rfp' | 'proposal' | 'execution_plan' | 'presentation' | 'track_record';
 
 interface Props {
   activeTab: DocumentTab;
@@ -12,8 +12,8 @@ const TABS: Array<{ id: DocumentTab; label: string; icon: React.ElementType }> =
   { id: 'profile', label: '회사 프로필', icon: Settings },
   { id: 'rfp', label: 'RFP 분석', icon: ClipboardList },
   { id: 'proposal', label: '제안서', icon: FileText },
-  { id: 'wbs', label: 'WBS', icon: CalendarDays },
-  { id: 'ppt', label: 'PPT', icon: Presentation },
+  { id: 'execution_plan', label: 'WBS', icon: CalendarDays },
+  { id: 'presentation', label: 'PPT', icon: Presentation },
   { id: 'track_record', label: '실적기술서', icon: Award },
 ];
 

@@ -26,10 +26,13 @@ def isolated_client():
         os.makedirs(company_db_base, exist_ok=True)
 
         import main as _main
+        from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
         original_cache = _main._company_db_cache.copy()
         original_base = _main._COMPANY_DB_BASE
+        original_embedding_fn = _main._company_db_embedding_fn
         _main._company_db_cache.clear()
         _main._COMPANY_DB_BASE = company_db_base
+        _main._company_db_embedding_fn = DefaultEmbeddingFunction()
         # Disable rate limiting during tests
         _main.limiter.enabled = False
 
@@ -42,6 +45,7 @@ def isolated_client():
                 _main._company_db_cache.clear()
                 _main._company_db_cache.update(original_cache)
                 _main._COMPANY_DB_BASE = original_base
+                _main._company_db_embedding_fn = original_embedding_fn
 
 
 def _create_profile(client, company_id, company_name):

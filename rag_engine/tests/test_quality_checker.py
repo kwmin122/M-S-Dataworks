@@ -60,3 +60,32 @@ def test_blind_check_exact_match():
     issues = check_quality(text, company_name="삼성전자")
     blind_issues = [i for i in issues if i.category == "blind_violation"]
     assert len(blind_issues) >= 1
+
+
+def test_check_quality_for_doc_type_proposal():
+    """Proposal: full blind + ambiguity check."""
+    from quality_checker import check_quality_for_doc_type
+    issues = check_quality_for_doc_type("좋은 제안서 내용입니다.", "proposal", company_name="테스트회사")
+    assert isinstance(issues, list)
+
+
+def test_check_quality_for_doc_type_execution_plan():
+    """execution_plan: ambiguity check only (no blind words)."""
+    from quality_checker import check_quality_for_doc_type
+    # "최고 수준" is a VAGUE_PATTERNS match → vague_claim category
+    issues = check_quality_for_doc_type("최고 수준의 기술력", "execution_plan")
+    assert any(i.category == "vague_claim" for i in issues)
+
+
+def test_check_quality_for_doc_type_presentation():
+    """presentation: minimal checks."""
+    from quality_checker import check_quality_for_doc_type
+    issues = check_quality_for_doc_type("발표 내용", "presentation")
+    assert isinstance(issues, list)
+
+
+def test_check_quality_for_doc_type_track_record():
+    """track_record: blind check active."""
+    from quality_checker import check_quality_for_doc_type
+    issues = check_quality_for_doc_type("테스트회사가 수행한 사업", "track_record", company_name="테스트회사")
+    assert any(i.category == "blind_violation" for i in issues)

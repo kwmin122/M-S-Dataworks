@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 // Test the tab validation logic from DocumentWorkspace
 // Extracted to avoid needing full react-router-dom rendering
 
-const VALID_TABS = new Set(['profile', 'rfp', 'proposal', 'wbs', 'ppt', 'track_record']);
+const VALID_TABS = new Set(['profile', 'rfp', 'proposal', 'execution_plan', 'presentation', 'track_record']);
 
 function resolveTab(rawTab: string | null): string {
   const tab = rawTab || 'profile';
@@ -31,12 +31,12 @@ describe('DocumentWorkspace tab validation', () => {
     expect(resolveTab('proposal')).toBe('proposal');
   });
 
-  it('accepts valid tab "wbs"', () => {
-    expect(resolveTab('wbs')).toBe('wbs');
+  it('accepts valid tab "execution_plan"', () => {
+    expect(resolveTab('execution_plan')).toBe('execution_plan');
   });
 
-  it('accepts valid tab "ppt"', () => {
-    expect(resolveTab('ppt')).toBe('ppt');
+  it('accepts valid tab "presentation"', () => {
+    expect(resolveTab('presentation')).toBe('presentation');
   });
 
   it('accepts valid tab "track_record"', () => {

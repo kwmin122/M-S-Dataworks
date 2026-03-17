@@ -147,32 +147,32 @@ def test_save_state_atomic(tmp_path):
 
 
 def test_doc_type_isolates_patterns():
-    """doc_type별 독립 카운터 검증: proposal과 wbs는 별도 패턴."""
+    """doc_type별 독립 카운터 검증: proposal과 execution_plan은 별도 패턴."""
     # proposal 3회 → 패턴 승격
     for _ in range(3):
         result = process_edit_feedback("dt1", "섹션1", "원본 내용입니다", "수정된 내용입니다", doc_type="proposal")
     assert len(result.promoted_patterns) >= 1
     assert "제안서" in result.notifications[0]
 
-    # wbs 2회 → 아직 승격 안 됨 (독립 카운터)
+    # execution_plan 2회 → 아직 승격 안 됨 (독립 카운터)
     for _ in range(2):
-        result = process_edit_feedback("dt1", "섹션1", "원본 내용입니다", "수정된 내용입니다", doc_type="wbs")
+        result = process_edit_feedback("dt1", "섹션1", "원본 내용입니다", "수정된 내용입니다", doc_type="execution_plan")
     assert result.promoted_patterns == []
 
-    # wbs 3번째 → 승격
-    result = process_edit_feedback("dt1", "섹션1", "원본 내용입니다", "수정된 내용입니다", doc_type="wbs")
+    # execution_plan 3번째 → 승격
+    result = process_edit_feedback("dt1", "섹션1", "원본 내용입니다", "수정된 내용입니다", doc_type="execution_plan")
     assert len(result.promoted_patterns) >= 1
-    assert "WBS" in result.notifications[0]
+    assert "수행계획서" in result.notifications[0]
 
 
 def test_doc_type_get_learned_patterns():
     """get_learned_patterns가 doc_type별 분리 반환."""
     for _ in range(3):
-        process_edit_feedback("dt2", "섹션1", "원본 내용입니다", "수정된 내용입니다", doc_type="ppt")
+        process_edit_feedback("dt2", "섹션1", "원본 내용입니다", "수정된 내용입니다", doc_type="presentation")
 
-    ppt_patterns = get_learned_patterns("dt2", doc_type="ppt")
+    presentation_patterns = get_learned_patterns("dt2", doc_type="presentation")
     proposal_patterns = get_learned_patterns("dt2", doc_type="proposal")
-    assert len(ppt_patterns) >= 1
+    assert len(presentation_patterns) >= 1
     assert len(proposal_patterns) == 0
 
 

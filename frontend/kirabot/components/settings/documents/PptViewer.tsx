@@ -1,7 +1,7 @@
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { Presentation, Download, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { generatePpt, getFileDownloadUrl } from '../../../services/kiraApiService';
+import { generatePresentation, getFileDownloadUrl } from '../../../services/kiraApiService';
 import type { PptResponse } from '../../../services/kiraApiService';
 import { useDocumentHistory } from '../../../hooks/useDocumentHistory';
 import DocumentHistorySelect from '../../common/DocumentHistorySelect';
@@ -14,7 +14,7 @@ function isValidPptResponse(data: unknown): data is PptResponse {
 
 export default function PptViewer() {
   const { entries, selected, selectedId, setSelectedId, push, remove, loading } = useDocumentHistory<PptResponse>(
-    'kira_last_ppt',
+    'kira_last_presentation',
     isValidPptResponse,
   );
   const ppt = selected?.data ?? null;
@@ -50,7 +50,7 @@ export default function PptViewer() {
     setRegenerating(true);
     try {
       const companyId = sessionStorage.getItem('kira_company_id') || '_default';
-      const result = await generatePpt(sessionId, 30, 10, companyId);
+      const result = await generatePresentation(sessionId, 30, 10, companyId);
       if (!mountedRef.current) return;
       push(result, 'PPT 발표자료');
       showToast('PPT가 재생성되었습니다.');

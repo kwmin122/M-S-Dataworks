@@ -123,6 +123,7 @@ class PptResult:
     qna_pairs: list[QnaPair] = field(default_factory=list)
     total_duration_min: float = 0.0
     generation_time_sec: float = 0.0
+    slides_metadata: list[dict] = field(default_factory=list)  # Contract adapter metadata
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +162,8 @@ class TrackRecordDocResult:
     track_record_count: int = 0
     personnel_count: int = 0
     generation_time_sec: float = 0.0
+    records_data: list[dict] = field(default_factory=list)  # Contract adapter metadata
+    personnel_data: list[dict] = field(default_factory=list)  # Contract adapter metadata
 
 
 # ---------------------------------------------------------------------------

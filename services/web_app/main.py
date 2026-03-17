@@ -53,6 +53,9 @@ if _WEB_APP_DIR not in sys.path:
 
 load_dotenv(ROOT_DIR / ".env")
 
+# Only init Bid Workspace DB if BID_DATABASE_URL is set (gradual rollout)
+_BID_DB_ENABLED = bool(os.getenv("BID_DATABASE_URL"))
+
 logger = logging.getLogger(__name__)
 
 from engine import RAGEngine  # noqa: E402
@@ -215,6 +218,11 @@ class WebRuntimeSession:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if _BID_DB_ENABLED:
+        from services.web_app.db import init_db, close_db
+        await init_db()
+        logger.info("Bid Workspace DB initialized")
+
     task = asyncio.create_task(_alert_scheduler_loop())
     logger.info("Alert scheduler started")
     yield
@@ -224,6 +232,11 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         pass
 
+    if _BID_DB_ENABLED:
+        from services.web_app.db import close_db
+        await close_db()
+        logger.info("Bid Workspace DB closed")
+
 
 # Rate limiting
 limiter = Limiter(key_func=get_remote_address)
@@ -231,6 +244,15 @@ limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="Kira Web Runtime", version="0.1.0", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Bid Workspace routers (only when DB is configured)
+if _BID_DB_ENABLED:
+    from services.web_app.api.projects import router as projects_router
+    from services.web_app.api.assets import router as assets_router
+    from services.web_app.api.generate import router as generate_router
+    app.include_router(projects_router)
+    app.include_router(assets_router)
+    app.include_router(generate_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1895,6 +1917,35 @@ async def analyze_uploaded_document(
     except Exception as exc:
         logger.warning("Failed to save analysis to Redis: %s", exc)
 
+    # DB write-through: AnalysisSnapshot 저장 (Task 9)
+    if _BID_DB_ENABLED:
+        try:
+            from services.web_app.api.adapter import SessionAdapter
+            from services.web_app.api.analysis_serializer import serialize_analysis_for_db
+            from services.web_app.db.engine import get_async_session_factory
+
+            async_session_factory = get_async_session_factory()
+            async with async_session_factory() as db:
+                adapter = SessionAdapter(db)
+                _, username = _resolve_usage_actor(request, session.session_id)
+                project = await adapter.get_or_create_project(
+                    session_id=session.session_id,
+                    username=username,
+                    title=primary_filename,
+                )
+                await adapter.save_analysis(
+                    project_id=project.id,
+                    org_id=project.org_id,
+                    analysis_json=serialize_analysis_for_db(analysis),
+                    summary_md=rfp_summary or None,
+                    go_nogo_json=asdict(matching) if matching else None,
+                    username=username,
+                )
+                slog.info("analysis_persisted_to_db", session_id=session_id, project_id=project.id)
+        except Exception as exc:
+            # DB 저장 실패해도 API 응답은 유지 (로그만)
+            logger.warning("Failed to persist analysis to DB (session=%s): %s", session.session_id, exc)
+
     file_urls = [f"/api/files/{session.session_id}/target/{sp.name}" for sp in saved_paths]
     filenames = [f.filename or sp.name for f, sp in zip(files, saved_paths)]
 
@@ -1916,7 +1967,8 @@ async def analyze_uploaded_document(
 
 @app.post("/api/analyze/text")
 @limiter.limit("10/minute")
-def analyze_text(payload: AnalyzeTextPayload, request: Request) -> dict[str, Any]:
+async def analyze_text(payload: AnalyzeTextPayload, request: Request) -> dict[str, Any]:
+    """Analyze text input (async converted from sync for Task 9 DB write-through)."""
     session = _get_or_create_session(payload.session_id)
     company_chunk_count = _inject_company_profile_if_needed(session, request)
 
@@ -1933,23 +1985,28 @@ def analyze_text(payload: AnalyzeTextPayload, request: Request) -> dict[str, Any
         model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
     )
 
-    analysis = analyzer.analyze_text(payload.document_text)
+    # Convert blocking calls to async
+    analysis = await asyncio.to_thread(analyzer.analyze_text, payload.document_text)
+
     if company_chunk_count > 0:
         matcher = QualificationMatcher(
             rag_engine=session.rag_engine,
             api_key=api_key,
             model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
         )
-        matching = matcher.match(analysis)
+        matching = await asyncio.to_thread(matcher.match, analysis)
     else:
         matching = None
 
-    session.rfx_rag_engine.clear_collection()
-    session.rfx_rag_engine.add_text_directly(
+    # RAG indexing (blocking, but fast)
+    await asyncio.to_thread(session.rfx_rag_engine.clear_collection)
+    await asyncio.to_thread(
+        session.rfx_rag_engine.add_text_directly,
         payload.document_text,
         source_name="rfx_direct_input",
         base_metadata={"page_number": -1, "type": "rfx_text"},
     )
+
     session.latest_rfx_analysis = analysis
     session.latest_matching_result = matching
     session.latest_document_name = "direct_input.txt"
@@ -1959,6 +2016,34 @@ def analyze_text(payload: AnalyzeTextPayload, request: Request) -> dict[str, Any
         save_analysis_to_redis(session.session_id, asdict(analysis))
     except Exception as exc:
         logger.warning("Failed to save analysis to Redis: %s", exc)
+
+    # DB write-through: AnalysisSnapshot 저장 (Task 9)
+    if _BID_DB_ENABLED:
+        try:
+            from services.web_app.api.adapter import SessionAdapter
+            from services.web_app.api.analysis_serializer import serialize_analysis_for_db
+            from services.web_app.db.engine import get_async_session_factory
+
+            async_session_factory = get_async_session_factory()
+            async with async_session_factory() as db:
+                adapter = SessionAdapter(db)
+                _, username = _resolve_usage_actor(request, session.session_id)
+                project = await adapter.get_or_create_project(
+                    session_id=session.session_id,
+                    username=username,
+                    title="직접 입력 텍스트",
+                )
+                await adapter.save_analysis(
+                    project_id=project.id,
+                    org_id=project.org_id,
+                    analysis_json=serialize_analysis_for_db(analysis),
+                    summary_md=None,
+                    go_nogo_json=asdict(matching) if matching else None,
+                    username=username,
+                )
+        except Exception as exc:
+            # DB 저장 실패해도 API 응답은 유지 (로그만)
+            logger.warning("Failed to persist analysis to DB (session=%s): %s", session.session_id, exc)
 
     return {
         "ok": True,
@@ -2371,6 +2456,35 @@ async def analyze_bid_from_nara(payload: BidAnalyzePayload, request: Request) ->
         save_analysis_to_redis(session.session_id, asdict(analysis))
     except Exception as exc:
         logger.warning("Failed to save analysis to Redis: %s", exc)
+
+    # DB write-through: AnalysisSnapshot 저장 (Task 9)
+    if _BID_DB_ENABLED:
+        try:
+            from services.web_app.api.adapter import SessionAdapter
+            from services.web_app.api.analysis_serializer import serialize_analysis_for_db
+            from services.web_app.db.engine import get_async_session_factory
+
+            async_session_factory = get_async_session_factory()
+            async with async_session_factory() as db:
+                adapter = SessionAdapter(db)
+                _, username = _resolve_usage_actor(request, session.session_id)
+                project = await adapter.get_or_create_project(
+                    session_id=session.session_id,
+                    username=username,
+                    title=best["fileNm"],  # 첨부파일명을 프로젝트 타이틀로 사용
+                )
+                await adapter.save_analysis(
+                    project_id=project.id,
+                    org_id=project.org_id,
+                    analysis_json=serialize_analysis_for_db(analysis),
+                    summary_md=rfp_summary or None,
+                    go_nogo_json=asdict(matching) if matching else None,
+                    username=username,
+                )
+                slog.info("analysis_persisted_to_db", session_id=session.session_id, project_id=project.id)
+        except Exception as exc:
+            # DB 저장 실패해도 API 응답은 유지 (로그만)
+            logger.warning("Failed to persist analysis to DB (session=%s): %s", session.session_id, exc)
 
     # 5. fileUrl 생성
     local_filename = Path(local_path).name

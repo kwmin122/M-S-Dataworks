@@ -8,7 +8,7 @@ import WbsViewer from './WbsViewer';
 import PptViewer from './PptViewer';
 import TrackRecordViewer from './TrackRecordViewer';
 
-const VALID_TABS: Set<string> = new Set(['profile', 'rfp', 'proposal', 'wbs', 'ppt', 'track_record']);
+const VALID_TABS: Set<string> = new Set(['profile', 'rfp', 'proposal', 'execution_plan', 'presentation', 'track_record']);
 
 export default function DocumentWorkspace() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -27,8 +27,8 @@ export default function DocumentWorkspace() {
           {activeTab === 'profile' && <ProfileEditor />}
           {activeTab === 'rfp' && <RfpViewer />}
           {activeTab === 'proposal' && <ProposalEditor />}
-          {activeTab === 'wbs' && <WbsViewer />}
-          {activeTab === 'ppt' && <PptViewer />}
+          {activeTab === 'execution_plan' && <WbsViewer />}
+          {activeTab === 'presentation' && <PptViewer />}
           {activeTab === 'track_record' && <TrackRecordViewer />}
         </div>
       </div>

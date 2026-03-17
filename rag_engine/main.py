@@ -1047,7 +1047,7 @@ class EditFeedbackRequest(BaseModel):
     section_name: str = Field(min_length=1, max_length=512)
     original_text: str = Field(max_length=50_000)
     edited_text: str = Field(max_length=50_000)
-    doc_type: str = Field(default="proposal", pattern=r"^(proposal|wbs|ppt|track_record)$")
+    doc_type: str = Field(default="proposal", pattern=r"^(proposal|execution_plan|presentation|track_record|wbs|ppt)$")
 
 
 @app.post("/api/edit-feedback")
@@ -1070,13 +1070,15 @@ async def edit_feedback_endpoint(req: EditFeedbackRequest):
             except Exception as exc:
                 logger.debug("Profile update from callback skipped: %s", exc)
 
+        from generation_contract import normalize_doc_type as _norm_dt
+        doc_type = _norm_dt(req.doc_type) if req.doc_type != "proposal" else req.doc_type
         result = await asyncio.to_thread(
             process_edit_feedback,
             company_id=req.company_id,
             section_name=req.section_name,
             original_text=req.original_text,
             edited_text=req.edited_text,
-            doc_type=req.doc_type,
+            doc_type=doc_type,
             on_pattern_promoted=_on_pattern_promoted,
         )
     except Exception as exc:
@@ -1100,11 +1102,16 @@ async def edit_feedback_endpoint(req: EditFeedbackRequest):
 @app.get("/api/pending-knowledge")
 async def get_pending_knowledge_endpoint(
     company_id: str = Query(min_length=1, max_length=256),
-    doc_type: str = Query(default="proposal", pattern=r"^(proposal|wbs|ppt|track_record)$"),
+    doc_type: str = Query(default="proposal", pattern=r"^(proposal|execution_plan|presentation|track_record|wbs|ppt)$"),
 ):
     """Get pending patterns awaiting user approval."""
     try:
         from auto_learner import get_pending_patterns
+        from generation_contract import normalize_doc_type as _norm_dt
+        try:
+            doc_type = _norm_dt(doc_type)
+        except ValueError:
+            doc_type = "proposal"
         patterns = await asyncio.to_thread(get_pending_patterns, company_id, doc_type)
         return {
             "patterns": [
@@ -1129,7 +1136,7 @@ async def get_pending_knowledge_endpoint(
 class ApproveKnowledgeRequest(BaseModel):
     company_id: str = Field(min_length=1, max_length=256)
     pattern_key: str = Field(min_length=1)
-    doc_type: str = Field(default="proposal", pattern=r"^(proposal|wbs|ppt|track_record)$")
+    doc_type: str = Field(default="proposal", pattern=r"^(proposal|execution_plan|presentation|track_record|wbs|ppt)$")
 
 
 @app.post("/api/approve-knowledge")
@@ -1137,7 +1144,12 @@ async def approve_knowledge_endpoint(req: ApproveKnowledgeRequest):
     """Approve a pending pattern → confirmed."""
     try:
         from auto_learner import approve_pattern
-        success = await asyncio.to_thread(approve_pattern, req.company_id, req.pattern_key, req.doc_type)
+        from generation_contract import normalize_doc_type as _norm_dt
+        try:
+            doc_type = _norm_dt(req.doc_type)
+        except ValueError:
+            doc_type = "proposal"
+        success = await asyncio.to_thread(approve_pattern, req.company_id, req.pattern_key, doc_type)
         if not success:
             raise HTTPException(status_code=404, detail="패턴을 찾을 수 없거나 이미 승인되었습니다")
         return {"success": True, "message": "학습 패턴이 승인되었습니다"}
@@ -1151,7 +1163,7 @@ async def approve_knowledge_endpoint(req: ApproveKnowledgeRequest):
 class RejectKnowledgeRequest(BaseModel):
     company_id: str = Field(min_length=1, max_length=256)
     pattern_key: str = Field(min_length=1)
-    doc_type: str = Field(default="proposal", pattern=r"^(proposal|wbs|ppt|track_record)$")
+    doc_type: str = Field(default="proposal", pattern=r"^(proposal|execution_plan|presentation|track_record|wbs|ppt)$")
 
 
 @app.delete("/api/reject-knowledge")
@@ -1159,7 +1171,12 @@ async def reject_knowledge_endpoint(req: RejectKnowledgeRequest):
     """Reject (remove) a pending pattern."""
     try:
         from auto_learner import reject_pattern
-        success = await asyncio.to_thread(reject_pattern, req.company_id, req.pattern_key, req.doc_type)
+        from generation_contract import normalize_doc_type as _norm_dt
+        try:
+            doc_type = _norm_dt(req.doc_type)
+        except ValueError:
+            doc_type = "proposal"
+        success = await asyncio.to_thread(reject_pattern, req.company_id, req.pattern_key, doc_type)
         if not success:
             raise HTTPException(status_code=404, detail="패턴을 찾을 수 없거나 이미 삭제되었습니다")
         return {"success": True, "message": "학습 패턴이 거부되었습니다"}
@@ -1177,6 +1194,7 @@ async def reject_knowledge_endpoint(req: RejectKnowledgeRequest):
 _company_db_cache: dict[str, "CompanyDB"] = {}  # type: ignore[name-defined]
 _company_db_init_lock = threading.Lock()
 _company_db_profile_lock: asyncio.Lock | None = None
+_company_db_embedding_fn = None  # Patchable: set to a callable to override OpenAI embeddings in tests
 
 _SAFE_COMPANY_ID_RE = _re.compile(r"^[a-zA-Z0-9가-힣._\-]+$")
 _COMPANY_DB_BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "company_db")
@@ -1210,7 +1228,10 @@ def _get_company_db(company_id: str = "_default"):
                 if not os.path.realpath(db_path).startswith(os.path.realpath(_COMPANY_DB_BASE)):
                     raise HTTPException(status_code=400, detail="Invalid company_id path")
                 os.makedirs(db_path, exist_ok=True)
-                _company_db_cache[company_id] = CompanyDB(persist_directory=db_path)
+                _company_db_cache[company_id] = CompanyDB(
+                    persist_directory=db_path,
+                    embedding_function=_company_db_embedding_fn,
+                )
     return _company_db_cache[company_id]
 
 
@@ -1609,6 +1630,15 @@ class RollbackProfileRequest(BaseModel):
     target_version: int = Field(ge=1)
 
 
+class GenerateDocumentRequest(BaseModel):
+    """Unified document generation request — dispatches via GenerationContract."""
+    doc_type: str = Field(pattern=r"^(proposal|execution_plan|presentation|track_record|wbs|ppt)$")
+    rfx_result: RfxResultInput
+    contract: dict = Field(default_factory=dict)
+    params: dict = Field(default_factory=dict)
+    upload_targets: list[dict] = Field(default_factory=list)
+
+
 _NON_EDITABLE_SECTIONS = {"학습 이력"}
 
 
@@ -1754,6 +1784,71 @@ async def rollback_profile_md(req: RollbackProfileRequest):
 # ---------------------------------------------------------------------------
 # HWP parsing
 # ---------------------------------------------------------------------------
+
+@app.post("/api/generate-document")
+async def generate_document_unified(req: GenerateDocumentRequest):
+    """Unified document generation endpoint. Dispatches by doc_type via GenerationContract."""
+    from generation_contract import (
+        GenerationContract, CompanyContext, QualityRules,
+        UploadTarget, normalize_doc_type,
+    )
+    from contract_adapter import generate_from_contract
+
+    doc_type = normalize_doc_type(req.doc_type)
+
+    # Rebuild contract from dict — explicit field mapping
+    cc = req.contract.get("company_context", {})
+    qr = req.contract.get("quality_rules", {})
+    contract = GenerationContract(
+        company_context=CompanyContext(
+            profile_summary=cc.get("profile_summary", ""),
+            similar_projects=cc.get("similar_projects", []),
+            matching_personnel=cc.get("matching_personnel", []),
+            licenses=cc.get("licenses", []),
+            certifications=cc.get("certifications", []),
+        ),
+        company_profile_md=req.contract.get("company_profile_md"),
+        writing_style=req.contract.get("writing_style"),
+        knowledge_units=req.contract.get("knowledge_units", []),
+        learned_patterns=req.contract.get("learned_patterns", []),
+        pack_config=req.contract.get("pack_config"),
+        mode=req.contract.get("mode", "starter"),
+        template_source=req.contract.get("template_source"),
+        quality_rules=QualityRules(
+            blind_words=qr.get("blind_words", []),
+            custom_forbidden=qr.get("custom_forbidden", []),
+            min_section_length=qr.get("min_section_length", 0),
+            max_ambiguity_score=qr.get("max_ambiguity_score", 1.0),
+        ),
+        required_checks=req.contract.get("required_checks", []),
+        pass_threshold=req.contract.get("pass_threshold", 0.0),
+    )
+
+    upload_targets = [UploadTarget(**t) for t in req.upload_targets]
+
+    result = await asyncio.to_thread(
+        generate_from_contract,
+        doc_type=doc_type,
+        contract=contract,
+        rfx_result=req.rfx_result.model_dump(),
+        params=req.params,
+        upload_targets=upload_targets,
+    )
+
+    return {
+        "doc_type": result.doc_type,
+        "content_json": result.content_json,
+        "content_schema": result.content_schema,
+        "quality_report": result.quality_report,
+        "quality_schema": result.quality_schema,
+        "output_files": [
+            {"asset_id": f.asset_id, "asset_type": f.asset_type,
+             "size_bytes": f.size_bytes, "content_hash": f.content_hash}
+            for f in result.output_files
+        ],
+        "generation_time_sec": result.generation_time_sec,
+    }
+
 
 @app.post("/api/parse-hwp")
 async def parse_hwp(file: UploadFile = File(...)) -> dict:

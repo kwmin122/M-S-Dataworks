@@ -6,11 +6,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import pytest
 from company_db import CompanyDB, CompanyCapabilityProfile, TrackRecord, Personnel
+from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 
 
 @pytest.fixture
 def db(tmp_path):
-    return CompanyDB(persist_directory=str(tmp_path / "company"))
+    """CompanyDB with mock embedding function (hermetic, no OpenAI API calls)."""
+    mock_embedding = DefaultEmbeddingFunction()
+    return CompanyDB(
+        persist_directory=str(tmp_path / "company"),
+        embedding_function=mock_embedding,
+    )
 
 
 def test_add_and_search_track_record(db):

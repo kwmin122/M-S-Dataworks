@@ -366,7 +366,7 @@ export interface WbsResponse {
   tasks?: WbsTaskItem[];
 }
 
-export async function generateWbs(
+export async function generateExecutionPlan(
   sessionId: string,
   methodology?: string,
   usePack?: boolean,
@@ -400,7 +400,7 @@ export interface PptResponse {
   generation_time_sec: number;
 }
 
-export async function generatePpt(
+export async function generatePresentation(
   sessionId: string,
   durationMin: number = 30,
   qnaCount: number = 10,
