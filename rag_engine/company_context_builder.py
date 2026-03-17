@@ -25,6 +25,7 @@ def build_company_context(
     max_projects: int = 5,
     max_personnel: int = 5,
     company_db: Optional[Any] = None,
+    skip_writing_style: bool = False,
 ) -> str:
     """CompanyDB에서 RFP 맞춤 회사 컨텍스트 문자열 빌드.
 
@@ -79,7 +80,8 @@ def build_company_context(
             logger.debug("find_matching_personnel failed: %s", exc)
 
     # 4. Writing style (과거 제안서 스타일 — profile.writing_style에 저장)
-    if profile and profile.writing_style:
+    # skip_writing_style=True: profile_md에 이미 동일 내용이 있으면 중복 방지
+    if not skip_writing_style and profile and profile.writing_style:
         parts.append(_format_style(profile.writing_style))
 
     return "\n\n".join(parts)

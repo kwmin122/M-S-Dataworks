@@ -23,6 +23,7 @@ def update_profile_section(
     section_name: str,
     new_content: str,
     backup: bool = True,
+    append_history: bool = True,
 ) -> bool:
     """Update a specific section in profile.md.
 
@@ -59,13 +60,14 @@ def update_profile_section(
     new_section = f"## {section_name}\n{new_content}\n"
     updated = content[:match.start()] + new_section + content[match.end():]
 
-    # Append to learning history
-    today = date.today().isoformat()
-    history_line = f"- {today}: {section_name} 섹션 업데이트 (auto_learner)"
-    if "## 학습 이력" in updated:
-        updated = updated.rstrip() + f"\n{history_line}\n"
-    else:
-        updated += f"\n## 학습 이력\n{history_line}\n"
+    # Append to learning history (skip when caller manages history externally)
+    if append_history:
+        today = date.today().isoformat()
+        history_line = f"- {today}: {section_name} 섹션 업데이트 (auto_learner)"
+        if "## 학습 이력" in updated:
+            updated = updated.rstrip() + f"\n{history_line}\n"
+        else:
+            updated += f"\n## 학습 이력\n{history_line}\n"
 
     # Atomic write
     tmp_path = profile_path + ".tmp"
