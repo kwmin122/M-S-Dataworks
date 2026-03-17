@@ -2397,7 +2397,17 @@ async def analyze_bid_from_nara(payload: BidAnalyzePayload, request: Request) ->
     try:
         local_path = await nara_download_attachment(best["fileUrl"], str(target_dir), fallback_name=best["fileNm"])
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"첨부파일 다운로드 실패: {exc}") from exc
+        logger.warning("첨부파일 다운로드 실패 (bid=%s): %s", payload.bid_ntce_no, exc)
+        raise HTTPException(
+            status_code=422,
+            detail=json.dumps({
+                "code": "attachment_unavailable",
+                "message": "공고 첨부파일 서버에서 자동 다운로드하지 못했습니다. 파일을 직접 업로드하면 같은 분석을 계속 진행할 수 있습니다.",
+                "reason": f"다운로드 실패: {exc}",
+                "bidNtceNo": payload.bid_ntce_no,
+                "bidNtceOrd": payload.bid_ntce_ord,
+            }, ensure_ascii=False),
+        ) from exc
 
     # 4. 분석
     api_key = _openai_api_key()
