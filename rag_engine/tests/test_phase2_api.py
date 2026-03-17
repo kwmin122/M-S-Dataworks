@@ -64,6 +64,79 @@ def test_generate_wbs_endpoint(mock_thread, client):
     assert data["total_months"] == 8
 
 
+@patch("main.asyncio.to_thread")
+def test_generate_wbs_session_context_legacy_path(mock_thread, client):
+    """use_pack=false: company_session_context가 wbs_orchestrator로 전달되는지 검증."""
+    mock_thread.return_value = _mock_wbs_result()
+    session_ctx = "우리 회사는 클라우드 전환 실적 5건, PM 경력 15년"
+
+    resp = client.post(
+        "/api/generate-wbs",
+        json={
+            "rfx_result": _rfx_body(),
+            "use_pack": False,
+            "company_session_context": session_ctx,
+        },
+    )
+    assert resp.status_code == 200
+
+    # Verify company_session_context was passed to orchestrator
+    call_kwargs = mock_thread.call_args
+    # asyncio.to_thread(fn, **kwargs) — kwargs are positional after fn
+    # Check that company_session_context appears in the call
+    call_str = str(call_kwargs)
+    assert "클라우드 전환 실적" in call_str, \
+        f"company_session_context not passed to orchestrator: {call_str[:200]}"
+
+
+@patch("main.asyncio.to_thread")
+def test_generate_wbs_session_context_pack_path(mock_thread, client):
+    """use_pack=true: company_session_context가 company_context에 병합되는지 검증."""
+    from phase2_models import WbsResult, WbsTask, PersonnelAllocation
+    # Pack path returns a different result type with domain_type
+    mock_result = MagicMock()
+    mock_result.tasks = [WbsTask(phase="착수", task_name="착수보고", start_month=1, duration_months=1)]
+    mock_result.personnel = [PersonnelAllocation(role="PM", total_man_months=2.0)]
+    mock_result.total_months = 8
+    mock_result.generation_time_sec = 5.0
+    mock_result.domain_type = "it_build"
+    mock_result.quality_issues = []
+    mock_thread.return_value = mock_result
+
+    session_ctx = "보안 컨설팅 실적 3건, ISMS 인증 보유"
+
+    resp = client.post(
+        "/api/generate-wbs",
+        json={
+            "rfx_result": _rfx_body(),
+            "use_pack": True,
+            "company_session_context": session_ctx,
+        },
+    )
+    assert resp.status_code == 200
+
+    # Verify company_context arg to generate_document includes session context
+    call_kwargs = mock_thread.call_args
+    call_str = str(call_kwargs)
+    assert "보안 컨설팅 실적" in call_str, \
+        f"Session context not merged into company_context for pack path: {call_str[:200]}"
+
+
+@patch("main.asyncio.to_thread")
+def test_generate_wbs_empty_session_context(mock_thread, client):
+    """company_session_context 빈 문자열이면 기존 동작 그대로."""
+    mock_thread.return_value = _mock_wbs_result()
+    resp = client.post(
+        "/api/generate-wbs",
+        json={
+            "rfx_result": _rfx_body(),
+            "company_session_context": "",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["tasks_count"] == 1
+
+
 def test_generate_wbs_invalid_methodology(client):
     resp = client.post(
         "/api/generate-wbs",
