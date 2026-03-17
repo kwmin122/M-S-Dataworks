@@ -96,12 +96,13 @@ if [ ! -d "/app/services/web_app" ]; then
   echo "ERROR: /app/services/web_app directory not found!"
   exit 1
 fi
-cd /app/services/web_app
+# Run from /app root so "from services.web_app.*" absolute imports resolve naturally.
+# Previous approach (cd to web_app + PYTHONPATH) failed because uvicorn's
+# import_from_string resolves modules before sys.path modifications in the
+# target module take effect.
+cd /app
 echo "Changed to: $(pwd)"
 echo "Checking main.py..."
-ls -la main.py
-# /app must be in PYTHONPATH for "from services.web_app.*" absolute imports
-export PYTHONPATH="/app:${PYTHONPATH:-}"
-echo "PYTHONPATH: $PYTHONPATH"
+ls -la services/web_app/main.py
 echo "Starting uvicorn on port ${PORT:-8000}..."
-python -c "import uvicorn; uvicorn.run('main:app', host='0.0.0.0', port=int(__import__('os').environ.get('PORT', '8000')))"
+python -c "import uvicorn; uvicorn.run('services.web_app.main:app', host='0.0.0.0', port=int(__import__('os').environ.get('PORT', '8000')))"
