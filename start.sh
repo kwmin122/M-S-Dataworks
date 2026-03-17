@@ -100,5 +100,8 @@ cd /app/services/web_app
 echo "Changed to: $(pwd)"
 echo "Checking main.py..."
 ls -la main.py
+# /app must be in PYTHONPATH for "from services.web_app.*" absolute imports
+export PYTHONPATH="/app:${PYTHONPATH:-}"
+echo "PYTHONPATH: $PYTHONPATH"
 echo "Starting uvicorn on port ${PORT:-8000}..."
 python -c "import uvicorn; uvicorn.run('main:app', host='0.0.0.0', port=int(__import__('os').environ.get('PORT', '8000')))"
