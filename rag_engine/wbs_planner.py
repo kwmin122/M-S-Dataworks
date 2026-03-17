@@ -72,8 +72,16 @@ def _extract_project_duration(rfx_result: dict[str, Any]) -> int:
     if m:
         return max(1, int(m.group(1)))
 
-    # "1년" → 12, "2년" → 24
-    m = re.search(r"(\d+)\s*년", period_str)
+    # 날짜 범위: "2026년 4월 ~ 2026년 9월" or "2026.04 ~ 2026.09"
+    m = re.search(r"(\d{4})\D*(\d{1,2})\D*~\D*(\d{4})\D*(\d{1,2})", period_str)
+    if m:
+        y1, m1, y2, m2 = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
+        months = (y2 - y1) * 12 + (m2 - m1)
+        if 1 <= months <= 60:
+            return months
+
+    # "1년" → 12, "2년" → 24 (but NOT "2026년" — 4자리 연도 제외)
+    m = re.search(r"(?<!\d)([1-9]|[1-4]\d)\s*년", period_str)
     if m:
         return max(1, int(m.group(1)) * 12)
 
@@ -279,6 +287,9 @@ def plan_wbs(
 
     if total_months is None:
         total_months = _extract_project_duration(rfx_result)
+
+    # Safety clamp: max 60 months (5 years) — prevents LLM hallucination crash
+    total_months = max(1, min(total_months, 60))
 
     template = _TEMPLATES[methodology]
 
