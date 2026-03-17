@@ -1459,6 +1459,15 @@ async def analyze_company_style_endpoint(req: AnalyzeStyleRequest):
         profile.writing_style = style_dict
         db.save_profile(profile)
 
+    # Sync style sections to profile.md (section-level, preserves user edits)
+    try:
+        skills_dir = _get_company_skills_dir(req.company_id)
+        _sync_style_to_profile_md(skills_dir, style, profile.name if profile else "미설정")
+        logger.info("Style synced to profile.md for company_id=%s", req.company_id)
+    except Exception as exc:
+        # Best-effort: style analysis succeeded, profile.md sync is secondary
+        logger.warning("Failed to sync style to profile.md (company_id=%s): %s", req.company_id, exc)
+
     return {"ok": True, "writing_style": style_dict}
 
 
@@ -1472,6 +1481,65 @@ async def get_canonical_company_id(company_name: str = ""):
     if not company_name.strip():
         return {"company_id": "_default"}
     return {"company_id": _sanitize_company_id(company_name)}
+
+
+def _sync_style_to_profile_md(skills_dir: str, style, company_name: str) -> None:
+    """Sync StyleProfile to profile.md using section-level updates.
+
+    If profile.md doesn't exist: create full profile from style.
+    If it exists: update only the 4 style sections, preserving user edits
+    to HWPX rules and learning history.
+    """
+    from company_profile_builder import (
+        load_profile_md, build_profile_md, save_profile_md,
+        _build_document_style_section, _build_tone_section,
+        _build_strength_section, _build_strategy_section,
+    )
+    from company_profile_updater import update_profile_section, backup_profile_version
+
+    existing = load_profile_md(skills_dir)
+
+    if not existing:
+        # No profile.md yet — create full initial version
+        profile_md = build_profile_md(company_name=company_name, style=style)
+        save_profile_md(skills_dir, profile_md)
+        return
+
+    # Profile exists — single backup, then update 4 style sections without extra backups.
+    backup_profile_version(skills_dir, reason="스타일 분석 동기화")
+
+    style_sections = {
+        "문서 스타일": _build_document_style_section(style, None),
+        "문체": _build_tone_section(style),
+        "강점 표현 패턴": _build_strength_section(style),
+        "평가항목별 전략": _build_strategy_section(style),
+    }
+
+    for section_name, full_section in style_sections.items():
+        header = f"## {section_name}\n"
+        body = full_section[len(header):] if full_section.startswith(header) else full_section
+        update_profile_section(
+            skills_dir, section_name, body.strip() + "\n",
+            backup=False,
+            append_history=False,
+        )
+
+    # Single history entry for all 4 sections
+    from datetime import date
+    profile_path = os.path.join(skills_dir, "profile.md")
+    if os.path.isfile(profile_path):
+        with open(profile_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        today = date.today().isoformat()
+        history_line = f"- {today}: 스타일 분석 동기화 (문서 스타일/문체/강점/전략)"
+        if "## 학습 이력" in content:
+            content = content.rstrip() + f"\n{history_line}\n"
+        else:
+            content += f"\n## 학습 이력\n{history_line}\n"
+        tmp = profile_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.replace(tmp, profile_path)
 
 
 # ---------------------------------------------------------------------------

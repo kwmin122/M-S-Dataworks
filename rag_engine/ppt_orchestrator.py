@@ -61,17 +61,7 @@ def generate_ppt(
     except Exception as exc:
         logger.warning("KnowledgeDB search failed, proceeding without Layer 1: %s", exc)
 
-    # 1b. Build Layer 2 company context
-    company_context = ""
-    try:
-        from company_context_builder import build_company_context
-        company_context = build_company_context(
-            rfx_result, company_db_path=company_db_path, company_db=company_db,
-        )
-    except Exception as exc:
-        logger.warning("Company context build skipped: %s", exc)
-
-    # 1c. Load profile.md (회사 제안서 DNA)
+    # 1b. Load profile.md (회사 제안서 DNA) — load first for dedup decision
     profile_md = ""
     if company_skills_dir:
         try:
@@ -79,6 +69,17 @@ def generate_ppt(
             profile_md = load_profile_md(company_skills_dir)
         except Exception as exc:
             logger.debug("Profile load skipped: %s", exc)
+
+    # 1c. Build Layer 2 company context (skip writing_style if profile_md has it)
+    company_context = ""
+    try:
+        from company_context_builder import build_company_context
+        company_context = build_company_context(
+            rfx_result, company_db_path=company_db_path, company_db=company_db,
+            skip_writing_style=bool(profile_md),
+        )
+    except Exception as exc:
+        logger.warning("Company context build skipped: %s", exc)
 
     # Build RFP context string
     rfp_context = build_rfp_context(rfx_result)

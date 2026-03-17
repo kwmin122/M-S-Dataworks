@@ -203,12 +203,22 @@ def generate_proposal(
     from llm_middleware import LLMMiddleware
     middleware = LLMMiddleware()
 
-    # 0. Build company context from CompanyDB if not provided (skip in template mode)
+    # 0. Load profile.md early to inform company_context dedup
+    profile_md = ""
+    if company_skills_dir:
+        try:
+            from company_profile_builder import load_profile_md
+            profile_md = load_profile_md(company_skills_dir)
+        except Exception as exc:
+            _logger.debug("Profile load skipped: %s", exc)
+
+    # 0b. Build company context from CompanyDB if not provided (skip in template mode)
     if not company_context and not template_mode:
         try:
             from company_context_builder import build_company_context
             company_context = build_company_context(
                 rfx_result, company_db_path=company_db_path, company_db=company_db,
+                skip_writing_style=bool(profile_md),
             )
         except Exception as exc:
             _logger.warning("Company context build skipped: %s", exc)
@@ -238,14 +248,7 @@ def generate_proposal(
     # 3. Build RFP context string
     rfp_context = build_rfp_context(rfx_result)
 
-    # 3.5. Load profile.md if available
-    profile_md = ""
-    if company_skills_dir:
-        try:
-            from company_profile_builder import load_profile_md
-            profile_md = load_profile_md(company_skills_dir)
-        except Exception as exc:
-            _logger.debug("Profile load skipped: %s", exc)
+    # 3.5. profile_md already loaded in step 0 above
 
     # 4. Write sections with self-correction (parallel with ThreadPoolExecutor)
     def _write_one(section):
