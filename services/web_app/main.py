@@ -678,6 +678,33 @@ def _session_collection_name(session_id: str) -> str:
     return f"web_company_{safe[:48]}"
 
 
+_SESSION_COMPANY_SCORE_CUTOFF = 0.3
+_SESSION_COMPANY_MAX_CHARS = 3000
+
+
+def _extract_session_company_context(session, rfx_title: str = "") -> str:
+    """세션 RAG에서 회사 문서 관련 청크를 추출하여 텍스트로 반환.
+
+    Returns empty string if no company docs in session or extraction fails.
+    """
+    if not session.rag_engine:
+        return ""
+    try:
+        query = f"{rfx_title} 회사 역량 실적 인력 강점"
+        results = session.rag_engine.search(query, top_k=6)
+        filtered = [r for r in results if r.score >= _SESSION_COMPANY_SCORE_CUTOFF]
+        texts = [r.text for r in filtered if r.text]
+        combined = "\n\n".join(texts)[:_SESSION_COMPANY_MAX_CHARS]
+        logger.info(
+            "session_company_context: raw_hits=%d filtered_hits=%d combined_chars=%d",
+            len(results), len(filtered), len(combined),
+        )
+        return combined
+    except Exception as exc:
+        logger.debug("Session company context extraction skipped: %s", exc)
+        return ""
+
+
 def _session_upload_dir(session_id: str, bucket: str) -> Path:
     base = ROOT_DIR / "data" / "web_uploads" / session_id / bucket
     base.mkdir(parents=True, exist_ok=True)
@@ -2922,6 +2949,11 @@ async def generate_wbs_proxy(payload: GenerateWbsProxyPayload) -> dict[str, Any]
 
     rfx_dict = _build_rfx_dict(session.latest_rfx_analysis)
 
+    # P1: 세션 회사 문서 → 생성 브리지
+    company_session_context = _extract_session_company_context(
+        session, rfx_title=rfx_dict.get("title", ""),
+    )
+
     return await _proxy_to_rag(
         "POST", "/api/generate-wbs",
         {
@@ -2929,6 +2961,7 @@ async def generate_wbs_proxy(payload: GenerateWbsProxyPayload) -> dict[str, Any]
             "methodology": payload.methodology,
             "use_pack": payload.use_pack,
             "company_id": payload.company_id,
+            "company_session_context": company_session_context,
         },
         timeout=300,
     )

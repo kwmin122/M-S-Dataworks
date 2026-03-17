@@ -29,6 +29,7 @@ def generate_wbs(
     company_db_path: str = "./data/company_db",
     company_skills_dir: str = "",
     company_db: Optional[Any] = None,
+    company_session_context: str = "",
 ) -> WbsResult:
     """수행계획서/WBS 생성.
 
@@ -72,6 +73,19 @@ def generate_wbs(
         )
     except Exception as exc:
         logger.warning("Company context build skipped: %s", exc)
+
+    # 1d. Merge session company context (P1 bridge)
+    if company_session_context:
+        parts = [p for p in [company_context, "## 사용자가 등록한 회사 참고 문서:\n" + company_session_context] if p]
+        company_context = "\n\n".join(parts)
+
+    # P0 보조 로그: orchestrator 레벨 입력 상태
+    logger.info(
+        "wbs_orchestrator_context: profile_md=%d company_context=%d "
+        "session_context=%d knowledge=%d",
+        len(profile_md), len(company_context),
+        len(company_session_context), len(knowledge_texts),
+    )
 
     # 2. Plan WBS (with Layer 1 + Layer 2 + Profile)
     tasks, personnel, total_months, used_methodology = plan_wbs(

@@ -752,12 +752,22 @@ class GenerateWbsRequest(BaseModel):
     methodology: str = ""  # "waterfall" | "agile" | "hybrid" or empty for auto
     use_pack: bool = False
     company_id: str = "_default"
+    company_session_context: str = ""  # 세션 RAG에서 추출한 회사 문서 청크
 
 
 @app.post("/api/generate-wbs")
 @limiter.limit("5/minute")
 async def generate_wbs_endpoint(req: GenerateWbsRequest, request: Request):
     """Generate WBS (XLSX + Gantt + DOCX) from RFP analysis."""
+
+    # P0: 엔드포인트 경계 로그 — 어떤 입력이 실제로 들어왔는지 기록
+    logger.info(
+        "wbs_generation_inputs: company_id=%s use_pack=%s "
+        "session_context_chars=%d rfp_title=%s",
+        req.company_id, req.use_pack,
+        len(getattr(req, "company_session_context", "") or ""),
+        (req.rfx_result.title or "")[:50],
+    )
 
     # ── Pack-based pipeline (feature flag) ──
     if req.use_pack:
@@ -770,7 +780,12 @@ async def generate_wbs_endpoint(req: GenerateWbsRequest, request: Request):
         _cached_db = _get_company_db(req.company_id)
         company_context = build_company_context(
             rfx_dict, company_db_path=_company_db_path, company_db=_cached_db,
+            skip_writing_style=False,
         )
+        # 세션 회사 문서 병합 (P1 브리지)
+        if req.company_session_context:
+            parts = [p for p in [company_context, "## 사용자가 등록한 회사 참고 문서:\n" + req.company_session_context] if p]
+            company_context = "\n\n".join(parts)
 
         # Resolve company_name from CompanyDB profile
         _company_name = ""
@@ -869,6 +884,7 @@ async def generate_wbs_endpoint(req: GenerateWbsRequest, request: Request):
             company_db_path=os.path.join(_COMPANY_DB_BASE, req.company_id),
             company_skills_dir=_get_company_skills_dir(req.company_id),
             company_db=_get_company_db(req.company_id),
+            company_session_context=req.company_session_context,
         )
     except Exception as exc:
         logger.error("generate_wbs failed: %s\n%s", exc, traceback.format_exc())
