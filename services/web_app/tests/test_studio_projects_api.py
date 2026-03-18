@@ -425,3 +425,83 @@ async def test_duplicate_shared_default_per_org_rejected(db_session):
         await db_session.flush()
 
     await db_session.rollback()
+
+
+# ---- Route-level tests (call endpoint functions with injected deps) ----
+
+@pytest.mark.asyncio
+async def test_route_creator_can_get_own_project(db_session):
+    """POST /api/studio/projects → creator can immediately GET the created project.
+
+    Tests the actual endpoint function with require_project_access ACL.
+    """
+    from services.web_app.api.studio import create_studio_project, get_studio_project, CreateStudioProjectRequest
+    from services.web_app.api.deps import CurrentUser
+    from services.web_app.db.models.org import Membership
+
+    org = await _create_org(db_session, "라우트 테스트")
+    db_session.add(Membership(
+        org_id=org.id, user_id="route_creator", role="editor", is_active=True,
+    ))
+    await db_session.flush()
+
+    user = CurrentUser(username="route_creator", org_id=org.id, role="editor")
+
+    # 1. Create project via endpoint function
+    req = CreateStudioProjectRequest(title="라우트 테스트 프로젝트")
+    response = await create_studio_project(req=req, user=user, db=db_session)
+    project_id = response.id
+
+    assert response.project_type == "studio"
+    assert response.studio_stage == "rfp"
+
+    # 2. Creator should be able to GET the project (require_project_access passes)
+    detail = await get_studio_project(project_id=project_id, user=user, db=db_session)
+    assert detail.id == project_id
+    assert detail.title == "라우트 테스트 프로젝트"
+
+
+@pytest.mark.asyncio
+async def test_route_non_admin_list_excludes_unshared_projects(db_session):
+    """GET /api/studio/projects for non-admin excludes projects without ProjectAccess.
+
+    Tests the actual list endpoint function with ACL join filtering.
+    """
+    from services.web_app.api.studio import create_studio_project, list_studio_projects, CreateStudioProjectRequest
+    from services.web_app.api.deps import CurrentUser
+    from services.web_app.db.models.org import Membership
+
+    org = await _create_org(db_session, "목록 ACL 테스트")
+
+    # Two users in same org, both non-admin
+    db_session.add(Membership(org_id=org.id, user_id="alice", role="editor", is_active=True))
+    db_session.add(Membership(org_id=org.id, user_id="bob", role="editor", is_active=True))
+    await db_session.flush()
+
+    alice = CurrentUser(username="alice", org_id=org.id, role="editor")
+    bob = CurrentUser(username="bob", org_id=org.id, role="editor")
+
+    # Alice creates a project (gets ProjectAccess automatically)
+    await create_studio_project(
+        req=CreateStudioProjectRequest(title="앨리스 프로젝트"), user=alice, db=db_session,
+    )
+
+    # Bob creates a project
+    await create_studio_project(
+        req=CreateStudioProjectRequest(title="밥 프로젝트"), user=bob, db=db_session,
+    )
+
+    # Alice lists — should see only her project (not Bob's)
+    alice_list = await list_studio_projects(user=alice, db=db_session)
+    assert len(alice_list) == 1
+    assert alice_list[0].title == "앨리스 프로젝트"
+
+    # Bob lists — should see only his project (not Alice's)
+    bob_list = await list_studio_projects(user=bob, db=db_session)
+    assert len(bob_list) == 1
+    assert bob_list[0].title == "밥 프로젝트"
+
+    # Org admin sees all
+    admin = CurrentUser(username="admin_user", org_id=org.id, role="admin")
+    admin_list = await list_studio_projects(user=admin, db=db_session)
+    assert len(admin_list) == 2
