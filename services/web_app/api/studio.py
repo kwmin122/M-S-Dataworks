@@ -1,7 +1,9 @@
-"""Studio project control plane — CRUD + snapshot clone."""
+"""Studio project control plane — CRUD + snapshot clone + analyze + classify."""
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -50,6 +52,10 @@ class StudioProjectResponse(BaseModel):
 
 class UpdateStudioStageRequest(BaseModel):
     studio_stage: str = Field(pattern="^(rfp|package|company|style|generate|review|relearn)$")
+
+
+class AnalyzeRfpTextRequest(BaseModel):
+    document_text: str = Field(min_length=50, max_length=200_000)
 
 
 class PackageItemResponse(BaseModel):
@@ -218,6 +224,119 @@ async def update_studio_stage(
     await db.commit()
     await db.refresh(project)
     return _project_to_response(project)
+
+
+@router.post("/projects/{project_id}/analyze")
+async def analyze_rfp_text(
+    project_id: str,
+    req: AnalyzeRfpTextRequest,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Analyze RFP text and create an AnalysisSnapshot for the project.
+
+    Uses rfx_analyzer (multipass extraction) + generate_rfp_summary (5-section GFM).
+    Stores result as active snapshot on the project.
+    """
+    await require_project_access(project_id, "editor", user, db)
+
+    result = await db.execute(
+        select(BidProject).where(
+            BidProject.id == project_id,
+            BidProject.project_type == "studio",
+        )
+    )
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(404, "Studio 프로젝트를 찾을 수 없습니다")
+
+    # Run rfx_analyzer + summary in thread (blocking LLM calls)
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        raise HTTPException(500, "OPENAI_API_KEY가 설정되지 않았습니다")
+
+    from rfx_analyzer import RFxAnalyzer
+    from services.web_app.api.analysis_serializer import serialize_analysis_for_db
+
+    analyzer = RFxAnalyzer(
+        api_key=api_key,
+        model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+    )
+
+    analysis = await asyncio.to_thread(analyzer.analyze_text, req.document_text)
+
+    # Generate 5-section summary
+    summary_md = ""
+    try:
+        from rfx_analyzer import generate_rfp_summary
+        summary_md = await asyncio.to_thread(
+            generate_rfp_summary, analysis, api_key,
+        )
+    except Exception as exc:
+        logger.warning("RFP summary generation failed (non-fatal): %s", exc)
+
+    # Serialize and store snapshot
+    analysis_json = serialize_analysis_for_db(analysis)
+
+    # Deactivate existing active snapshots
+    existing = await db.execute(
+        select(AnalysisSnapshot).where(
+            AnalysisSnapshot.project_id == project_id,
+            AnalysisSnapshot.is_active == True,
+        )
+    )
+    for old_snap in existing.scalars().all():
+        old_snap.is_active = False
+
+    # Compute next version
+    ver_result = await db.execute(
+        select(AnalysisSnapshot.version)
+        .where(AnalysisSnapshot.project_id == project_id)
+        .order_by(AnalysisSnapshot.version.desc())
+        .limit(1)
+    )
+    prev_version = ver_result.scalar_one_or_none() or 0
+
+    snapshot = AnalysisSnapshot(
+        id=new_cuid(),
+        org_id=user.org_id,
+        project_id=project_id,
+        version=prev_version + 1,
+        analysis_json=analysis_json,
+        analysis_schema="rfx_analysis_v1",
+        summary_md=summary_md,
+        is_active=True,
+        created_by=user.username,
+    )
+    db.add(snapshot)
+    await db.flush()
+
+    project.active_analysis_snapshot_id = snapshot.id
+    project.status = "ready_for_generation"
+
+    # Update title from analysis if project title is generic
+    if analysis.title and project.title.startswith("새 입찰 프로젝트"):
+        project.title = analysis.title
+
+    db.add(AuditLog(
+        org_id=user.org_id,
+        user_id=user.username,
+        project_id=project_id,
+        action="studio_rfp_analyzed",
+        target_type="analysis_snapshot",
+        target_id=snapshot.id,
+    ))
+
+    await db.commit()
+    await db.refresh(project)
+
+    return {
+        "snapshot_id": snapshot.id,
+        "version": snapshot.version,
+        "title": analysis.title,
+        "summary_md": summary_md,
+        "project": _project_to_response(project),
+    }
 
 
 @router.post("/projects/{project_id}/classify", response_model=ClassifyResponse)

@@ -95,6 +95,26 @@ export async function updateStudioStage(
   });
 }
 
+// --- RFP Analysis ---
+
+export interface AnalyzeResult {
+  snapshot_id: string;
+  version: number;
+  title: string;
+  summary_md: string;
+  project: StudioProject;
+}
+
+export async function analyzeRfpText(
+  projectId: string,
+  documentText: string,
+): Promise<AnalyzeResult> {
+  return studioFetch(`/api/studio/projects/${projectId}/analyze`, {
+    method: 'POST',
+    body: JSON.stringify({ document_text: documentText }),
+  });
+}
+
 // --- Package classification ---
 
 export interface PackageItem {

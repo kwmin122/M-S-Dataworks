@@ -6,6 +6,7 @@ import PackageStage from './stages/PackageStage';
 import {
   getStudioProject,
   updateStudioStage,
+  analyzeRfpText,
   classifyPackage,
   STUDIO_STAGES,
   type StudioProject as StudioProjectType,
@@ -48,6 +49,12 @@ export default function StudioProject() {
     },
     [projectId],
   );
+
+  const handleAnalyze = useCallback(async (text: string) => {
+    if (!projectId) return;
+    const result = await analyzeRfpText(projectId, text);
+    setProject(result.project);
+  }, [projectId]);
 
   const handleClassify = useCallback(async () => {
     if (!projectId) return;
@@ -94,6 +101,7 @@ export default function StudioProject() {
       <StageContent
         stage={currentStage}
         project={project}
+        onAnalyze={handleAnalyze}
         onClassify={handleClassify}
         classifyResult={classifyResult}
       />
@@ -104,17 +112,19 @@ export default function StudioProject() {
 function StageContent({
   stage,
   project,
+  onAnalyze,
   onClassify,
   classifyResult,
 }: {
   stage: StudioStage;
   project: StudioProjectType;
+  onAnalyze: (text: string) => Promise<void>;
   onClassify: () => Promise<void>;
   classifyResult: ClassifyResult | null;
 }) {
   switch (stage) {
     case 'rfp':
-      return <RfpStage project={project} onClassify={onClassify} />;
+      return <RfpStage project={project} onAnalyze={onAnalyze} onClassify={onClassify} />;
     case 'package':
       return (
         <PackageStage
