@@ -219,7 +219,6 @@ export async function createStyleSkill(
   projectId: string,
   params: {
     name: string;
-    source_type?: string;
     style_json?: Record<string, unknown>;
     profile_md_content?: string;
   },

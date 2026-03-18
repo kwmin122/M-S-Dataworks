@@ -318,7 +318,6 @@ function CreateStyleForm({
     try {
       await createStyleSkill(projectId, {
         name: name.trim(),
-        source_type: 'uploaded',
         profile_md_content: profileMd.trim() || undefined,
       });
       onSaved();

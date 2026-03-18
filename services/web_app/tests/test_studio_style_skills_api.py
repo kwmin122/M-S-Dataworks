@@ -65,7 +65,7 @@ async def test_create_style_skill(db_session):
         project_id=project.id,
         req=CreateStyleSkillRequest(
             name="과거 제안서 기반 v1",
-            source_type="uploaded",
+            
             style_json={"tone": "formal", "voice": "third_person"},
             profile_md_content="# 문체 프로필\n- 경어체 사용",
         ),
@@ -94,7 +94,7 @@ async def test_pin_style_skill(db_session):
     skill = await create_style_skill(
         project_id=project.id,
         req=CreateStyleSkillRequest(
-            name="핀 대상 스타일", source_type="uploaded",
+            name="핀 대상 스타일", 
             style_json={"tone": "casual"},
         ),
         user=user, db=db_session,
@@ -126,12 +126,12 @@ async def test_list_style_skills(db_session):
 
     await create_style_skill(
         project_id=project.id,
-        req=CreateStyleSkillRequest(name="스타일 A", source_type="uploaded"),
+        req=CreateStyleSkillRequest(name="스타일 A"),
         user=user, db=db_session,
     )
     await create_style_skill(
         project_id=project.id,
-        req=CreateStyleSkillRequest(name="스타일 B", source_type="uploaded"),
+        req=CreateStyleSkillRequest(name="스타일 B"),
         user=user, db=db_session,
     )
 
@@ -153,7 +153,7 @@ async def test_derive_style_skill(db_session):
     v1 = await create_style_skill(
         project_id=project.id,
         req=CreateStyleSkillRequest(
-            name="원본 스타일", source_type="uploaded",
+            name="원본 스타일", 
             style_json={"tone": "formal"},
         ),
         user=user, db=db_session,
@@ -190,7 +190,7 @@ async def test_promote_creates_shared_default(db_session):
     skill = await create_style_skill(
         project_id=project.id,
         req=CreateStyleSkillRequest(
-            name="승격 대상 스타일", source_type="uploaded",
+            name="승격 대상 스타일", 
             style_json={"tone": "formal"},
             profile_md_content="# 조직 기본 문체",
         ),
@@ -230,7 +230,7 @@ async def test_promote_replaces_existing_shared_default(db_session):
     # Create and promote first skill
     s1 = await create_style_skill(
         project_id=project.id,
-        req=CreateStyleSkillRequest(name="v1 스타일", source_type="uploaded", style_json={"v": 1}),
+        req=CreateStyleSkillRequest(name="v1 스타일", style_json={"v": 1}),
         user=user, db=db_session,
     )
     r1 = await promote_style_skill(project_id=project.id, skill_id=s1.id, user=user, db=db_session)
@@ -239,7 +239,7 @@ async def test_promote_replaces_existing_shared_default(db_session):
     # Create and promote second skill
     s2 = await create_style_skill(
         project_id=project.id,
-        req=CreateStyleSkillRequest(name="v2 스타일", source_type="uploaded", style_json={"v": 2}),
+        req=CreateStyleSkillRequest(name="v2 스타일", style_json={"v": 2}),
         user=user, db=db_session,
     )
     r2 = await promote_style_skill(project_id=project.id, skill_id=s2.id, user=user, db=db_session)
@@ -271,7 +271,7 @@ async def test_promote_creates_audit_log(db_session):
 
     skill = await create_style_skill(
         project_id=project.id,
-        req=CreateStyleSkillRequest(name="감사 테스트", source_type="uploaded"),
+        req=CreateStyleSkillRequest(name="감사 테스트"),
         user=user, db=db_session,
     )
     await promote_style_skill(project_id=project.id, skill_id=skill.id, user=user, db=db_session)
@@ -305,7 +305,7 @@ async def test_non_studio_project_rejected(db_session):
     with pytest.raises(HTTPException) as exc_info:
         await create_style_skill(
             project_id=chat_project.id,
-            req=CreateStyleSkillRequest(name="test", source_type="uploaded"),
+            req=CreateStyleSkillRequest(name="test"),
             user=user, db=db_session,
         )
     assert exc_info.value.status_code == 400
@@ -343,7 +343,7 @@ async def test_unpin_style_skill(db_session):
 
     skill = await create_style_skill(
         project_id=project.id,
-        req=CreateStyleSkillRequest(name="핀 해제 대상", source_type="uploaded"),
+        req=CreateStyleSkillRequest(name="핀 해제 대상"),
         user=user, db=db_session,
     )
     await pin_style_skill(project_id=project.id, skill_id=skill.id, user=user, db=db_session)

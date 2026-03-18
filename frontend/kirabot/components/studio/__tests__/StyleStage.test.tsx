@@ -139,7 +139,6 @@ describe('StyleStage', () => {
     await waitFor(() => {
       expect(mockCreateSkill).toHaveBeenCalledWith('proj1', {
         name: '테스트 스타일',
-        source_type: 'uploaded',
         profile_md_content: undefined,
       });
     });

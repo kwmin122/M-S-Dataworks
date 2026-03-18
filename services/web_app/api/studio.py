@@ -850,7 +850,6 @@ def _parse_date(val: str):
 
 class CreateStyleSkillRequest(BaseModel):
     name: str = Field(min_length=1, max_length=300)
-    source_type: str = Field(pattern="^(uploaded|derived|promoted)$", default="uploaded")
     style_json: dict | None = None
     profile_md_content: str | None = None
 
@@ -903,7 +902,7 @@ async def create_style_skill(
         org_id=user.org_id,
         version=prev_version + 1,
         name=req.name,
-        source_type=req.source_type,
+        source_type="uploaded",
         style_json=req.style_json,
         profile_md_content=req.profile_md_content,
     )
@@ -945,11 +944,12 @@ async def pin_style_skill(
     """Pin a style skill to the project."""
     await _require_studio_project_access(project_id, "editor", user, db)
 
-    # Verify skill exists and belongs to this project or org
+    # Verify skill exists and belongs to this project or is org-shared
     skill = (await db.execute(
         select(ProjectStyleSkill).where(
             ProjectStyleSkill.id == skill_id,
             ProjectStyleSkill.org_id == user.org_id,
+            (ProjectStyleSkill.project_id == project_id) | (ProjectStyleSkill.project_id.is_(None)),
         )
     )).scalar_one_or_none()
     if skill is None:
@@ -1022,8 +1022,8 @@ async def derive_style_skill(
         name=req.name,
         source_type="derived",
         derived_from_id=skill_id,
-        style_json=req.style_json if req.style_json else parent.style_json,
-        profile_md_content=req.profile_md_content if req.profile_md_content else parent.profile_md_content,
+        style_json=req.style_json if req.style_json is not None else parent.style_json,
+        profile_md_content=req.profile_md_content if req.profile_md_content is not None else parent.profile_md_content,
     )
     db.add(derived)
     await db.commit()
