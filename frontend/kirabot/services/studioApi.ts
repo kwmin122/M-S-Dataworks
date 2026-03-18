@@ -63,10 +63,12 @@ export const STUDIO_STAGES: { key: StudioStage; label: string }[] = [
 
 // --- API functions ---
 
+export type RfpSourceType = 'upload' | 'nara_search' | 'manual';
+
 export async function createStudioProject(params: {
   title: string;
   from_analysis_snapshot_id?: string;
-  rfp_source_type?: string;
+  rfp_source_type?: RfpSourceType;
   rfp_source_ref?: string;
 }): Promise<StudioProject> {
   return studioFetch('/api/studio/projects', {

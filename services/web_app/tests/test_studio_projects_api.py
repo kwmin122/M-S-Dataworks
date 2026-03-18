@@ -12,7 +12,8 @@ from __future__ import annotations
 import pytest
 from services.web_app.db.models.base import new_cuid
 from services.web_app.db.models.org import Organization
-from services.web_app.db.models.project import BidProject, AnalysisSnapshot
+from services.web_app.db.models.project import BidProject, ProjectAccess, AnalysisSnapshot
+from services.web_app.db.models.audit import AuditLog
 from services.web_app.db.models.studio import (
     ProjectCompanyAsset, ProjectStyleSkill, ProjectPackageItem,
 )
@@ -314,3 +315,113 @@ async def test_shared_default_style_skill(db_session):
 
     assert shared_skill.project_id is None
     assert shared_skill.is_shared_default is True
+
+
+# ---- ACL / constraint tests ----
+
+@pytest.mark.asyncio
+async def test_creator_gets_project_access(db_session):
+    """Simulates the API behavior: creator must have ProjectAccess(owner)."""
+    from services.web_app.db.models.org import Membership
+
+    org = await _create_org(db_session)
+    # Create membership for the user
+    db_session.add(Membership(
+        org_id=org.id, user_id="creator_user", role="editor", is_active=True,
+    ))
+    await db_session.flush()
+
+    # Create project + ProjectAccess (mirroring studio.py create_studio_project)
+    project = await _create_studio_project(db_session, org.id, "ACL 테스트")
+    access = ProjectAccess(
+        project_id=project.id, user_id="creator_user", access_level="owner",
+    )
+    db_session.add(access)
+    await db_session.commit()
+
+    # Creator can access
+    from sqlalchemy import select
+    result = await db_session.execute(
+        select(ProjectAccess).where(
+            ProjectAccess.project_id == project.id,
+            ProjectAccess.user_id == "creator_user",
+        )
+    )
+    found = result.scalar_one_or_none()
+    assert found is not None
+    assert found.access_level == "owner"
+
+
+@pytest.mark.asyncio
+async def test_non_creator_cannot_see_project(db_session):
+    """Non-admin user without ProjectAccess cannot see the project in list."""
+    org = await _create_org(db_session)
+
+    # Create project with access for creator only
+    project = await _create_studio_project(db_session, org.id, "비공개 프로젝트")
+    db_session.add(ProjectAccess(
+        project_id=project.id, user_id="creator", access_level="owner",
+    ))
+    await db_session.commit()
+
+    # Another user queries — should NOT find this project via ACL join
+    from sqlalchemy import select
+    result = await db_session.execute(
+        select(BidProject)
+        .join(ProjectAccess, ProjectAccess.project_id == BidProject.id)
+        .where(
+            BidProject.org_id == org.id,
+            BidProject.project_type == "studio",
+            ProjectAccess.user_id == "other_user",  # no access row
+        )
+    )
+    projects = result.scalars().all()
+    assert len(projects) == 0
+
+
+@pytest.mark.asyncio
+async def test_shared_default_on_project_scoped_skill_rejected(db_session):
+    """is_shared_default=True with project_id NOT NULL must be rejected by CHECK."""
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+
+    bad_skill = ProjectStyleSkill(
+        project_id=project.id,  # NOT NULL — violates CHECK
+        org_id=org.id,
+        version=1,
+        name="잘못된 공유 기본값",
+        source_type="uploaded",
+        is_shared_default=True,  # shared default on project-scoped row
+    )
+    db_session.add(bad_skill)
+
+    from sqlalchemy.exc import IntegrityError
+    with pytest.raises(IntegrityError):
+        await db_session.flush()
+
+    await db_session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_duplicate_shared_default_per_org_rejected(db_session):
+    """Only one is_shared_default=True per org."""
+    org = await _create_org(db_session)
+
+    skill1 = ProjectStyleSkill(
+        project_id=None, org_id=org.id, version=1,
+        name="기본 스타일 v1", source_type="promoted", is_shared_default=True,
+    )
+    db_session.add(skill1)
+    await db_session.flush()
+
+    skill2 = ProjectStyleSkill(
+        project_id=None, org_id=org.id, version=2,
+        name="기본 스타일 v2", source_type="promoted", is_shared_default=True,
+    )
+    db_session.add(skill2)
+
+    from sqlalchemy.exc import IntegrityError
+    with pytest.raises(IntegrityError):
+        await db_session.flush()
+
+    await db_session.rollback()

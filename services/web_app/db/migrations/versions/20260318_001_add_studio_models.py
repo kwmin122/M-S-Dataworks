@@ -33,6 +33,7 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.CheckConstraint("source_type IN ('uploaded','derived','promoted')", name="ck_proj_style_skills_source_type"),
+        sa.CheckConstraint("is_shared_default = false OR project_id IS NULL", name="ck_shared_default_requires_null_project"),
         sa.UniqueConstraint("project_id", "version", name="uq_style_skill_project_version"),
     )
     op.create_index("idx_style_skills_project", "project_style_skills", ["project_id"])

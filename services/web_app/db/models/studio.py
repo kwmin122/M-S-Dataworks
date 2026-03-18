@@ -73,6 +73,11 @@ class ProjectStyleSkill(CuidPkMixin, TimestampMixin, Base):
 
     __table_args__ = (
         CheckConstraint(_STYLE_SOURCE_TYPES, name="ck_proj_style_skills_source_type"),
+        # Shared default must have no project (org-level, not project-scoped)
+        CheckConstraint(
+            "is_shared_default = false OR project_id IS NULL",
+            name="ck_shared_default_requires_null_project",
+        ),
         # Project-local version uniqueness (project_id NOT NULL rows)
         UniqueConstraint("project_id", "version", name="uq_style_skill_project_version"),
         # Shared defaults (project_id IS NULL) — prevent duplicate versions per org
