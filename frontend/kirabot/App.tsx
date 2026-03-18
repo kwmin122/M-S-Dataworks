@@ -9,6 +9,7 @@ import PackageSection from './components/PackageSection';
 import Marquee from './components/Marquee';
 import Pricing from './components/Pricing';
 import Footer from './components/Footer';
+import ProductHub from './components/landing/ProductHub';
 import LoginModal from './components/LoginModal';
 import PrivacyPolicy from './components/PrivacyPolicy';
 import TermsOfService from './components/TermsOfService';
@@ -27,6 +28,7 @@ import ForecastPage from './components/forecast/ForecastPage';
 import AdminPage from './components/admin/AdminPage';
 import AlertsPage from './components/alerts/AlertsPage';
 import StudioHome from './pages/StudioHome';
+import StudioProjectPage from './components/studio/StudioProject';
 import PaymentModal from './components/PaymentModal';
 import SubscriptionPage from './components/settings/SubscriptionPage';
 import type { User } from './types';
@@ -187,6 +189,13 @@ function AppRoutes() {
       />
       <main className="flex-grow">
         <Hero onStart={handleStart} onStartStudio={handleStartStudio} onAlertSetup={handleAlertSetup} />
+        <ProductHub
+          onNavigateChat={handleStart}
+          onNavigateStudio={handleStartStudio}
+          onNavigateForecast={() => { if (user) navigate('/forecast'); else setIsLoginModalOpen(true); }}
+          onNavigateCompany={() => { if (user) navigate('/settings/company'); else setIsLoginModalOpen(true); }}
+          studioEnabled={false}
+        />
         <HowItWorks />
         <Marquee text="/ 검색 / 분석 / 판단 / 생성 / 학습 /" />
         <Solutions />
@@ -243,6 +252,7 @@ function AppRoutes() {
         }>
           <Route path="/chat" element={<ChatPage user={user} />} />
           <Route path="/studio" element={<StudioHome />} />
+          <Route path="/studio/projects/:projectId" element={<StudioProjectPage />} />
           <Route path="/alerts" element={<AlertsPage />} />
           <Route path="/forecast" element={<ForecastPage />} />
           <Route path="/admin" element={user?.isAdmin ? <AdminPage /> : <Navigate to="/chat" replace />} />
