@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import StudioLayout from './StudioLayout';
 import RfpStage from './stages/RfpStage';
 import PackageStage from './stages/PackageStage';
+import CompanyStage from './stages/CompanyStage';
 import {
   getStudioProject,
   updateStudioStage,
@@ -133,6 +134,8 @@ function StageContent({
           contractMethod={classifyResult?.contract_method}
         />
       );
+    case 'company':
+      return <CompanyStage projectId={project.id} />;
     default:
       return <StagePlaceholder stage={stage} />;
   }

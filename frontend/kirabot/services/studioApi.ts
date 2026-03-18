@@ -145,3 +145,57 @@ export async function classifyPackage(projectId: string): Promise<ClassifyResult
 export async function listPackageItems(projectId: string): Promise<PackageItem[]> {
   return studioFetch(`/api/studio/projects/${projectId}/package-items`);
 }
+
+// --- Company Assets ---
+
+export type AssetCategory =
+  | 'track_record'
+  | 'personnel'
+  | 'profile'
+  | 'technology'
+  | 'certification'
+  | 'raw_document';
+
+export interface CompanyAsset {
+  id: string;
+  asset_category: AssetCategory;
+  label: string;
+  content_json: Record<string, unknown>;
+  promoted_at: string | null;
+  promoted_to_id: string | null;
+  created_at: string;
+}
+
+export interface MergedCompanyData {
+  profile: Record<string, unknown> | null;
+  track_records: Array<Record<string, unknown> & { source: 'shared' | 'staging' }>;
+  personnel: Array<Record<string, unknown> & { source: 'shared' | 'staging' }>;
+  other_assets: Array<Record<string, unknown> & { source: 'staging' }>;
+}
+
+export async function addCompanyAsset(
+  projectId: string,
+  params: { asset_category: AssetCategory; label: string; content_json: Record<string, unknown> },
+): Promise<CompanyAsset> {
+  return studioFetch(`/api/studio/projects/${projectId}/company-assets`, {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+}
+
+export async function listCompanyAssets(projectId: string): Promise<CompanyAsset[]> {
+  return studioFetch(`/api/studio/projects/${projectId}/company-assets`);
+}
+
+export async function getCompanyMerged(projectId: string): Promise<MergedCompanyData> {
+  return studioFetch(`/api/studio/projects/${projectId}/company-merged`);
+}
+
+export async function promoteCompanyAsset(
+  projectId: string,
+  assetId: string,
+): Promise<{ promoted: boolean; promoted_to_id: string }> {
+  return studioFetch(`/api/studio/projects/${projectId}/company-assets/${assetId}/promote`, {
+    method: 'POST',
+  });
+}

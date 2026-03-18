@@ -1,9 +1,10 @@
-"""Studio project control plane — CRUD + snapshot clone + analyze + classify."""
+"""Studio project control plane — CRUD + snapshot clone + analyze + classify + company assets."""
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -14,7 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from services.web_app.db.engine import get_async_session
 from services.web_app.db.models.base import new_cuid
 from services.web_app.db.models.project import BidProject, ProjectAccess, AnalysisSnapshot
-from services.web_app.db.models.studio import ProjectPackageItem
+from services.web_app.db.models.studio import ProjectCompanyAsset, ProjectPackageItem
+from services.web_app.db.models.company import CompanyProfile, CompanyTrackRecord, CompanyPersonnel
 from services.web_app.db.models.audit import AuditLog
 from services.web_app.api.deps import CurrentUser, resolve_org_membership, require_project_access
 from services.web_app.services.package_classifier import classify_and_build
@@ -484,6 +486,364 @@ async def list_package_items(
         )
         for i in items
     ]
+
+
+# --- Studio project type guard ---
+
+async def _require_studio_project_access(
+    project_id: str, min_level: str, user: CurrentUser, db: AsyncSession,
+) -> None:
+    """require_project_access + verify project_type == 'studio'.
+
+    All company-asset endpoints must call this instead of bare require_project_access,
+    so staging data cannot be attached to non-Studio projects.
+    """
+    await require_project_access(project_id, min_level, user, db)
+    result = await db.execute(
+        select(BidProject.project_type).where(BidProject.id == project_id)
+    )
+    ptype = result.scalar_one_or_none()
+    if ptype != "studio":
+        raise HTTPException(400, "Studio 프로젝트에서만 사용할 수 있습니다")
+
+
+# --- Company Asset schemas ---
+
+_VALID_ASSET_CATEGORIES = frozenset({
+    "track_record", "personnel", "profile",
+    "technology", "certification", "raw_document",
+})
+_PROMOTABLE_CATEGORIES = frozenset({"track_record", "personnel", "profile"})
+
+
+class CompanyAssetRequest(BaseModel):
+    asset_category: str = Field(pattern="^(track_record|personnel|profile|technology|certification|raw_document)$")
+    label: str = Field(min_length=1, max_length=500)
+    content_json: dict
+
+
+class CompanyAssetResponse(BaseModel):
+    id: str
+    asset_category: str
+    label: str
+    content_json: dict
+    promoted_at: str | None
+    promoted_to_id: str | None
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+
+# --- Company Asset endpoints ---
+
+@router.post("/projects/{project_id}/company-assets", response_model=CompanyAssetResponse, status_code=201)
+async def add_company_asset(
+    project_id: str,
+    req: CompanyAssetRequest,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Add a company asset to project staging. Does NOT touch shared CompanyDB."""
+    await _require_studio_project_access(project_id, "editor", user, db)
+
+    asset = ProjectCompanyAsset(
+        project_id=project_id,
+        org_id=user.org_id,
+        asset_category=req.asset_category,
+        label=req.label,
+        content_json=req.content_json,
+    )
+    db.add(asset)
+    await db.commit()
+    await db.refresh(asset)
+
+    return _asset_to_response(asset)
+
+
+@router.get("/projects/{project_id}/company-assets", response_model=list[CompanyAssetResponse])
+async def list_company_assets(
+    project_id: str,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """List staging company assets for this project."""
+    await _require_studio_project_access(project_id, "viewer", user, db)
+
+    result = await db.execute(
+        select(ProjectCompanyAsset)
+        .where(ProjectCompanyAsset.project_id == project_id)
+        .order_by(ProjectCompanyAsset.created_at)
+    )
+    assets = result.scalars().all()
+    return [_asset_to_response(a) for a in assets]
+
+
+@router.get("/projects/{project_id}/company-merged")
+async def get_company_merged(
+    project_id: str,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Return shared + staging merged view of company data."""
+    await _require_studio_project_access(project_id, "viewer", user, db)
+
+    # --- Shared data ---
+    profile_result = await db.execute(
+        select(CompanyProfile).where(CompanyProfile.org_id == user.org_id)
+    )
+    shared_profile = profile_result.scalar_one_or_none()
+
+    shared_tracks_result = await db.execute(
+        select(CompanyTrackRecord).where(CompanyTrackRecord.org_id == user.org_id)
+    )
+    shared_tracks = shared_tracks_result.scalars().all()
+
+    shared_personnel_result = await db.execute(
+        select(CompanyPersonnel).where(CompanyPersonnel.org_id == user.org_id)
+    )
+    shared_personnel = shared_personnel_result.scalars().all()
+
+    # --- Staging data ---
+    staging_result = await db.execute(
+        select(ProjectCompanyAsset)
+        .where(
+            ProjectCompanyAsset.project_id == project_id,
+            ProjectCompanyAsset.promoted_at.is_(None),
+        )
+        .order_by(ProjectCompanyAsset.created_at)
+    )
+    staging_assets = staging_result.scalars().all()
+
+    # --- Build merged response ---
+    # Profile: shared profile or staging profile override
+    profile_data = None
+    if shared_profile:
+        profile_data = {
+            "id": shared_profile.id,
+            "company_name": shared_profile.company_name,
+            "business_type": shared_profile.business_type,
+            "business_number": shared_profile.business_number,
+            "capital": shared_profile.capital,
+            "headcount": shared_profile.headcount,
+            "source": "shared",
+        }
+
+    # Track records: shared + staging
+    track_records = []
+    for t in shared_tracks:
+        track_records.append({
+            "id": t.id,
+            "project_name": t.project_name,
+            "client_name": t.client_name,
+            "contract_amount": t.contract_amount,
+            "description": t.description,
+            "source": "shared",
+        })
+
+    # Personnel: shared + staging
+    personnel = []
+    for p in shared_personnel:
+        personnel.append({
+            "id": p.id,
+            "name": p.name,
+            "role": p.role,
+            "years_experience": p.years_experience,
+            "description": p.description,
+            "source": "shared",
+        })
+
+    # Other categories
+    other_assets = []
+
+    for asset in staging_assets:
+        item = {
+            "id": asset.id,
+            "source": "staging",
+            "asset_category": asset.asset_category,
+            "label": asset.label,
+            **asset.content_json,
+        }
+        if asset.asset_category == "track_record":
+            track_records.append(item)
+        elif asset.asset_category == "personnel":
+            personnel.append(item)
+        elif asset.asset_category == "profile":
+            # Staging profile overrides display (but doesn't write shared yet)
+            profile_data = {
+                "id": asset.id,
+                "source": "staging",
+                **asset.content_json,
+            }
+        else:
+            other_assets.append(item)
+
+    return {
+        "profile": profile_data,
+        "track_records": track_records,
+        "personnel": personnel,
+        "other_assets": other_assets,
+    }
+
+
+@router.post("/projects/{project_id}/company-assets/{asset_id}/promote")
+async def promote_company_asset(
+    project_id: str,
+    asset_id: str,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Promote a staging asset to shared CompanyDB.
+
+    Only track_record, personnel, profile are promotable in this phase.
+    """
+    await _require_studio_project_access(project_id, "editor", user, db)
+
+    # Load the staging asset
+    result = await db.execute(
+        select(ProjectCompanyAsset).where(
+            ProjectCompanyAsset.id == asset_id,
+            ProjectCompanyAsset.project_id == project_id,
+        )
+    )
+    asset = result.scalar_one_or_none()
+    if asset is None:
+        raise HTTPException(404, "스테이징 자산을 찾을 수 없습니다")
+
+    # Check already promoted
+    if asset.promoted_at is not None:
+        raise HTTPException(409, "이미 승격된 자산입니다")
+
+    # Check promotable category
+    if asset.asset_category not in _PROMOTABLE_CATEGORIES:
+        raise HTTPException(
+            400,
+            f"'{asset.asset_category}' 카테고리는 현재 공유 DB 승격을 지원하지 않습니다",
+        )
+
+    # Promote based on category
+    promoted_to_id: str | None = None
+    content = asset.content_json
+
+    if asset.asset_category == "track_record":
+        record = CompanyTrackRecord(
+            org_id=user.org_id,
+            project_name=content.get("project_name"),
+            client_name=content.get("client_name"),
+            contract_amount=content.get("contract_amount"),
+            description=content.get("description"),
+            technologies=content.get("technologies"),
+        )
+        # Parse dates if provided
+        if content.get("period_start"):
+            try:
+                record.period_start = _parse_date(content["period_start"])
+            except (ValueError, TypeError):
+                pass
+        if content.get("period_end"):
+            try:
+                record.period_end = _parse_date(content["period_end"])
+            except (ValueError, TypeError):
+                pass
+        db.add(record)
+        await db.flush()
+        promoted_to_id = record.id
+
+    elif asset.asset_category == "personnel":
+        person = CompanyPersonnel(
+            org_id=user.org_id,
+            name=content.get("name"),
+            role=content.get("role"),
+            years_experience=content.get("years_experience"),
+            certifications=content.get("certifications"),
+            skills=content.get("skills"),
+            description=content.get("description"),
+        )
+        db.add(person)
+        await db.flush()
+        promoted_to_id = person.id
+
+    elif asset.asset_category == "profile":
+        # Profile is org-level singleton — upsert
+        existing = (await db.execute(
+            select(CompanyProfile).where(CompanyProfile.org_id == user.org_id)
+        )).scalar_one_or_none()
+
+        if existing:
+            # Update existing profile
+            if content.get("company_name") is not None:
+                existing.company_name = content["company_name"]
+            if content.get("business_type") is not None:
+                existing.business_type = content["business_type"]
+            if content.get("business_number") is not None:
+                existing.business_number = content["business_number"]
+            if content.get("capital") is not None:
+                existing.capital = content["capital"]
+            if content.get("headcount") is not None:
+                existing.headcount = content["headcount"]
+            if content.get("licenses") is not None:
+                existing.licenses = content["licenses"]
+            if content.get("certifications") is not None:
+                existing.certifications = content["certifications"]
+            if content.get("writing_style") is not None:
+                existing.writing_style = content["writing_style"]
+            promoted_to_id = existing.id
+        else:
+            # Create new profile
+            profile = CompanyProfile(
+                org_id=user.org_id,
+                company_name=content.get("company_name"),
+                business_type=content.get("business_type"),
+                business_number=content.get("business_number"),
+                capital=content.get("capital"),
+                headcount=content.get("headcount"),
+                licenses=content.get("licenses"),
+                certifications=content.get("certifications"),
+                writing_style=content.get("writing_style"),
+            )
+            db.add(profile)
+            await db.flush()
+            promoted_to_id = profile.id
+
+    # Mark staging asset as promoted
+    asset.promoted_at = datetime.now(timezone.utc)
+    asset.promoted_to_id = promoted_to_id
+
+    # Audit log
+    db.add(AuditLog(
+        org_id=user.org_id,
+        user_id=user.username,
+        project_id=project_id,
+        action="company_asset_promoted",
+        target_type="project_company_asset",
+        target_id=asset_id,
+        detail_json={
+            "asset_category": asset.asset_category,
+            "promoted_to_id": promoted_to_id,
+        },
+    ))
+
+    await db.commit()
+
+    return {"promoted": True, "promoted_to_id": promoted_to_id}
+
+
+def _asset_to_response(asset: ProjectCompanyAsset) -> CompanyAssetResponse:
+    return CompanyAssetResponse(
+        id=asset.id,
+        asset_category=asset.asset_category,
+        label=asset.label,
+        content_json=asset.content_json,
+        promoted_at=asset.promoted_at.isoformat() if asset.promoted_at else None,
+        promoted_to_id=asset.promoted_to_id,
+        created_at=asset.created_at.isoformat(),
+    )
+
+
+def _parse_date(val: str):
+    """Parse a date string (YYYY-MM-DD) to date object."""
+    from datetime import date as date_type
+    return date_type.fromisoformat(val)
 
 
 # --- Helpers ---

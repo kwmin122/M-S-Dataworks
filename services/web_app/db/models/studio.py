@@ -11,7 +11,7 @@ from .base import Base, CuidPkMixin, TimestampMixin
 
 # --- Enum value strings for CHECK constraints ---
 
-_ASSET_CATEGORIES = "asset_category IN ('track_record','personnel','technology','certification','raw_document')"
+_ASSET_CATEGORIES = "asset_category IN ('track_record','personnel','profile','technology','certification','raw_document')"
 _STYLE_SOURCE_TYPES = "source_type IN ('uploaded','derived','promoted')"
 _PACKAGE_CATEGORIES = "package_category IN ('generated_document','evidence','administrative','price')"
 _PACKAGE_STATUSES = "status IN ('missing','ready_to_generate','generated','uploaded','verified','waived')"
