@@ -94,3 +94,34 @@ export async function updateStudioStage(
     body: JSON.stringify({ studio_stage: stage }),
   });
 }
+
+// --- Package classification ---
+
+export interface PackageItem {
+  id: string;
+  package_category: 'generated_document' | 'evidence' | 'administrative' | 'price';
+  document_code: string;
+  document_label: string;
+  required: boolean;
+  status: string;
+  generation_target: string | null;
+  sort_order: number;
+}
+
+export interface ClassifyResult {
+  procurement_domain: string;
+  contract_method: string;
+  confidence: number;
+  detection_method: string;
+  package_items: PackageItem[];
+}
+
+export async function classifyPackage(projectId: string): Promise<ClassifyResult> {
+  return studioFetch(`/api/studio/projects/${projectId}/classify`, {
+    method: 'POST',
+  });
+}
+
+export async function listPackageItems(projectId: string): Promise<PackageItem[]> {
+  return studioFetch(`/api/studio/projects/${projectId}/package-items`);
+}

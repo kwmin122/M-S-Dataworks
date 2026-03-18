@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import StudioLayout from './StudioLayout';
+import RfpStage from './stages/RfpStage';
+import PackageStage from './stages/PackageStage';
 import {
   getStudioProject,
   updateStudioStage,
+  classifyPackage,
   STUDIO_STAGES,
   type StudioProject as StudioProjectType,
   type StudioStage,
+  type ClassifyResult,
 } from '../../services/studioApi';
 
 const VALID_STAGES = new Set<string>(STUDIO_STAGES.map(s => s.key));
@@ -17,6 +21,7 @@ export default function StudioProject() {
   const [project, setProject] = useState<StudioProjectType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [classifyResult, setClassifyResult] = useState<ClassifyResult | null>(null);
 
   useEffect(() => {
     if (!projectId) return;
@@ -43,6 +48,15 @@ export default function StudioProject() {
     },
     [projectId],
   );
+
+  const handleClassify = useCallback(async () => {
+    if (!projectId) return;
+    const result = await classifyPackage(projectId);
+    setClassifyResult(result);
+    // Refresh project to get updated stage
+    const updated = await getStudioProject(projectId);
+    setProject(updated);
+  }, [projectId]);
 
   if (loading) {
     return (
@@ -77,9 +91,41 @@ export default function StudioProject() {
       currentStage={currentStage}
       onStageChange={handleStageChange}
     >
-      <StagePlaceholder stage={currentStage} />
+      <StageContent
+        stage={currentStage}
+        project={project}
+        onClassify={handleClassify}
+        classifyResult={classifyResult}
+      />
     </StudioLayout>
   );
+}
+
+function StageContent({
+  stage,
+  project,
+  onClassify,
+  classifyResult,
+}: {
+  stage: StudioStage;
+  project: StudioProjectType;
+  onClassify: () => Promise<void>;
+  classifyResult: ClassifyResult | null;
+}) {
+  switch (stage) {
+    case 'rfp':
+      return <RfpStage project={project} onClassify={onClassify} />;
+    case 'package':
+      return (
+        <PackageStage
+          projectId={project.id}
+          procurementDomain={classifyResult?.procurement_domain}
+          contractMethod={classifyResult?.contract_method}
+        />
+      );
+    default:
+      return <StagePlaceholder stage={stage} />;
+  }
 }
 
 function StagePlaceholder({ stage }: { stage: StudioStage }) {

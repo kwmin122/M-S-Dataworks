@@ -276,6 +276,12 @@ async def classify_project_package(
     # Persist new package items
     db_items: list[ProjectPackageItem] = []
     for spec in item_specs:
+        # generated_document with generation_target → ready_to_generate; others → missing
+        initial_status = (
+            "ready_to_generate"
+            if spec.package_category == "generated_document" and spec.generation_target
+            else "missing"
+        )
         item = ProjectPackageItem(
             project_id=project_id,
             org_id=user.org_id,
@@ -283,7 +289,7 @@ async def classify_project_package(
             document_code=spec.document_code,
             document_label=spec.document_label,
             required=spec.required,
-            status="missing",
+            status=initial_status,
             generation_target=spec.generation_target,
             sort_order=spec.sort_order,
         )
