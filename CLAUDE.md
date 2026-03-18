@@ -11,6 +11,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 현재: 레거시 Chat UI (React + FastAPI) + **멀티테넌트 B2B SaaS** (Phase 1~8 완료) + **A-lite 제안서 생성 파이프라인** (Phase 1 구현 완료).
 
 비전/목표: `docs/우리의_목표.md`
+
+### 현재 진행 중: Bid Studio (입찰 제출 패키지 워크스페이스)
+- **설계**: `docs/plans/2026-03-18-bid-studio-master-design.md`
+- **구현 계획**: `docs/plans/2026-03-18-bid-studio-master-implementation-plan.md`
+- **핵심**: 제안서 작성기가 아니라 **입찰 제출 패키지 Studio** (용역+물품+공사)
+- **구현 방식**: 가로 확장 ❌ → **세로 슬라이스** (Slice 1: proposal end-to-end)
+- **아키텍처**: package classifier → company/style 연결 → generated docs + evidence checklist → review/relearning
+- **제품 경계**: Chat=탐색, Studio=정식 생산 경로, Settings=shared master
+
 확장 설계: `docs/plans/2026-02-27-full-lifecycle-expansion-design.md` (8모듈 + 3계층 학습 모델)
 Phase 1 핸드오프: `docs/plans/2026-02-27-phase1-implementation-handoff.md`
 현재 상황: `docs/plans/2026-02-27-현재상황-핸드오프.md`
