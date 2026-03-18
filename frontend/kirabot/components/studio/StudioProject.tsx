@@ -4,6 +4,7 @@ import StudioLayout from './StudioLayout';
 import RfpStage from './stages/RfpStage';
 import PackageStage from './stages/PackageStage';
 import CompanyStage from './stages/CompanyStage';
+import StyleStage from './stages/StyleStage';
 import {
   getStudioProject,
   updateStudioStage,
@@ -105,6 +106,7 @@ export default function StudioProject() {
         onAnalyze={handleAnalyze}
         onClassify={handleClassify}
         classifyResult={classifyResult}
+        onProjectUpdate={() => projectId && getStudioProject(projectId).then(setProject)}
       />
     </StudioLayout>
   );
@@ -116,12 +118,14 @@ function StageContent({
   onAnalyze,
   onClassify,
   classifyResult,
+  onProjectUpdate,
 }: {
   stage: StudioStage;
   project: StudioProjectType;
   onAnalyze: (text: string) => Promise<void>;
   onClassify: () => Promise<void>;
   classifyResult: ClassifyResult | null;
+  onProjectUpdate: () => void;
 }) {
   switch (stage) {
     case 'rfp':
@@ -136,6 +140,14 @@ function StageContent({
       );
     case 'company':
       return <CompanyStage projectId={project.id} />;
+    case 'style':
+      return (
+        <StyleStage
+          projectId={project.id}
+          pinnedStyleSkillId={project.pinned_style_skill_id}
+          onProjectUpdate={onProjectUpdate}
+        />
+      );
     default:
       return <StagePlaceholder stage={stage} />;
   }

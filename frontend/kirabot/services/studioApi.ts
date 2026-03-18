@@ -199,3 +199,74 @@ export async function promoteCompanyAsset(
     method: 'POST',
   });
 }
+
+// --- Style Skills ---
+
+export interface StyleSkill {
+  id: string;
+  project_id: string | null;
+  version: number;
+  name: string;
+  source_type: 'uploaded' | 'derived' | 'promoted';
+  derived_from_id: string | null;
+  profile_md_content: string | null;
+  style_json: Record<string, unknown> | null;
+  is_shared_default: boolean;
+  created_at: string;
+}
+
+export async function createStyleSkill(
+  projectId: string,
+  params: {
+    name: string;
+    source_type?: string;
+    style_json?: Record<string, unknown>;
+    profile_md_content?: string;
+  },
+): Promise<StyleSkill> {
+  return studioFetch(`/api/studio/projects/${projectId}/style-skills`, {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+}
+
+export async function listStyleSkills(projectId: string): Promise<StyleSkill[]> {
+  return studioFetch(`/api/studio/projects/${projectId}/style-skills`);
+}
+
+export async function pinStyleSkill(
+  projectId: string,
+  skillId: string,
+): Promise<{ pinned_style_skill_id: string }> {
+  return studioFetch(`/api/studio/projects/${projectId}/style-skills/${skillId}/pin`, {
+    method: 'POST',
+  });
+}
+
+export async function unpinStyleSkill(
+  projectId: string,
+): Promise<{ pinned_style_skill_id: null }> {
+  return studioFetch(`/api/studio/projects/${projectId}/style-skills/pin`, {
+    method: 'DELETE',
+  });
+}
+
+export async function deriveStyleSkill(
+  projectId: string,
+  skillId: string,
+  params: { name: string; style_json?: Record<string, unknown>; profile_md_content?: string },
+): Promise<StyleSkill> {
+  return studioFetch(`/api/studio/projects/${projectId}/style-skills/${skillId}/derive`, {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+}
+
+export async function promoteStyleSkill(
+  projectId: string,
+  skillId: string,
+): Promise<{ promoted: boolean; shared_skill_id: string }> {
+  return studioFetch(`/api/studio/projects/${projectId}/style-skills/${skillId}/promote`, {
+    method: 'POST',
+  });
+}

@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from services.web_app.db.engine import get_async_session
 from services.web_app.db.models.base import new_cuid
 from services.web_app.db.models.project import BidProject, ProjectAccess, AnalysisSnapshot
-from services.web_app.db.models.studio import ProjectCompanyAsset, ProjectPackageItem
+from services.web_app.db.models.studio import ProjectCompanyAsset, ProjectPackageItem, ProjectStyleSkill
 from services.web_app.db.models.company import CompanyProfile, CompanyTrackRecord, CompanyPersonnel
 from services.web_app.db.models.audit import AuditLog
 from services.web_app.api.deps import CurrentUser, resolve_org_membership, require_project_access
@@ -844,6 +844,288 @@ def _parse_date(val: str):
     """Parse a date string (YYYY-MM-DD) to date object."""
     from datetime import date as date_type
     return date_type.fromisoformat(val)
+
+
+# --- Style Skill schemas ---
+
+class CreateStyleSkillRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=300)
+    source_type: str = Field(pattern="^(uploaded|derived|promoted)$", default="uploaded")
+    style_json: dict | None = None
+    profile_md_content: str | None = None
+
+
+class DeriveStyleSkillRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=300)
+    style_json: dict | None = None
+    profile_md_content: str | None = None
+
+
+class StyleSkillResponse(BaseModel):
+    id: str
+    project_id: str | None
+    version: int
+    name: str
+    source_type: str
+    derived_from_id: str | None
+    profile_md_content: str | None
+    style_json: dict | None
+    is_shared_default: bool
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+
+# --- Style Skill endpoints ---
+
+@router.post("/projects/{project_id}/style-skills", response_model=StyleSkillResponse, status_code=201)
+async def create_style_skill(
+    project_id: str,
+    req: CreateStyleSkillRequest,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Create a project-scoped style skill."""
+    await _require_studio_project_access(project_id, "editor", user, db)
+
+    # Compute next version for this project
+    ver_result = await db.execute(
+        select(ProjectStyleSkill.version)
+        .where(ProjectStyleSkill.project_id == project_id)
+        .order_by(ProjectStyleSkill.version.desc())
+        .limit(1)
+    )
+    prev_version = ver_result.scalar_one_or_none() or 0
+
+    skill = ProjectStyleSkill(
+        project_id=project_id,
+        org_id=user.org_id,
+        version=prev_version + 1,
+        name=req.name,
+        source_type=req.source_type,
+        style_json=req.style_json,
+        profile_md_content=req.profile_md_content,
+    )
+    db.add(skill)
+    await db.commit()
+    await db.refresh(skill)
+
+    return _skill_to_response(skill)
+
+
+@router.get("/projects/{project_id}/style-skills", response_model=list[StyleSkillResponse])
+async def list_style_skills(
+    project_id: str,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """List style skills for a project (project-scoped + org shared defaults)."""
+    await _require_studio_project_access(project_id, "viewer", user, db)
+
+    result = await db.execute(
+        select(ProjectStyleSkill)
+        .where(
+            ProjectStyleSkill.org_id == user.org_id,
+            (ProjectStyleSkill.project_id == project_id) | (ProjectStyleSkill.project_id.is_(None)),
+        )
+        .order_by(ProjectStyleSkill.version)
+    )
+    skills = result.scalars().all()
+    return [_skill_to_response(s) for s in skills]
+
+
+@router.post("/projects/{project_id}/style-skills/{skill_id}/pin")
+async def pin_style_skill(
+    project_id: str,
+    skill_id: str,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Pin a style skill to the project."""
+    await _require_studio_project_access(project_id, "editor", user, db)
+
+    # Verify skill exists and belongs to this project or org
+    skill = (await db.execute(
+        select(ProjectStyleSkill).where(
+            ProjectStyleSkill.id == skill_id,
+            ProjectStyleSkill.org_id == user.org_id,
+        )
+    )).scalar_one_or_none()
+    if skill is None:
+        raise HTTPException(404, "스타일 스킬을 찾을 수 없습니다")
+
+    # Update project pin
+    project = (await db.execute(
+        select(BidProject).where(BidProject.id == project_id)
+    )).scalar_one()
+    project.pinned_style_skill_id = skill_id
+
+    await db.commit()
+
+    return {"pinned_style_skill_id": skill_id}
+
+
+@router.delete("/projects/{project_id}/style-skills/pin")
+async def unpin_style_skill(
+    project_id: str,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Unpin the style skill from the project."""
+    await _require_studio_project_access(project_id, "editor", user, db)
+
+    project = (await db.execute(
+        select(BidProject).where(BidProject.id == project_id)
+    )).scalar_one()
+    project.pinned_style_skill_id = None
+
+    await db.commit()
+
+    return {"pinned_style_skill_id": None}
+
+
+@router.post("/projects/{project_id}/style-skills/{skill_id}/derive", response_model=StyleSkillResponse, status_code=201)
+async def derive_style_skill(
+    project_id: str,
+    skill_id: str,
+    req: DeriveStyleSkillRequest,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Derive a new version from an existing style skill."""
+    await _require_studio_project_access(project_id, "editor", user, db)
+
+    # Load parent skill
+    parent = (await db.execute(
+        select(ProjectStyleSkill).where(
+            ProjectStyleSkill.id == skill_id,
+            ProjectStyleSkill.org_id == user.org_id,
+        )
+    )).scalar_one_or_none()
+    if parent is None:
+        raise HTTPException(404, "원본 스타일 스킬을 찾을 수 없습니다")
+
+    # Compute next version
+    ver_result = await db.execute(
+        select(ProjectStyleSkill.version)
+        .where(ProjectStyleSkill.project_id == project_id)
+        .order_by(ProjectStyleSkill.version.desc())
+        .limit(1)
+    )
+    prev_version = ver_result.scalar_one_or_none() or 0
+
+    derived = ProjectStyleSkill(
+        project_id=project_id,
+        org_id=user.org_id,
+        version=prev_version + 1,
+        name=req.name,
+        source_type="derived",
+        derived_from_id=skill_id,
+        style_json=req.style_json if req.style_json else parent.style_json,
+        profile_md_content=req.profile_md_content if req.profile_md_content else parent.profile_md_content,
+    )
+    db.add(derived)
+    await db.commit()
+    await db.refresh(derived)
+
+    return _skill_to_response(derived)
+
+
+@router.post("/projects/{project_id}/style-skills/{skill_id}/promote")
+async def promote_style_skill(
+    project_id: str,
+    skill_id: str,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Promote a project-scoped style skill to org-level shared default.
+
+    If a shared default already exists, demotes it first (is_shared_default=False).
+    """
+    await _require_studio_project_access(project_id, "editor", user, db)
+
+    # Load source skill
+    source = (await db.execute(
+        select(ProjectStyleSkill).where(
+            ProjectStyleSkill.id == skill_id,
+            ProjectStyleSkill.org_id == user.org_id,
+        )
+    )).scalar_one_or_none()
+    if source is None:
+        raise HTTPException(404, "스타일 스킬을 찾을 수 없습니다")
+
+    # Demote existing shared default(s)
+    existing_defaults = (await db.execute(
+        select(ProjectStyleSkill).where(
+            ProjectStyleSkill.org_id == user.org_id,
+            ProjectStyleSkill.is_shared_default == True,
+        )
+    )).scalars().all()
+    for old in existing_defaults:
+        old.is_shared_default = False
+    if existing_defaults:
+        await db.flush()
+
+    # Compute shared version
+    shared_ver_result = await db.execute(
+        select(ProjectStyleSkill.version)
+        .where(
+            ProjectStyleSkill.org_id == user.org_id,
+            ProjectStyleSkill.project_id.is_(None),
+        )
+        .order_by(ProjectStyleSkill.version.desc())
+        .limit(1)
+    )
+    prev_shared_version = shared_ver_result.scalar_one_or_none() or 0
+
+    # Create shared default
+    shared = ProjectStyleSkill(
+        project_id=None,
+        org_id=user.org_id,
+        version=prev_shared_version + 1,
+        name=source.name,
+        source_type="promoted",
+        derived_from_id=source.id,
+        style_json=source.style_json,
+        profile_md_content=source.profile_md_content,
+        is_shared_default=True,
+    )
+    db.add(shared)
+    await db.flush()
+
+    # Audit log
+    db.add(AuditLog(
+        org_id=user.org_id,
+        user_id=user.username,
+        project_id=project_id,
+        action="style_skill_promoted",
+        target_type="project_style_skill",
+        target_id=skill_id,
+        detail_json={
+            "shared_skill_id": shared.id,
+            "source_skill_id": skill_id,
+        },
+    ))
+
+    await db.commit()
+
+    return {"promoted": True, "shared_skill_id": shared.id}
+
+
+def _skill_to_response(skill: ProjectStyleSkill) -> StyleSkillResponse:
+    return StyleSkillResponse(
+        id=skill.id,
+        project_id=skill.project_id,
+        version=skill.version,
+        name=skill.name,
+        source_type=skill.source_type,
+        derived_from_id=skill.derived_from_id,
+        profile_md_content=skill.profile_md_content,
+        style_json=skill.style_json,
+        is_shared_default=skill.is_shared_default,
+        created_at=skill.created_at.isoformat(),
+    )
 
 
 # --- Helpers ---
