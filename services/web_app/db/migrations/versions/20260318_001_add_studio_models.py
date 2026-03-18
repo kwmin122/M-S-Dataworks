@@ -37,6 +37,18 @@ def upgrade() -> None:
     )
     op.create_index("idx_style_skills_project", "project_style_skills", ["project_id"])
     op.create_index("idx_style_skills_org", "project_style_skills", ["org_id"])
+    # Partial unique index: prevent duplicate (org_id, version) for shared defaults (project_id IS NULL)
+    op.create_index(
+        "uq_shared_style_org_version", "project_style_skills",
+        ["org_id", "version"], unique=True,
+        postgresql_where=sa.text("project_id IS NULL"),
+    )
+    # Exactly one shared default per org
+    op.create_index(
+        "uq_shared_default_per_org", "project_style_skills",
+        ["org_id"], unique=True,
+        postgresql_where=sa.text("is_shared_default = true"),
+    )
 
     op.create_table(
         "project_company_assets",
@@ -107,4 +119,6 @@ def downgrade() -> None:
 
     op.drop_table("project_package_items")
     op.drop_table("project_company_assets")
+    op.drop_index("uq_shared_default_per_org", table_name="project_style_skills")
+    op.drop_index("uq_shared_style_org_version", table_name="project_style_skills")
     op.drop_table("project_style_skills")

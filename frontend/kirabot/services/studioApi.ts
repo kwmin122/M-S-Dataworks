@@ -16,7 +16,12 @@ async function studioFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Studio API ${res.status}: ${body}`);
+    let userMessage = `오류 ${res.status}`;
+    try {
+      const json = JSON.parse(body);
+      if (json.detail) userMessage = json.detail;
+    } catch { /* non-JSON body */ }
+    throw new Error(userMessage);
   }
   return res.json();
 }

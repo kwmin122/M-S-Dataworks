@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from sqlalchemy import (
-    Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint,
+    Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -73,8 +73,20 @@ class ProjectStyleSkill(CuidPkMixin, TimestampMixin, Base):
 
     __table_args__ = (
         CheckConstraint(_STYLE_SOURCE_TYPES, name="ck_proj_style_skills_source_type"),
-        # Project-local version uniqueness (shared defaults have project_id=NULL)
+        # Project-local version uniqueness (project_id NOT NULL rows)
         UniqueConstraint("project_id", "version", name="uq_style_skill_project_version"),
+        # Shared defaults (project_id IS NULL) — prevent duplicate versions per org
+        Index(
+            "uq_shared_style_org_version", "org_id", "version",
+            unique=True,
+            postgresql_where=text("project_id IS NULL"),
+        ),
+        # Exactly one shared default per org
+        Index(
+            "uq_shared_default_per_org", "org_id",
+            unique=True,
+            postgresql_where=text("is_shared_default = true"),
+        ),
         Index("idx_style_skills_project", "project_id"),
         Index("idx_style_skills_org", "org_id"),
     )

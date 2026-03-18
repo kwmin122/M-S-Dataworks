@@ -194,7 +194,7 @@ function AppRoutes() {
           onNavigateStudio={handleStartStudio}
           onNavigateForecast={() => { if (user) navigate('/forecast'); else setIsLoginModalOpen(true); }}
           onNavigateCompany={() => { if (user) navigate('/settings/company'); else setIsLoginModalOpen(true); }}
-          studioEnabled={false}
+          studioEnabled={true}
         />
         <HowItWorks />
         <Marquee text="/ 검색 / 분석 / 판단 / 생성 / 학습 /" />

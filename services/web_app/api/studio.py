@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -11,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.web_app.db.engine import get_async_session
 from services.web_app.db.models.base import new_cuid
-from services.web_app.db.models.project import BidProject, AnalysisSnapshot
-from services.web_app.db.models.studio import ProjectCompanyAsset, ProjectStyleSkill, ProjectPackageItem
+from services.web_app.db.models.project import BidProject, ProjectAccess, AnalysisSnapshot
+from services.web_app.db.models.audit import AuditLog
 from services.web_app.api.deps import CurrentUser, resolve_org_membership, require_project_access
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api/studio", tags=["studio"])
 class CreateStudioProjectRequest(BaseModel):
     title: str = Field(min_length=1, max_length=500)
     from_analysis_snapshot_id: str | None = None
-    rfp_source_type: str | None = None
+    rfp_source_type: Literal['upload', 'nara_search', 'manual'] | None = None
     rfp_source_ref: str | None = None
 
 
@@ -72,6 +72,23 @@ async def create_studio_project(
     db.add(project)
     await db.flush()
 
+    # Creator gets owner access (matches projects.py pattern)
+    db.add(ProjectAccess(
+        project_id=project.id,
+        user_id=user.username,
+        access_level="owner",
+    ))
+
+    # Audit log
+    db.add(AuditLog(
+        org_id=user.org_id,
+        user_id=user.username,
+        project_id=project.id,
+        action="studio_project_created",
+        target_type="bid_project",
+        target_id=project.id,
+    ))
+
     # Clone analysis snapshot if provided
     if req.from_analysis_snapshot_id:
         source_snap = await _get_snapshot_for_clone(
@@ -99,20 +116,37 @@ async def create_studio_project(
     return _project_to_response(project)
 
 
-@router.get("/projects", response_model=List[StudioProjectResponse])
+@router.get("/projects", response_model=list[StudioProjectResponse])
 async def list_studio_projects(
     user: CurrentUser = Depends(resolve_org_membership),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """List all Studio projects for the user's organization."""
-    result = await db.execute(
-        select(BidProject)
-        .where(
-            BidProject.org_id == user.org_id,
-            BidProject.project_type == "studio",
+    """List Studio projects visible to the current user.
+
+    Org owner/admin: see all org Studio projects.
+    Other roles: only projects with a ProjectAccess row.
+    """
+    if user.role in ("owner", "admin"):
+        stmt = (
+            select(BidProject)
+            .where(
+                BidProject.org_id == user.org_id,
+                BidProject.project_type == "studio",
+            )
+            .order_by(BidProject.created_at.desc())
         )
-        .order_by(BidProject.created_at.desc())
-    )
+    else:
+        stmt = (
+            select(BidProject)
+            .join(ProjectAccess, ProjectAccess.project_id == BidProject.id)
+            .where(
+                BidProject.org_id == user.org_id,
+                BidProject.project_type == "studio",
+                ProjectAccess.user_id == user.username,
+            )
+            .order_by(BidProject.created_at.desc())
+        )
+    result = await db.execute(stmt)
     projects = result.scalars().all()
     return [_project_to_response(p) for p in projects]
 

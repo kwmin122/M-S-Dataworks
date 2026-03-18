@@ -4,9 +4,12 @@ import StudioLayout from './StudioLayout';
 import {
   getStudioProject,
   updateStudioStage,
+  STUDIO_STAGES,
   type StudioProject as StudioProjectType,
   type StudioStage,
 } from '../../services/studioApi';
+
+const VALID_STAGES = new Set<string>(STUDIO_STAGES.map(s => s.key));
 
 export default function StudioProject() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -32,6 +35,7 @@ export default function StudioProject() {
       try {
         const updated = await updateStudioStage(projectId, stage);
         setProject(updated);
+        setError('');
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : '단계 변경 실패';
         setError(msg);
@@ -64,7 +68,8 @@ export default function StudioProject() {
     );
   }
 
-  const currentStage = (project.studio_stage ?? 'rfp') as StudioStage;
+  const rawStage = project.studio_stage ?? 'rfp';
+  const currentStage: StudioStage = VALID_STAGES.has(rawStage) ? (rawStage as StudioStage) : 'rfp';
 
   return (
     <StudioLayout

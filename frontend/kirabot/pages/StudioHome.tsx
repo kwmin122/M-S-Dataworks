@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { PenTool, Plus, Loader2, FolderOpen } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Button from '../components/Button';
@@ -23,7 +23,10 @@ export default function StudioHome() {
       .finally(() => setLoading(false));
   }, []);
 
+  const inFlight = useRef(false);
   const handleCreate = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setCreating(true);
     setError('');
     try {
@@ -35,6 +38,7 @@ export default function StudioHome() {
       const msg = err instanceof Error ? err.message : '프로젝트 생성 실패';
       setError(msg);
     } finally {
+      inFlight.current = false;
       setCreating(false);
     }
   }, [navigate]);
