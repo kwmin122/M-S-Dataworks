@@ -96,6 +96,17 @@ async def test_classify_creates_package_items(db_session):
     assert "proposal" in codes
     assert "execution_plan" in codes
 
+    # Verify status differentiation: generated_document → ready_to_generate, others → missing
+    for item in result.package_items:
+        if item.package_category == "generated_document" and item.generation_target:
+            assert item.status == "ready_to_generate", (
+                f"{item.document_code}: expected ready_to_generate, got {item.status}"
+            )
+        else:
+            assert item.status == "missing", (
+                f"{item.document_code}: expected missing, got {item.status}"
+            )
+
     # Verify stage advanced
     from sqlalchemy import select
     proj_result = await db_session.execute(
