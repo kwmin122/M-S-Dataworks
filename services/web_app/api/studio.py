@@ -12,8 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from services.web_app.db.engine import get_async_session
 from services.web_app.db.models.base import new_cuid
 from services.web_app.db.models.project import BidProject, ProjectAccess, AnalysisSnapshot
+from services.web_app.db.models.studio import ProjectPackageItem
 from services.web_app.db.models.audit import AuditLog
 from services.web_app.api.deps import CurrentUser, resolve_org_membership, require_project_access
+from services.web_app.services.package_classifier import classify_and_build
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +50,28 @@ class StudioProjectResponse(BaseModel):
 
 class UpdateStudioStageRequest(BaseModel):
     studio_stage: str = Field(pattern="^(rfp|package|company|style|generate|review|relearn)$")
+
+
+class PackageItemResponse(BaseModel):
+    id: str
+    package_category: str
+    document_code: str
+    document_label: str
+    required: bool
+    status: str
+    generation_target: str | None
+    sort_order: int
+
+    class Config:
+        from_attributes = True
+
+
+class ClassifyResponse(BaseModel):
+    procurement_domain: str
+    contract_method: str
+    confidence: float
+    detection_method: str
+    package_items: list[PackageItemResponse]
 
 
 # --- Endpoints ---
@@ -194,6 +218,147 @@ async def update_studio_stage(
     await db.commit()
     await db.refresh(project)
     return _project_to_response(project)
+
+
+@router.post("/projects/{project_id}/classify", response_model=ClassifyResponse)
+async def classify_project_package(
+    project_id: str,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Classify submission package from the project's active analysis snapshot.
+
+    Runs the package classifier on analysis_json + summary_md, then
+    persists PackageItems to DB. Replaces any existing items for this project.
+    Advances studio_stage to 'package'.
+    """
+    await require_project_access(project_id, "editor", user, db)
+
+    # Load project + active snapshot
+    result = await db.execute(
+        select(BidProject).where(
+            BidProject.id == project_id,
+            BidProject.project_type == "studio",
+        )
+    )
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(404, "Studio 프로젝트를 찾을 수 없습니다")
+
+    if not project.active_analysis_snapshot_id:
+        raise HTTPException(400, "분석 스냅샷이 없습니다. 먼저 공고를 분석해주세요.")
+
+    snap_result = await db.execute(
+        select(AnalysisSnapshot).where(
+            AnalysisSnapshot.id == project.active_analysis_snapshot_id,
+        )
+    )
+    snapshot = snap_result.scalar_one_or_none()
+    if not snapshot:
+        raise HTTPException(404, "분석 스냅샷을 찾을 수 없습니다")
+
+    # Classify
+    classification, item_specs = classify_and_build(
+        snapshot.analysis_json,
+        snapshot.summary_md,
+    )
+
+    # Delete existing package items for this project (re-classification)
+    existing = await db.execute(
+        select(ProjectPackageItem).where(
+            ProjectPackageItem.project_id == project_id,
+        )
+    )
+    for old_item in existing.scalars().all():
+        await db.delete(old_item)
+    await db.flush()
+
+    # Persist new package items
+    db_items: list[ProjectPackageItem] = []
+    for spec in item_specs:
+        item = ProjectPackageItem(
+            project_id=project_id,
+            org_id=user.org_id,
+            package_category=spec.package_category,
+            document_code=spec.document_code,
+            document_label=spec.document_label,
+            required=spec.required,
+            status="missing",
+            generation_target=spec.generation_target,
+            sort_order=spec.sort_order,
+        )
+        db.add(item)
+        db_items.append(item)
+
+    # Advance stage
+    project.studio_stage = "package"
+
+    # Audit
+    db.add(AuditLog(
+        org_id=user.org_id,
+        user_id=user.username,
+        project_id=project_id,
+        action="package_classified",
+        target_type="bid_project",
+        target_id=project_id,
+        detail_json={
+            "procurement_domain": classification.procurement_domain,
+            "contract_method": classification.contract_method,
+            "confidence": classification.confidence,
+            "item_count": len(db_items),
+        },
+    ))
+
+    await db.commit()
+
+    return ClassifyResponse(
+        procurement_domain=classification.procurement_domain,
+        contract_method=classification.contract_method,
+        confidence=classification.confidence,
+        detection_method=classification.detection_method,
+        package_items=[
+            PackageItemResponse(
+                id=i.id,
+                package_category=i.package_category,
+                document_code=i.document_code,
+                document_label=i.document_label,
+                required=i.required,
+                status=i.status,
+                generation_target=i.generation_target,
+                sort_order=i.sort_order,
+            )
+            for i in db_items
+        ],
+    )
+
+
+@router.get("/projects/{project_id}/package-items", response_model=list[PackageItemResponse])
+async def list_package_items(
+    project_id: str,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """List package items for a Studio project."""
+    await require_project_access(project_id, "viewer", user, db)
+    result = await db.execute(
+        select(ProjectPackageItem)
+        .where(ProjectPackageItem.project_id == project_id)
+        .order_by(ProjectPackageItem.sort_order)
+    )
+    items = result.scalars().all()
+    return [
+        PackageItemResponse(
+            id=i.id,
+            package_category=i.package_category,
+            document_code=i.document_code,
+            document_label=i.document_label,
+            required=i.required,
+            status=i.status,
+            generation_target=i.generation_target,
+            sort_order=i.sort_order,
+        )
+        for i in items
+    ]
 
 
 # --- Helpers ---
