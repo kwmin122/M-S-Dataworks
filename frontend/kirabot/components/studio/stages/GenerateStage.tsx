@@ -28,6 +28,7 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
     try {
       const res = await generateProposal(projectId);
       setResult(res);
+      setShowContract(true); // Auto-show contract after generation
       onProjectUpdate();
     } catch (err) {
       setError(err instanceof Error ? err.message : '생성 중 오류가 발생했습니다');
@@ -99,10 +100,11 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
         </button>
       </div>
 
-      {/* Generation contract view */}
+      {/* Generation contract view — shows actual contract after generation, expected before */}
       {showContract && (
         <GenerateContractView
           project={project}
+          contract={result?.generation_contract ?? null}
         />
       )}
 

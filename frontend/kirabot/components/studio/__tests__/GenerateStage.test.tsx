@@ -81,7 +81,7 @@ describe('GenerateStage', () => {
     render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={noop} />);
 
     fireEvent.click(screen.getByText('입력 계약 보기'));
-    expect(screen.getByText('생성 입력 계약')).toBeInTheDocument();
+    expect(screen.getByText('생성 입력 계약 (예상)')).toBeInTheDocument();
     expect(screen.getByText(/snap-1/)).toBeInTheDocument();
   });
 
@@ -110,5 +110,40 @@ describe('GenerateStage', () => {
     fireEvent.click(screen.getByText('제안서 생성'));
 
     expect(await screen.findByText('생성 실패')).toBeInTheDocument();
+  });
+
+  it('shows actual generation contract fields after successful generation', async () => {
+    mockGenerate.mockResolvedValue(SAMPLE_RESULT);
+
+    render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={noop} />);
+
+    fireEvent.click(screen.getByText('제안서 생성'));
+
+    // Wait for result — contract auto-shows after generation
+    await screen.findByText('생성 완료');
+
+    // Actual contract heading
+    expect(screen.getByText('생성 입력 계약 (실제 사용됨)')).toBeInTheDocument();
+
+    // Contract fields from SAMPLE_RESULT.generation_contract
+    expect(screen.getByText('snap-1')).toBeInTheDocument(); // snapshot_id
+    expect(screen.getByText('v1')).toBeInTheDocument(); // snapshot_version
+    expect(screen.getByText('3건')).toBeInTheDocument(); // company_assets_count
+    expect(screen.getByText('200자')).toBeInTheDocument(); // company_context_length
+    expect(screen.getByText('테스트 스타일 (v1)')).toBeInTheDocument(); // pinned_style_name + version
+    expect(screen.getByText('proposal')).toBeInTheDocument(); // doc_type
+    expect(screen.getByText('50p')).toBeInTheDocument(); // total_pages
+  });
+
+  it('shows pre-generation contract when toggled before generating', () => {
+    render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={noop} />);
+
+    fireEvent.click(screen.getByText('입력 계약 보기'));
+
+    // Pre-generation heading
+    expect(screen.getByText('생성 입력 계약 (예상)')).toBeInTheDocument();
+    // Contract shows snapshot, style, doc type items
+    expect(screen.getByText('공고 분석 스냅샷')).toBeInTheDocument();
+    expect(screen.getByText('핀 설정 스타일')).toBeInTheDocument();
   });
 });
