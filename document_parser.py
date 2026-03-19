@@ -5,6 +5,11 @@ RFx AI Assistant - 문서 파서/청커
 - PDF (.pdf)
 - DOCX (.docx)
 - TXT (.txt)
+- HWP (.hwp) — OLE compound document (olefile + zlib)
+- HWPX (.hwpx) — OOXML 기반 ZIP+XML (namespace-aware 파싱)
+- Excel (.xlsx)
+- CSV (.csv)
+- PowerPoint (.pptx)
 """
 
 from __future__ import annotations
@@ -251,12 +256,31 @@ class DocumentParser:
         )
 
     def _parse_hwpx(self, path: Path) -> ParsedDocument:
-        """HWPX 파일 파싱 (OOXML 기반, zipfile + xml)."""
+        """HWPX 파일 파싱 (OOXML 기반, zipfile + xml).
+
+        HWPX 구조:
+        - ZIP 파일 안에 XML 파일들이 있음 (OWPML = Open Word-Processor Markup Language)
+        - 본문: Contents/section0.xml, section1.xml, ... (섹션별 XML)
+        - 텍스트: <hp:p> (단락) > <hp:run> > <hp:t> (텍스트) 구조
+        - 네임스페이스: http://www.hancom.co.kr/hwpml/2011/paragraph (hp)
+          또는 http://www.hancom.co.kr/hwpml/2016/paragraph (hp10, 신버전)
+        - 표(table) 안의 텍스트도 hp:p > hp:t 구조이므로 동일하게 추출됨
+
+        참고: https://tech.hancom.com/python-hwpx-parsing-1/
+              https://tech.hancom.com/hwpxformat/
+        """
         import zipfile
+        import io
         from xml.etree import ElementTree as ET
 
         if not zipfile.is_zipfile(str(path)):
             raise ValueError("유효한 HWPX 파일이 아닙니다.")
+
+        # 알려진 HWPX paragraph 네임스페이스 (2011 + 2016 버전)
+        KNOWN_HP_NS = [
+            "http://www.hancom.co.kr/hwpml/2011/paragraph",
+            "http://www.hancom.co.kr/hwpml/2016/paragraph",
+        ]
 
         paragraphs: list[str] = []
         with zipfile.ZipFile(str(path), "r") as zf:
@@ -265,7 +289,7 @@ class DocumentParser:
                 [n for n in zf.namelist() if n.startswith("Contents/section") and n.endswith(".xml")]
             )
             if not section_files:
-                # 대안: Contents/ 내 모든 xml
+                # 대안: Contents/ 내 모든 xml (content.hpf 등 제외하고 section 없을 때)
                 section_files = sorted(
                     [n for n in zf.namelist() if n.startswith("Contents/") and n.endswith(".xml")]
                 )
@@ -273,15 +297,37 @@ class DocumentParser:
             for section_file in section_files:
                 try:
                     xml_data = zf.read(section_file)
+
+                    # 문서별 실제 네임스페이스를 동적으로 감지
+                    hp_namespaces: list[str] = []
+                    for _event, (prefix, uri) in ET.iterparse(
+                        io.BytesIO(xml_data), events=["start-ns"]
+                    ):
+                        if uri in KNOWN_HP_NS:
+                            hp_namespaces.append(uri)
+                    if not hp_namespaces:
+                        # 네임스페이스 감지 실패 시 기본값 사용
+                        hp_namespaces = KNOWN_HP_NS
+
                     root = ET.fromstring(xml_data)
-                    # 모든 텍스트 노드 추출
-                    for elem in root.iter():
-                        if elem.text and elem.text.strip():
-                            paragraphs.append(elem.text.strip())
-                        if elem.tail and elem.tail.strip():
-                            paragraphs.append(elem.tail.strip())
+
+                    # hp:p (단락) 단위로 순회하며, 내부 hp:t 텍스트를 합침
+                    for hp_ns in hp_namespaces:
+                        p_tag = "{%s}p" % hp_ns
+                        t_tag = "{%s}t" % hp_ns
+                        for p_elem in root.iter(p_tag):
+                            texts: list[str] = []
+                            for t_elem in p_elem.iter(t_tag):
+                                if t_elem.text:
+                                    texts.append(t_elem.text)
+                            line = "".join(texts).strip()
+                            if line:
+                                paragraphs.append(line)
                 except Exception:
                     continue
+
+        if not paragraphs:
+            raise ValueError("HWPX 파일에서 텍스트를 추출할 수 없습니다.")
 
         text = "\n".join(paragraphs)
         normalized = self.chunker._normalize_text(text)

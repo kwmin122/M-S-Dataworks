@@ -1,6 +1,59 @@
 # Slice 4 Validation & Rollout Notes
 
-## 1. Validation Scenarios
+## 0. Real-World Validation Results (2026-03-19)
+
+### 검증 환경
+- Python: anaconda python 3.13
+- LLM: gpt-4o-mini (OPENAI_API_KEY from ~/Desktop/MS_SOLUTIONS/.env)
+- DB: PostgreSQL localhost:5434
+
+### Doc A: 공사 — 오수관로 단가공사
+- **파일**: `[화성시 동탄구 공고 제2026 22호]2026년 동탄구 오수관로 흡입준설...단가공사.hwp`
+- **파싱**: HWP 파싱 성공 (20,171 chars)
+- **분석**: Title "2026년 동탄구 오수관로 흡입준설, CCTV, 송연조사, 비굴착보수 단가공사", 3개 요건 추출
+- **분류**: `construction/negotiated` (conf=0.70)
+- **패키지**: 13개 (generated 3 + evidence 6 + price 2 + admin 2)
+- **이슈**: 수의계약 견적 제출 공고인데 `negotiated`로 분류 + PPT 생성 대상 포함. 실제로는 발표 없는 공고일 가능성 높음 → **false positive risk**
+- **결론**: 분석/분류 파이프라인 동작 확인. 분류 정확도 개선 필요 (수의계약 vs 협상계약 구분)
+
+### Doc B: 감리용역 — 학교 네트워크 공사 감리
+- **파일**: `[공고문] [9권역]학교 유무선 네트워크 개선 3차 정보통신공사 감리용역.hwp`
+- **파싱**: HWP 파싱 성공 (17,795 chars)
+- **분석**: Title "[9권역]학교 유무선 네트워크개선 3차 정보통신공사 감리용역", 4개 요건 추출
+- **분류**: `service/negotiated` (conf=0.55)
+- **패키지**: 15개 (generated 4 + evidence 7 + price 2 + admin 2)
+- **이슈**: 견적 제출 공고인데 negotiated 분류. confidence 0.55로 낮음
+- **결론**: 용역 분류 맞으나 계약 방식 정확도 낮음
+
+### Doc C: IT용역 — CCTV 감시 시스템 구축 (HWPX)
+- **파일**: `공고문-CCTV 감시 시스템 구축 및 유지보수 관리 운영.hwpx`
+- **파싱**: HWPX 파싱 성공 (5,088 chars) — 이번 세션에서 HWPX 지원 추가
+- **분석**: Title "CCTV 감시 시스템 구축 및 유지보수 관리·운영", 7개 요건 추출
+- **분류**: `service/negotiated` (conf=0.75)
+- **패키지**: 15개 (generated 4 + evidence 7 + price 2 + admin 2)
+- **이슈**: 이 공고는 실제 협상계약 + 발표평가 명시 → 분류 정확. 가장 이상적인 Studio 대상
+- **결론**: 분석/분류/패키지 모두 적절. Studio full cycle 최적 후보
+
+### 검증 요약
+
+| 항목 | Doc A (공사) | Doc B (감리) | Doc C (IT/HWPX) |
+|------|-------------|-------------|-----------------|
+| 파싱 | HWP ✅ | HWP ✅ | HWPX ✅ (신규) |
+| 분석 | ✅ 3요건 | ✅ 4요건 | ✅ 7요건 |
+| 분류 domain | construction ✅ | service ✅ | service ✅ |
+| 분류 method | negotiated ⚠️ | negotiated ⚠️ | negotiated ✅ |
+| 패키지 | 13개 | 15개 | 15개 |
+| PPT 포함 적절성 | ⚠️ false positive | ⚠️ 미확인 | ✅ 발표평가 있음 |
+
+### Known Issues from Validation
+1. **수의계약 견적 공고를 negotiated로 분류** — 수의계약 vs 협상계약 구분 로직 필요
+2. **PPT false positive** — 발표평가 없는 공고에도 PPT 생성 대상 포함
+3. **HWPX 지원 추가됨** — document_parser.py에 ZIP+XML 기반 HWPX 파싱 구현
+4. **LLM 기반 생성은 미검증** — 분석/분류까지 확인, proposal/WBS/PPT 생성은 API 키 + 서버 기동 필요
+
+---
+
+## 1. Validation Scenarios (계획)
 
 ### Scenario A: 협상형 일반용역 (IT 시스템 구축)
 - **공고 유형**: 협상에 의한 계약, 기술제안 발표 평가 포함
