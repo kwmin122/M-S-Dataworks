@@ -388,3 +388,72 @@ def test_iot_service_not_construction():
         ],
     })
     assert result.procurement_domain == "service"
+
+
+# ---- Slice 5: Classifier strategy upgrade tests ----
+
+def test_classification_result_has_review_fields():
+    """ClassificationResult now includes review_required, matched_signals, warnings."""
+    result = classify_procurement(SERVICE_NEGOTIATED_RFP)
+    assert hasattr(result, 'review_required')
+    assert hasattr(result, 'matched_signals')
+    assert hasattr(result, 'warnings')
+    assert isinstance(result.matched_signals, list)
+    assert isinstance(result.warnings, list)
+
+
+def test_low_confidence_sets_review_required():
+    """Ambiguous text → low confidence → review_required=True."""
+    result = classify_procurement(AMBIGUOUS_RFP)
+    assert result.review_required is True
+
+
+def test_high_confidence_not_review_required():
+    """Clear service negotiated → review_required=False."""
+    result = classify_procurement(SERVICE_NEGOTIATED_RFP)
+    assert result.review_required is False
+
+
+def test_matched_signals_populated():
+    """matched_signals lists which keywords matched for domain+method."""
+    result = classify_procurement(SERVICE_NEGOTIATED_RFP)
+    assert len(result.matched_signals) > 0
+
+
+# ---- Regression corpus: real-world documents ----
+
+_REGRESSION_CORPUS = [
+    ("Doc A: 공사 수의계약", {
+        "title": "2026년 동탄구 오수관로 흡입준설, CCTV, 송연조사, 비굴착보수 단가공사",
+        "requirements": [{"description": "건설산업기본법 제16조 전문건설업"}, {"description": "하수도 준설차량과 CCTV촬영장비 소유"}],
+    }, "수의계약 운영요령에 따라 견적제출", "construction", "pq", False),
+    ("Doc B: 감리 견적", {
+        "title": "[9권역]학교 유무선 네트워크개선 3차 정보통신공사 감리용역",
+        "requirements": [{"description": "지방자치단체 계약법 시행령 제13조"}],
+    }, "견적에 의한 수의시담 견적서 제출", "service", "pq", False),
+    ("Doc C: 협상+발표 IT", {
+        "title": "CCTV 감시 시스템 구축 및 유지보수 관리 운영",
+        "requirements": [{"description": "정보통신공사업자 등록"}],
+        "evaluation_criteria": [{"description": "기술제안서 및 발표평가 배점 70점"}],
+    }, None, "service", "negotiated", True),
+    ("IT용역 협상", SERVICE_NEGOTIATED_RFP, None, "service", "negotiated", None),
+    ("적격심사", SERVICE_PQ_RFP, None, "service", "pq", False),
+    ("물품", GOODS_RFP, None, "goods", None, None),
+    ("공사", CONSTRUCTION_RFP, None, "construction", None, None),
+    ("정보통신공사 실제", {"title": "○○청사 정보통신공사", "requirements": [{"description": "시공능력평가액 10억"}]}, None, "construction", None, None),
+    ("IoT 서비스", {"title": "IoT 스마트 센서 운영관리 용역", "requirements": [{"description": "IoT 솔루션 납품"}]}, None, "service", None, None),
+]
+
+
+@pytest.mark.parametrize("name,analysis,summary,exp_domain,exp_method,exp_pres", _REGRESSION_CORPUS)
+def test_regression_corpus(name, analysis, summary, exp_domain, exp_method, exp_pres):
+    """Regression corpus: each real-world document classifies correctly."""
+    cls, items = classify_and_build(analysis, summary_md=summary)
+    codes = {i.document_code for i in items}
+    if exp_domain is not None:
+        assert cls.procurement_domain == exp_domain, f"{name}: domain {cls.procurement_domain} != {exp_domain}"
+    if exp_method is not None:
+        assert cls.contract_method == exp_method, f"{name}: method {cls.contract_method} != {exp_method}"
+    if exp_pres is not None:
+        has_pres = "presentation" in codes
+        assert has_pres == exp_pres, f"{name}: presentation={has_pres}, expected={exp_pres}"

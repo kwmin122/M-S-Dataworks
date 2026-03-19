@@ -25,6 +25,9 @@ class ClassificationResult:
     contract_method: str  # negotiated | pq | adequacy | lowest_price
     confidence: float  # 0.0~1.0
     detection_method: str  # rule | llm
+    review_required: bool = False  # True when confidence is low or signals are ambiguous
+    matched_signals: list[str] = field(default_factory=list)  # which keywords/rules matched
+    warnings: list[str] = field(default_factory=list)  # operational warnings
 
 
 @dataclass
@@ -185,10 +188,11 @@ def classify_procurement(
 
     if not best_domain:
         best_domain = "service"  # default: 용역 (most common in Korean public procurement)
+        domain_score = 0
 
     # Method scoring — 수의계약/견적 우선 분기
+    method_score = 0
     if _is_private_contract(text):
-        # 수의계약/견적 공고 → pq (가장 가까운 비-협상 방식)로 분류
         best_method = "pq"
         method_score = 5
         logger.info("Private contract/quotation detected → classified as pq (not negotiated)")
@@ -204,11 +208,37 @@ def classify_procurement(
     margin = (all_domain_scores[0] - all_domain_scores[1]) if len(all_domain_scores) > 1 else all_domain_scores[0]
     confidence = min(1.0, 0.5 + margin * 0.05)
 
+    # Build matched_signals: which keywords actually matched
+    matched_signals: list[str] = []
+    for kw, weight in _DOMAIN_KEYWORDS.get(best_domain, []):
+        if kw.lower() in text.lower():
+            matched_signals.append(f"domain:{kw}")
+    if _is_private_contract(text):
+        matched_signals.append("guard:수의계약/견적")
+    else:
+        for kw, weight in _METHOD_KEYWORDS.get(best_method, []):
+            if kw.lower() in text.lower():
+                matched_signals.append(f"method:{kw}")
+
+    # Warnings
+    warnings: list[str] = []
+    if domain_score < 5:
+        warnings.append(f"domain 점수 낮음 ({domain_score})")
+    if not _is_private_contract(text) and method_score < 5:
+        warnings.append(f"method 점수 낮음 ({method_score})")
+
+    # Review required: low confidence or low scores
+    _REVIEW_THRESHOLD = 0.65
+    review_required = confidence < _REVIEW_THRESHOLD
+
     return ClassificationResult(
         procurement_domain=best_domain,
         contract_method=best_method,
         confidence=round(confidence, 2),
         detection_method="rule",
+        review_required=review_required,
+        matched_signals=matched_signals,
+        warnings=warnings,
     )
 
 

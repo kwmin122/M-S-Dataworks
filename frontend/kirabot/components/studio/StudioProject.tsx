@@ -139,6 +139,8 @@ function StageContent({
           projectId={project.id}
           procurementDomain={classifyResult?.procurement_domain}
           contractMethod={classifyResult?.contract_method}
+          reviewRequired={classifyResult?.review_required}
+          classifierWarnings={classifyResult?.warnings}
         />
       );
     case 'company':

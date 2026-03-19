@@ -156,6 +156,9 @@ export interface ClassifyResult {
   contract_method: string;
   confidence: number;
   detection_method: string;
+  review_required?: boolean;
+  matched_signals?: string[];
+  warnings?: string[];
   package_items: PackageItem[];
 }
 

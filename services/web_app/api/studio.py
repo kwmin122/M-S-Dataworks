@@ -80,6 +80,9 @@ class ClassifyResponse(BaseModel):
     contract_method: str
     confidence: float
     detection_method: str
+    review_required: bool = False
+    matched_signals: list[str] = []
+    warnings: list[str] = []
     package_items: list[PackageItemResponse]
 
 
@@ -513,6 +516,9 @@ async def classify_project_package(
         contract_method=classification.contract_method,
         confidence=classification.confidence,
         detection_method=classification.detection_method,
+        review_required=classification.review_required,
+        matched_signals=classification.matched_signals,
+        warnings=classification.warnings,
         package_items=[
             PackageItemResponse(
                 id=i.id,

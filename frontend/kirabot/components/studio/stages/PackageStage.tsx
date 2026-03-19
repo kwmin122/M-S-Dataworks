@@ -7,6 +7,8 @@ interface PackageStageProps {
   projectId: string;
   procurementDomain?: string;
   contractMethod?: string;
+  reviewRequired?: boolean;
+  classifierWarnings?: string[];
 }
 
 type CategoryKey = 'generated_document' | 'evidence' | 'administrative' | 'price';
@@ -27,7 +29,7 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   waived: { label: '면제', className: 'bg-slate-100 text-slate-500' },
 };
 
-export default function PackageStage({ projectId, procurementDomain, contractMethod }: PackageStageProps) {
+export default function PackageStage({ projectId, procurementDomain, contractMethod, reviewRequired, classifierWarnings }: PackageStageProps) {
   const [items, setItems] = useState<PackageItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -99,6 +101,18 @@ export default function PackageStage({ projectId, procurementDomain, contractMet
           </button>
         </div>
       </div>
+
+      {/* Review required warning */}
+      {reviewRequired && (
+        <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 mb-4 text-sm text-amber-800">
+          <p className="font-medium">자동 분류 확신 낮음 — 검토가 필요합니다</p>
+          {classifierWarnings && classifierWarnings.length > 0 && (
+            <ul className="mt-1 text-xs text-amber-600 list-disc list-inside">
+              {classifierWarnings.map((w, i) => <li key={i}>{w}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* Progress bar */}
       <div className="h-2 rounded-full bg-slate-100 mb-6 overflow-hidden">
