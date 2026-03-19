@@ -158,23 +158,25 @@ def _detect_methodology(
     client = openai.OpenAI(api_key=resolved_key, timeout=LLM_DEFAULT_TIMEOUT)
 
     system_prompt = (
-        "당신은 공공조달 IT 프로젝트 방법론 전문가입니다. "
-        "RFP를 분석하여 최적 개발 방법론을 추천합니다."
+        "당신은 대한민국 공공조달 프로젝트 방법론 전문가입니다. "
+        "용역(IT/연구/컨설팅), 물품, 공사 등 모든 조달 유형의 RFP를 분석하여 "
+        "최적 수행 방법론을 추천합니다."
     )
-    user_prompt = f"""다음 RFP를 분석하여 최적 개발 방법론을 결정하세요.
+    user_prompt = f"""다음 RFP를 분석하여 최적 수행 방법론을 결정하세요.
 
 [RFP 내용]
 {rfp_text}
 
 [판단 기준]
-- waterfall: 요구사항이 확정되어 있고, 단계별 산출물이 명시되어 있으며, 감리/검수 기반의 전통적 개발
-- agile: 반복 개발, 사용자 피드백 중심, MVP 단계별 릴리즈, 스프린트 기반
-- hybrid: 분석·설계까지 waterfall + 구현부터 agile 반복 (대부분의 공공SI 프로젝트)
+- waterfall: 요구사항이 확정되어 있고, 단계별 산출물이 명시되어 있으며, 감리/검수 기반의 전통적 수행
+- agile: 반복 수행, 사용자 피드백 중심, MVP 단계별 릴리즈, 스프린트 기반
+- hybrid: 분석·설계까지 waterfall + 수행부터 agile 반복
 
 [참고]
 - 공공조달 프로젝트는 대부분 단계별 산출물과 감리를 요구하므로 waterfall이 기본
-- 명시적으로 애자일/스크럼을 언급하거나 반복 개발을 요구하면 agile
-- 설계까지 단계별 + 개발은 반복적이면 hybrid"""
+- 명시적으로 애자일/스크럼을 언급하거나 반복 수행을 요구하면 agile
+- IT 프로젝트뿐 아니라 연구용역, 컨설팅, 물품, 공사 등도 이 기준으로 판단
+- 비-IT 프로젝트는 대부분 waterfall이 적절"""
 
     def _call():
         return client.chat.completions.create(
@@ -407,7 +409,7 @@ def _build_wbs_prompt(
         f"규칙:\n"
         f"1. 총 15~30개 태스크 (사업 규모에 비례)\n"
         f"2. 템플릿의 ratio에 비례한 기간 배분 (전체 {total_months}개월)\n"
-        f"3. responsible_role은 PM/PL/개발자/디자이너/QA/DBA 중 택일\n"
+        f"3. responsible_role은 사업 유형에 맞는 역할 (예: PM/PL/개발자/연구원/설계자/시공관리자/품질관리자 등)\n"
         f"4. man_months는 해당 태스크의 투입 M/M (0.5~5.0)\n"
         f"5. 시작월(1~{total_months})은 전후 태스크와 논리적으로 연결\n"
         f"6. RFP 과업 요구사항을 구체적으로 반영한 태스크명과 산출물\n"

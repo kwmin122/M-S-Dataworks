@@ -293,9 +293,11 @@ export interface GenerateResult {
   generation_time_sec: number | null;
 }
 
+export type GenerateDocType = 'proposal' | 'execution_plan';
+
 export async function generateProposal(
   projectId: string,
-  params?: { doc_type?: 'proposal'; total_pages?: number },
+  params?: { doc_type?: GenerateDocType; total_pages?: number },
 ): Promise<GenerateResult> {
   return studioFetch(`/api/studio/projects/${projectId}/generate`, {
     method: 'POST',
@@ -323,7 +325,7 @@ export interface CurrentRevisionData {
 
 export async function getCurrentRevision(
   projectId: string,
-  docType: 'proposal',
+  docType: GenerateDocType,
 ): Promise<CurrentRevisionData> {
   return studioFetch(`/api/studio/projects/${projectId}/documents/${docType}/current`);
 }

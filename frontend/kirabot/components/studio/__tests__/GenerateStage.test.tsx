@@ -111,7 +111,7 @@ describe('GenerateStage', () => {
     fireEvent.click(screen.getByText('제안서 생성'));
 
     await waitFor(() => {
-      expect(mockGenerate).toHaveBeenCalledWith('proj1');
+      expect(mockGenerate).toHaveBeenCalledWith('proj1', { doc_type: 'proposal' });
     });
 
     expect(await screen.findByText('생성 완료')).toBeInTheDocument();

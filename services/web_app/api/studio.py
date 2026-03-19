@@ -1162,7 +1162,7 @@ def _skill_to_response(skill: ProjectStyleSkill) -> StyleSkillResponse:
 # --- Proposal Generation schemas ---
 
 class GenerateProposalRequest(BaseModel):
-    doc_type: Literal["proposal"] = "proposal"
+    doc_type: Literal["proposal", "execution_plan"] = "proposal"
     total_pages: int = Field(default=50, ge=10, le=200)
 
 
@@ -1253,16 +1253,35 @@ async def generate_proposal(
     db.add(run)
     await db.flush()
 
-    # --- Run generation (mocked in tests) ---
+    # --- Run generation (dispatched by doc_type, mocked in tests) ---
     try:
-        proposal_result = await asyncio.to_thread(
-            _run_proposal_generation,
-            rfx_result=snap.analysis_json,
-            company_context=company_context,
-            style_profile_md=style_profile_md,
-            total_pages=req.total_pages,
-            company_name=company_name,
-        )
+        if req.doc_type == "execution_plan":
+            gen_result = await asyncio.to_thread(
+                _run_wbs_generation,
+                rfx_result=snap.analysis_json,
+                company_context=company_context,
+                style_profile_md=style_profile_md,
+                company_name=company_name,
+            )
+            # Normalize WBS result to common shape for revision creation
+            sections = [
+                (t.phase, t.task_name)
+                for t in (gen_result.tasks or [])
+            ]
+            quality_issues: list[str] = []
+            generation_time_sec = getattr(gen_result, 'generation_time_sec', None)
+        else:
+            gen_result = await asyncio.to_thread(
+                _run_proposal_generation,
+                rfx_result=snap.analysis_json,
+                company_context=company_context,
+                style_profile_md=style_profile_md,
+                total_pages=req.total_pages,
+                company_name=company_name,
+            )
+            sections = gen_result.sections or []
+            quality_issues = [str(i) for i in (gen_result.quality_issues or [])]
+            generation_time_sec = getattr(gen_result, 'generation_time_sec', None)
 
         # --- Create DocumentRevision ---
         # Compute revision number
@@ -1285,17 +1304,16 @@ async def generate_proposal(
             revision_number=prev_rev + 1,
             source="ai_generated",
             status="draft",
-            title=snap.analysis_json.get("title", "제안서"),
+            title=snap.analysis_json.get("title", "제안서" if req.doc_type == "proposal" else "수행계획서"),
             content_json={
                 "sections": [
                     {"name": name, "text": text}
-                    for name, text in (proposal_result.sections or [])
+                    for name, text in sections
                 ],
             },
-            content_schema="proposal_sections_v1",
+            content_schema="proposal_sections_v1" if req.doc_type == "proposal" else "execution_plan_tasks_v1",
             quality_report_json={
-                "issues": [str(i) for i in (proposal_result.quality_issues or [])],
-                "residual": [str(i) for i in (proposal_result.residual_issues or [])],
+                "issues": quality_issues,
             },
             created_by=user.username,
         )
@@ -1369,15 +1387,15 @@ async def generate_proposal(
         "revision_id": revision.id,
         "status": run.status,
         "generation_contract": generation_contract,
-        "sections_count": len(proposal_result.sections or []),
-        "generation_time_sec": getattr(proposal_result, 'generation_time_sec', None),
+        "sections_count": len(sections),
+        "generation_time_sec": generation_time_sec,
     }
 
 
 @router.get("/projects/{project_id}/documents/{doc_type}/current")
 async def get_current_revision(
     project_id: str,
-    doc_type: Literal["proposal"],
+    doc_type: Literal["proposal", "execution_plan"],
     user: CurrentUser = Depends(resolve_org_membership),
     db: AsyncSession = Depends(get_async_session),
 ):
@@ -1523,6 +1541,42 @@ def _run_proposal_generation(
         company_context=company_context,
         company_name=company_name,
         total_pages=total_pages,
+        api_key=api_key,
+        company_skills_dir="",
+    )
+
+
+def _run_wbs_generation(
+    rfx_result: dict[str, Any],
+    company_context: str,
+    style_profile_md: str,
+    company_name: str | None = None,
+) -> Any:
+    """Run WBS/execution plan generation using existing orchestrator.
+
+    This function runs in a thread (called via asyncio.to_thread).
+    """
+    import tempfile
+    from wbs_orchestrator import generate_wbs
+
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY가 설정되지 않았습니다")
+
+    if style_profile_md:
+        with tempfile.TemporaryDirectory(prefix="studio_wbs_style_") as style_dir:
+            with open(os.path.join(style_dir, "profile.md"), "w", encoding="utf-8") as f:
+                f.write(style_profile_md)
+            return generate_wbs(
+                rfx_result=rfx_result,
+                company_session_context=company_context,
+                api_key=api_key,
+                company_skills_dir=style_dir,
+            )
+
+    return generate_wbs(
+        rfx_result=rfx_result,
+        company_session_context=company_context,
         api_key=api_key,
         company_skills_dir="",
     )

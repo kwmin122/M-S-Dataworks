@@ -4,7 +4,7 @@ import {
   FileCheck, Eye, BookOpen, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import type {
-  GenerateResult, StudioProject, CurrentRevisionData, RevisionSection,
+  GenerateResult, StudioProject, CurrentRevisionData, RevisionSection, GenerateDocType,
 } from '../../../services/studioApi';
 import { generateProposal, getCurrentRevision } from '../../../services/studioApi';
 import GenerateContractView from './GenerateContractView';
@@ -27,6 +27,7 @@ const PHASE_LABELS: Record<GenerationPhase, string> = {
 };
 
 export default function GenerateStage({ projectId, project, onProjectUpdate }: GenerateStageProps) {
+  const [docType, setDocType] = useState<GenerateDocType>('proposal');
   const [phase, setPhase] = useState<GenerationPhase>('idle');
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [error, setError] = useState('');
@@ -37,12 +38,12 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
   const hasSnapshot = !!project.active_analysis_snapshot_id;
   const generating = phase !== 'idle' && phase !== 'done' && phase !== 'error';
 
-  // Load existing revision on mount
+  // Load existing revision on mount or doc type change
   useEffect(() => {
-    getCurrentRevision(projectId, 'proposal')
+    getCurrentRevision(projectId, docType)
       .then(setRevision)
-      .catch(() => {}); // No revision yet — that's fine
-  }, [projectId]);
+      .catch(() => setRevision(null));
+  }, [projectId, docType]);
 
   const handleGenerate = useCallback(async () => {
     setPhase('assembling_contract');
@@ -55,7 +56,7 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
       setPhase('generating_sections');
 
       // Phase 2: actual generation (long-running)
-      const res = await generateProposal(projectId);
+      const res = await generateProposal(projectId, { doc_type: docType });
 
       // Phase 3: saving
       setPhase('saving_revision');
@@ -64,7 +65,7 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
 
       // Load the revision content for preview
       try {
-        const rev = await getCurrentRevision(projectId, 'proposal');
+        const rev = await getCurrentRevision(projectId, docType);
         setRevision(rev);
         setShowPreview(true);
       } catch { /* revision load failure is non-fatal */ }
@@ -118,6 +119,24 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
         </div>
       )}
 
+      {/* Doc type selector */}
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-sm text-slate-600">생성 대상:</span>
+        {([['proposal', '기술 제안서'], ['execution_plan', '수행계획서/WBS']] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => { setDocType(key); setResult(null); }}
+            className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+              docType === key
+                ? 'bg-kira-600 text-white border-kira-600'
+                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* Generate button + controls */}
       <div className="flex items-center gap-3 mb-6">
         <button
@@ -128,7 +147,7 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
           {generating ? (
             <><Loader2 size={16} className="animate-spin" /> {PHASE_LABELS[phase]}</>
           ) : (
-            <><Play size={16} /> 제안서 생성</>
+            <><Play size={16} /> {docType === 'proposal' ? '제안서 생성' : '수행계획서 생성'}</>
           )}
         </button>
         <button
