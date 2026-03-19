@@ -907,6 +907,17 @@ async def create_style_skill(
         profile_md_content=req.profile_md_content,
     )
     db.add(skill)
+    await db.flush()
+
+    db.add(AuditLog(
+        org_id=user.org_id,
+        user_id=user.username,
+        project_id=project_id,
+        action="style_skill_created",
+        target_type="project_style_skill",
+        target_id=skill.id,
+    ))
+
     await db.commit()
     await db.refresh(skill)
 
@@ -961,6 +972,15 @@ async def pin_style_skill(
     )).scalar_one()
     project.pinned_style_skill_id = skill_id
 
+    db.add(AuditLog(
+        org_id=user.org_id,
+        user_id=user.username,
+        project_id=project_id,
+        action="style_skill_pinned",
+        target_type="project_style_skill",
+        target_id=skill_id,
+    ))
+
     await db.commit()
 
     return {"pinned_style_skill_id": skill_id}
@@ -978,7 +998,17 @@ async def unpin_style_skill(
     project = (await db.execute(
         select(BidProject).where(BidProject.id == project_id)
     )).scalar_one()
+    old_skill_id = project.pinned_style_skill_id
     project.pinned_style_skill_id = None
+
+    db.add(AuditLog(
+        org_id=user.org_id,
+        user_id=user.username,
+        project_id=project_id,
+        action="style_skill_unpinned",
+        target_type="project_style_skill",
+        target_id=old_skill_id,
+    ))
 
     await db.commit()
 

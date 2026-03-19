@@ -167,4 +167,65 @@ describe('StyleStage', () => {
     expect(await screen.findByText('서버 오류')).toBeInTheDocument();
     expect(screen.getByText('다시 시도')).toBeInTheDocument();
   });
+
+  // --- Task 6.5: shared derive + profile prefill tests ---
+
+  it('shows derive button on shared skills', async () => {
+    mockListSkills.mockResolvedValue(SAMPLE_SKILLS);
+    render(<StyleStage projectId="proj1" pinnedStyleSkillId={null} onProjectUpdate={noop} />);
+
+    await screen.findByText('조직 기본 스타일');
+
+    // Shared skill should have a derive button (title="파생")
+    const deriveButtons = screen.getAllByTitle('파생');
+    // sk1, sk2 (project), sk-shared (shared) = 3 derive buttons
+    expect(deriveButtons.length).toBe(3);
+  });
+
+  it('prefills derive form with parent profile_md_content', async () => {
+    mockListSkills.mockResolvedValue(SAMPLE_SKILLS);
+    render(<StyleStage projectId="proj1" pinnedStyleSkillId={null} onProjectUpdate={noop} />);
+
+    await screen.findByText('경어체 스타일');
+
+    // Click derive on sk1 which has profile_md_content
+    const deriveButtons = screen.getAllByTitle('파생');
+    fireEvent.click(deriveButtons[0]); // sk1's derive button
+
+    // The derive form textarea should be prefilled with parent's profile
+    const textarea = screen.getByLabelText('수정된 문체 프로필 (선택)') as HTMLTextAreaElement;
+    expect(textarea.value).toBe('# 문체 프로필\n- 경어체 사용');
+  });
+
+  it('calls deriveStyleSkill on derive form submit', async () => {
+    const { deriveStyleSkill: mockDerive } = await import('../../../services/studioApi');
+    const mockDeriveSkill = vi.mocked(mockDerive);
+    mockDeriveSkill.mockResolvedValue({
+      id: 'derived-new', project_id: 'proj1', version: 3, name: '경어체 스타일 (수정)',
+      source_type: 'derived', derived_from_id: 'sk1',
+      profile_md_content: '# 수정됨', style_json: null,
+      is_shared_default: false, created_at: '2026-03-19T10:00:00Z',
+    });
+    mockListSkills.mockResolvedValue(SAMPLE_SKILLS);
+
+    render(<StyleStage projectId="proj1" pinnedStyleSkillId={null} onProjectUpdate={noop} />);
+    await screen.findByText('경어체 스타일');
+
+    // Click derive on sk1
+    const deriveButtons = screen.getAllByTitle('파생');
+    fireEvent.click(deriveButtons[0]);
+
+    // Modify profile and submit
+    const textarea = screen.getByLabelText('수정된 문체 프로필 (선택)') as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: '# 수정됨' } });
+
+    fireEvent.click(screen.getByText('파생 생성'));
+
+    await waitFor(() => {
+      expect(mockDeriveSkill).toHaveBeenCalledWith('proj1', 'sk1', {
+        name: '경어체 스타일 (수정)',
+        profile_md_content: '# 수정됨',
+      });
+    });
+  });
 });

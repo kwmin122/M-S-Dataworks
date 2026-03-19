@@ -355,3 +355,128 @@ async def test_unpin_style_skill(db_session):
         select(BidProject).where(BidProject.id == project.id)
     )).scalar_one()
     assert proj.pinned_style_skill_id is None
+
+
+# ---- Task 6.5: Audit log + shared derive tests ----
+
+@pytest.mark.asyncio
+async def test_create_generates_audit_log(db_session):
+    """create_style_skill writes an AuditLog entry."""
+    from services.web_app.api.studio import create_style_skill, CreateStyleSkillRequest
+    from services.web_app.api.deps import CurrentUser
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    await create_style_skill(
+        project_id=project.id,
+        req=CreateStyleSkillRequest(name="감사 로그 생성 테스트"),
+        user=user, db=db_session,
+    )
+
+    logs = (await db_session.execute(
+        select(AuditLog).where(
+            AuditLog.project_id == project.id,
+            AuditLog.action == "style_skill_created",
+        )
+    )).scalars().all()
+    assert len(logs) >= 1
+
+
+@pytest.mark.asyncio
+async def test_pin_generates_audit_log(db_session):
+    """pin_style_skill writes an AuditLog entry."""
+    from services.web_app.api.studio import create_style_skill, pin_style_skill, CreateStyleSkillRequest
+    from services.web_app.api.deps import CurrentUser
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    skill = await create_style_skill(
+        project_id=project.id,
+        req=CreateStyleSkillRequest(name="핀 감사 테스트"),
+        user=user, db=db_session,
+    )
+    await pin_style_skill(project_id=project.id, skill_id=skill.id, user=user, db=db_session)
+
+    logs = (await db_session.execute(
+        select(AuditLog).where(
+            AuditLog.project_id == project.id,
+            AuditLog.action == "style_skill_pinned",
+        )
+    )).scalars().all()
+    assert len(logs) >= 1
+
+
+@pytest.mark.asyncio
+async def test_unpin_generates_audit_log(db_session):
+    """unpin_style_skill writes an AuditLog entry."""
+    from services.web_app.api.studio import create_style_skill, pin_style_skill, unpin_style_skill, CreateStyleSkillRequest
+    from services.web_app.api.deps import CurrentUser
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    skill = await create_style_skill(
+        project_id=project.id,
+        req=CreateStyleSkillRequest(name="언핀 감사 테스트"),
+        user=user, db=db_session,
+    )
+    await pin_style_skill(project_id=project.id, skill_id=skill.id, user=user, db=db_session)
+    await unpin_style_skill(project_id=project.id, user=user, db=db_session)
+
+    logs = (await db_session.execute(
+        select(AuditLog).where(
+            AuditLog.project_id == project.id,
+            AuditLog.action == "style_skill_unpinned",
+        )
+    )).scalars().all()
+    assert len(logs) >= 1
+
+
+@pytest.mark.asyncio
+async def test_derive_from_shared_skill(db_session):
+    """Derive from a shared default skill (project_id=NULL) into project scope."""
+    from services.web_app.api.studio import create_style_skill, promote_style_skill, derive_style_skill, CreateStyleSkillRequest, DeriveStyleSkillRequest
+    from services.web_app.api.deps import CurrentUser
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    # Create and promote to make a shared skill
+    original = await create_style_skill(
+        project_id=project.id,
+        req=CreateStyleSkillRequest(
+            name="승격 후 파생 원본",
+            profile_md_content="# 조직 기본 문체",
+        ),
+        user=user, db=db_session,
+    )
+    promote_result = await promote_style_skill(
+        project_id=project.id, skill_id=original.id, user=user, db=db_session,
+    )
+    shared_id = promote_result["shared_skill_id"]
+
+    # Derive from the shared skill into the project
+    derived = await derive_style_skill(
+        project_id=project.id,
+        skill_id=shared_id,
+        req=DeriveStyleSkillRequest(
+            name="조직 기본에서 파생",
+            profile_md_content="# 수정된 문체",
+        ),
+        user=user, db=db_session,
+    )
+
+    assert derived.project_id == project.id
+    assert derived.derived_from_id == shared_id
+    assert derived.source_type == "derived"
+    assert derived.profile_md_content == "# 수정된 문체"

@@ -174,6 +174,7 @@ export default function StyleStage({ projectId, pinnedStyleSkillId, onProjectUpd
           projectId={projectId}
           parentSkillId={showDeriveForm}
           parentName={skills.find(s => s.id === showDeriveForm)?.name ?? ''}
+          parentProfileMd={skills.find(s => s.id === showDeriveForm)?.profile_md_content ?? ''}
           onSaved={() => { setShowDeriveForm(null); loadSkills(); }}
           onCancel={() => setShowDeriveForm(null)}
         />
@@ -269,24 +270,24 @@ function SkillCard({
               {isLoading ? <Loader2 size={14} className="animate-spin" /> : <Pin size={14} />}
             </button>
           )}
+          {/* Derive: available for both project-scoped and shared skills */}
+          <button
+            onClick={onDeriveClick}
+            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-purple-600"
+            title="파생"
+          >
+            <GitBranch size={14} />
+          </button>
+          {/* Promote: only for project-scoped skills */}
           {skill.project_id !== null && (
-            <>
-              <button
-                onClick={onDeriveClick}
-                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-purple-600"
-                title="파생"
-              >
-                <GitBranch size={14} />
-              </button>
-              <button
-                onClick={() => onPromote(skill.id)}
-                disabled={isLoading}
-                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-green-600 disabled:opacity-50"
-                title="조직 기본값으로 승격"
-              >
-                <ArrowUpCircle size={14} />
-              </button>
-            </>
+            <button
+              onClick={() => onPromote(skill.id)}
+              disabled={isLoading}
+              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-green-600 disabled:opacity-50"
+              title="조직 기본값으로 승격"
+            >
+              <ArrowUpCircle size={14} />
+            </button>
           )}
         </div>
       </div>
@@ -371,17 +372,19 @@ function DeriveStyleForm({
   projectId,
   parentSkillId,
   parentName,
+  parentProfileMd,
   onSaved,
   onCancel,
 }: {
   projectId: string;
   parentSkillId: string;
   parentName: string;
+  parentProfileMd: string;
   onSaved: () => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState(`${parentName} (수정)`);
-  const [profileMd, setProfileMd] = useState('');
+  const [profileMd, setProfileMd] = useState(parentProfileMd);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
