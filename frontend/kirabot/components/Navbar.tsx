@@ -3,6 +3,7 @@ import { Menu, X, LogOut } from 'lucide-react';
 import KiraBotLogo from './KiraBotLogo';
 import Button from './Button';
 import type { User } from '../types';
+import { isStudioVisible } from '../services/studioApi';
 
 interface NavbarProps {
   user: User | null;
@@ -36,7 +37,9 @@ const Navbar: React.FC<NavbarProps> = ({ user, onNavigate, onLoginClick, onLogou
           {user ? (
             <>
               <button onClick={() => onNavigate('/chat')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">공고 탐색</button>
-              <button onClick={() => onNavigate('/studio')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">입찰 문서 AI 작성</button>
+              {isStudioVisible() && (
+                <button onClick={() => onNavigate('/studio')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">입찰 문서 AI 작성</button>
+              )}
               <button onClick={() => onNavigate('/alerts')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">알림</button>
               <button onClick={() => onNavigate('/forecast')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">예측</button>
             </>

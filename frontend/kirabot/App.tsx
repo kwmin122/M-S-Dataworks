@@ -7,6 +7,7 @@ import Features from './components/Features';
 import Solutions from './components/Solutions';
 import PackageSection from './components/PackageSection';
 import Marquee from './components/Marquee';
+import { isStudioVisible } from './services/studioApi';
 import Pricing from './components/Pricing';
 import Footer from './components/Footer';
 import ProductHub from './components/landing/ProductHub';
@@ -194,7 +195,7 @@ function AppRoutes() {
           onNavigateStudio={handleStartStudio}
           onNavigateForecast={() => { if (user) navigate('/forecast'); else setIsLoginModalOpen(true); }}
           onNavigateCompany={() => { if (user) navigate('/settings/company'); else setIsLoginModalOpen(true); }}
-          studioEnabled={true}
+          studioEnabled={isStudioVisible()}
         />
         <HowItWorks />
         <Marquee text="/ 검색 / 분석 / 판단 / 생성 / 학습 /" />
