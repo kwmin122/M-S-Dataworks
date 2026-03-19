@@ -1464,8 +1464,13 @@ async def get_current_revision(
 
 # --- Proposal review/relearn schemas ---
 
+class EditedSection(BaseModel):
+    name: str = Field(min_length=1)
+    text: str
+
+
 class SaveEditedProposalRequest(BaseModel):
-    sections: list[dict[str, str]]  # [{"name": "...", "text": "..."}]
+    sections: list[EditedSection] = Field(min_length=1)
 
 
 # --- Proposal review/relearn endpoints ---
@@ -1515,7 +1520,7 @@ async def save_edited_proposal(
         source="user_edited",
         status="draft",
         title=prev_rev.title,
-        content_json={"sections": req.sections},
+        content_json={"sections": [{"name": s.name, "text": s.text} for s in req.sections]},
         content_schema="proposal_sections_v1",
         created_by=user.username,
     )
@@ -1668,7 +1673,13 @@ async def relearn_proposal_style(
         orig = original_sections.get(name, "")
         edit = edited_sections.get(name, "")
         if orig != edit:
-            edit_notes.append(f"- [{name}] 섹션이 사용자에 의해 수정됨")
+            orig_sample = orig[:150].replace("\n", " ")
+            edit_sample = edit[:150].replace("\n", " ")
+            edit_notes.append(
+                f"- [{name}] 수정됨\n"
+                f"  원본: \"{orig_sample}{'...' if len(orig) > 150 else ''}\"\n"
+                f"  수정: \"{edit_sample}{'...' if len(edit) > 150 else ''}\""
+            )
 
     if not edit_notes:
         raise HTTPException(400, "편집된 내용이 없습니다.")

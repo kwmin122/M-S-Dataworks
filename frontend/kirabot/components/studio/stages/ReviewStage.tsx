@@ -91,6 +91,7 @@ export default function ReviewStage({ projectId, project, onProjectUpdate }: Rev
       setRelearnResult(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : '재생성 실패');
+      setPhase('relearn'); // recover to relearn phase so user can retry
     } finally {
       setActionLoading(false);
     }
