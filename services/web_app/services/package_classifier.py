@@ -182,17 +182,20 @@ def classify_procurement(
 
     text = "\n".join(parts)
 
+    text_lower = text.lower()
+    is_private = _is_private_contract(text)
+
     # Domain scoring
     domain_scores = _score_keywords(text, _DOMAIN_KEYWORDS)
     best_domain, domain_score = _best_with_threshold(domain_scores, threshold=3)
 
     if not best_domain:
-        best_domain = "service"  # default: 용역 (most common in Korean public procurement)
+        best_domain = "service"
         domain_score = 0
 
     # Method scoring — 수의계약/견적 우선 분기
     method_score = 0
-    if _is_private_contract(text):
+    if is_private:
         best_method = "pq"
         method_score = 5
         logger.info("Private contract/quotation detected → classified as pq (not negotiated)")
@@ -201,35 +204,37 @@ def classify_procurement(
         best_method, method_score = _best_with_threshold(method_scores, threshold=3)
 
         if not best_method:
-            best_method = "negotiated"  # default: 협상 (most common for service)
+            best_method = "negotiated"
 
-    # Confidence based on score margin
+    # Confidence: domain margin + method score penalty
     all_domain_scores = sorted(domain_scores.values(), reverse=True)
     margin = (all_domain_scores[0] - all_domain_scores[1]) if len(all_domain_scores) > 1 else all_domain_scores[0]
     confidence = min(1.0, 0.5 + margin * 0.05)
+    # Penalize confidence when method score is weak (not private contract)
+    if not is_private and method_score < 3:
+        confidence = min(confidence, 0.6)
 
-    # Build matched_signals: which keywords actually matched
+    # Build matched_signals
     matched_signals: list[str] = []
-    for kw, weight in _DOMAIN_KEYWORDS.get(best_domain, []):
-        if kw.lower() in text.lower():
+    for kw, _ in _DOMAIN_KEYWORDS.get(best_domain, []):
+        if kw.lower() in text_lower:
             matched_signals.append(f"domain:{kw}")
-    if _is_private_contract(text):
+    if is_private:
         matched_signals.append("guard:수의계약/견적")
     else:
-        for kw, weight in _METHOD_KEYWORDS.get(best_method, []):
-            if kw.lower() in text.lower():
+        for kw, _ in _METHOD_KEYWORDS.get(best_method, []):
+            if kw.lower() in text_lower:
                 matched_signals.append(f"method:{kw}")
 
-    # Warnings
+    # Warnings (user-facing Korean)
     warnings: list[str] = []
     if domain_score < 5:
-        warnings.append(f"domain 점수 낮음 ({domain_score})")
-    if not _is_private_contract(text) and method_score < 5:
-        warnings.append(f"method 점수 낮음 ({method_score})")
+        warnings.append("사업유형(용역/물품/공사) 판단 근거 부족")
+    if not is_private and method_score < 5:
+        warnings.append("계약방식(협상/적격/최저가) 판단 근거 부족")
 
-    # Review required: low confidence or low scores
-    _REVIEW_THRESHOLD = 0.65
-    review_required = confidence < _REVIEW_THRESHOLD
+    # Review required: low confidence
+    review_required = confidence < 0.65
 
     return ClassificationResult(
         procurement_domain=best_domain,

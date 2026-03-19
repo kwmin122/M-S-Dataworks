@@ -505,6 +505,9 @@ async def classify_project_package(
             "procurement_domain": classification.procurement_domain,
             "contract_method": classification.contract_method,
             "confidence": classification.confidence,
+            "review_required": classification.review_required,
+            "matched_signals": classification.matched_signals,
+            "warnings": classification.warnings,
             "item_count": len(db_items),
         },
     ))
