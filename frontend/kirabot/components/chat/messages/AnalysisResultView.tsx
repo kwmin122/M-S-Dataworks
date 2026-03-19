@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CheckCircle2, XCircle, AlertCircle, Sparkles, FileText, BarChart3, ClipboardList, CalendarDays, Presentation, FolderOpen, ArrowRight } from 'lucide-react';
 import type { AnalysisResultMessage, MessageAction, OpinionMode } from '../../../types';
-import { isStudioCutoverEnabled } from '../../../services/studioApi';
+import { isChatGenerationCutover } from '../../../services/studioApi';
 
 interface Props {
   message: AnalysisResultMessage;
@@ -252,7 +252,7 @@ const AnalysisResultView: React.FC<Props> = ({ message, onAction }) => {
       {renderTabs()}
       {activeTab === 'rfp_summary' ? renderRfpSummary() : renderGoNoGo()}
 
-      {isStudioCutoverEnabled() ? (
+      {isChatGenerationCutover() ? (
         <>
           {/* Studio handoff CTA */}
           <button type="button"

@@ -65,9 +65,14 @@ export const STUDIO_STAGES: { key: StudioStage; label: string }[] = [
 
 export type RfpSourceType = 'upload' | 'nara_search' | 'manual';
 
-// --- Feature flag ---
-export function isStudioCutoverEnabled(): boolean {
-  return import.meta.env.VITE_STUDIO_CUTOVER === 'true';
+// --- Feature flags ---
+/** Studio 자체 노출 여부 (Navbar, ProductHub) */
+export function isStudioVisible(): boolean {
+  return import.meta.env.VITE_STUDIO_VISIBLE !== 'false'; // default: true
+}
+/** Chat 생성 CTA를 Studio handoff로 전환 여부 */
+export function isChatGenerationCutover(): boolean {
+  return import.meta.env.VITE_CHAT_GENERATION_CUTOVER === 'true'; // default: false
 }
 
 // --- Chat handoff ---

@@ -73,16 +73,17 @@
 
 | Flag | 기본값 | 의미 |
 |------|--------|------|
-| `VITE_STUDIO_CUTOVER` | `false` | Chat 분석 결과에서 Studio handoff CTA 노출 |
-| `studioEnabled` (App.tsx) | `true` | ProductHub에서 Studio 카드 활성화 |
+| `VITE_STUDIO_VISIBLE` | `true` (default) | Studio 자체 노출 (Navbar, ProductHub) |
+| `VITE_CHAT_GENERATION_CUTOVER` | `false` | Chat 분석 결과에서 Studio handoff CTA 노출 |
+| `studioEnabled` (App.tsx) | `true` | ProductHub에서 Studio 카드 활성화 (VITE_STUDIO_VISIBLE과 연동 권장) |
 
 ### Enable Order
 1. `studioEnabled=true` (이미 적용됨) — ProductHub에서 Studio 접근 가능
-2. `VITE_STUDIO_CUTOVER=true` — Chat에서 "Studio에서 입찰 문서 작성" CTA 활성화
+2. `VITE_CHAT_GENERATION_CUTOVER=true` — Chat에서 "Studio에서 입찰 문서 작성" CTA 활성화
 3. Legacy inline generation 버튼은 flag off 시 유지 — 안전한 fallback
 
 ### Rollback Steps
-1. `VITE_STUDIO_CUTOVER` 환경변수 제거 또는 `false` 설정
+1. `VITE_CHAT_GENERATION_CUTOVER` 환경변수 제거 또는 `false` 설정
 2. 프론트엔드 재빌드 → 배포
 3. Legacy inline generation 즉시 복원 (코드 삭제 안 했으므로)
 4. Studio route (`/studio`)는 여전히 접근 가능 (직접 URL)
@@ -97,7 +98,7 @@
 - PPT execution_plan enrichment 제한적
 
 권장:
-- 내부 사용자 (개발팀, QA) 먼저 `VITE_STUDIO_CUTOVER=true`
+- 내부 사용자 (개발팀, QA) 먼저 `VITE_CHAT_GENERATION_CUTOVER=true`
 - 1~2주 사용 후 피드백 수집
 - 주요 이슈 없으면 전체 전환
 
