@@ -1527,8 +1527,11 @@ async def attach_evidence(
 
     # Read file content
     content = await file.read()
+    _MAX_EVIDENCE_SIZE = 50 * 1024 * 1024  # 50MB
     if len(content) == 0:
         raise HTTPException(400, "빈 파일은 첨부할 수 없습니다")
+    if len(content) > _MAX_EVIDENCE_SIZE:
+        raise HTTPException(400, f"파일 크기가 제한({_MAX_EVIDENCE_SIZE // (1024*1024)}MB)을 초과합니다")
 
     # Sanitize filename + generate storage path
     import re as _re
@@ -1622,6 +1625,48 @@ async def get_package_completeness(
         "required_remaining": required_remaining,
         "completeness_pct": completeness_pct,
     }
+
+
+@router.get("/projects/{project_id}/package-items/{item_id}/evidence/download")
+async def download_evidence(
+    project_id: str,
+    item_id: str,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Download evidence file attached to a package item."""
+    from fastapi.responses import FileResponse
+
+    await _require_studio_project_access(project_id, "viewer", user, db)
+
+    item = (await db.execute(
+        select(ProjectPackageItem).where(
+            ProjectPackageItem.id == item_id,
+            ProjectPackageItem.project_id == project_id,
+        )
+    )).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(404, "패키지 항목을 찾을 수 없습니다")
+    if not item.asset_id:
+        raise HTTPException(404, "첨부된 파일이 없습니다")
+
+    asset = (await db.execute(
+        select(DocumentAsset).where(DocumentAsset.id == item.asset_id)
+    )).scalar_one_or_none()
+    if asset is None:
+        raise HTTPException(404, "파일 자산을 찾을 수 없습니다")
+
+    # Resolve local file path
+    local_path = asset.storage_uri.replace("local://", "")
+    file_path = os.path.join(_EVIDENCE_STORAGE_DIR, *local_path.split("package_evidence/", 1)[-1].split("/"))
+    if not os.path.isfile(file_path):
+        raise HTTPException(404, "서버에서 파일을 찾을 수 없습니다")
+
+    return FileResponse(
+        path=file_path,
+        filename=asset.original_filename or "download",
+        media_type=asset.mime_type or "application/octet-stream",
+    )
 
 
 async def _build_company_context(db: AsyncSession, project_id: str, org_id: str) -> tuple[str, int, str | None]:

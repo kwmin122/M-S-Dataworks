@@ -400,3 +400,84 @@ async def test_attach_evidence_rejects_empty_file(db_session, tmp_path):
                 file=_make_upload(content=b""), user=user, db=db_session,
             )
     assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_attach_evidence_rejects_oversized_file(db_session, tmp_path):
+    """Cannot attach file larger than 50MB."""
+    from services.web_app.api.studio import attach_evidence
+    from services.web_app.api.deps import CurrentUser
+    from fastapi import HTTPException
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    items = await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    # 51MB file
+    big_content = b"x" * (51 * 1024 * 1024)
+
+    with pytest.raises(HTTPException) as exc_info:
+        with patch("services.web_app.api.studio._EVIDENCE_STORAGE_DIR", str(tmp_path)):
+            await attach_evidence(
+                project_id=project.id, item_id=items[1].id,
+                file=_make_upload(content=big_content), user=user, db=db_session,
+            )
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_download_evidence(db_session, tmp_path):
+    """Download returns the uploaded file."""
+    from services.web_app.api.studio import attach_evidence, download_evidence
+    from services.web_app.api.deps import CurrentUser
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    items = await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    file_content = b"evidence file bytes"
+    with patch("services.web_app.api.studio._EVIDENCE_STORAGE_DIR", str(tmp_path)):
+        await attach_evidence(
+            project_id=project.id, item_id=items[1].id,
+            file=_make_upload(content=file_content, filename="증빙.pdf"),
+            user=user, db=db_session,
+        )
+
+        resp = await download_evidence(
+            project_id=project.id, item_id=items[1].id,
+            user=user, db=db_session,
+        )
+
+    # FileResponse — check filename
+    assert resp.filename == "증빙.pdf"
+
+
+@pytest.mark.asyncio
+async def test_download_evidence_without_asset_404(db_session):
+    """Download returns 404 when no asset attached."""
+    from services.web_app.api.studio import download_evidence
+    from services.web_app.api.deps import CurrentUser
+    from fastapi import HTTPException
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    items = await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await download_evidence(
+            project_id=project.id, item_id=items[1].id,  # missing, no asset
+            user=user, db=db_session,
+        )
+    assert exc_info.value.status_code == 404
