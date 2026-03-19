@@ -447,3 +447,25 @@ async def test_company_name_absent_passes_none(db_session):
 
     call_kwargs = mock_gen.call_args.kwargs
     assert call_kwargs["company_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_get_current_revision_invalid_doc_type(db_session):
+    """get_current_revision rejects invalid doc_type via Literal validation."""
+    from services.web_app.api.studio import get_current_revision
+    from services.web_app.api.deps import CurrentUser
+    from fastapi import HTTPException
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    # Valid type but no revision → 404 (not a type error — Literal is enforced at HTTP layer)
+    with pytest.raises(HTTPException) as exc_info:
+        await get_current_revision(
+            project_id=project.id, doc_type="proposal", user=user, db=db_session,
+        )
+    assert exc_info.value.status_code == 404

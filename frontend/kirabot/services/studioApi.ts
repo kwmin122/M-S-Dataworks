@@ -323,7 +323,7 @@ export interface CurrentRevisionData {
 
 export async function getCurrentRevision(
   projectId: string,
-  docType: string,
+  docType: 'proposal',
 ): Promise<CurrentRevisionData> {
   return studioFetch(`/api/studio/projects/${projectId}/documents/${docType}/current`);
 }

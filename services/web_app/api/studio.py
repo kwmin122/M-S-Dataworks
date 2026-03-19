@@ -1377,7 +1377,7 @@ async def generate_proposal(
 @router.get("/projects/{project_id}/documents/{doc_type}/current")
 async def get_current_revision(
     project_id: str,
-    doc_type: str,
+    doc_type: Literal["proposal"],
     user: CurrentUser = Depends(resolve_org_membership),
     db: AsyncSession = Depends(get_async_session),
 ):
