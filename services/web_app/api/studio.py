@@ -1521,6 +1521,14 @@ async def attach_evidence(
     if item is None:
         raise HTTPException(404, "패키지 항목을 찾을 수 없습니다")
 
+    # Guard: only evidence/administrative/price categories accept evidence
+    if item.package_category == "generated_document":
+        raise HTTPException(400, "자동 생성 문서에는 증빙을 첨부할 수 없습니다")
+
+    # Guard: only missing items accept evidence
+    if item.status != "missing":
+        raise HTTPException(400, f"'{item.status}' 상태의 항목에는 증빙을 첨부할 수 없습니다")
+
     # Create DocumentAsset
     asset = DocumentAsset(
         org_id=user.org_id,

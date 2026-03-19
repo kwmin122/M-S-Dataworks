@@ -274,3 +274,101 @@ async def test_non_studio_project_rejected(db_session):
             user=user, db=db_session,
         )
     assert exc_info.value.status_code == 400
+
+
+# ---- Task 9.6: attach_evidence guard tests ----
+
+_EVIDENCE_REQ_ARGS = dict(
+    original_filename="테스트.pdf",
+    storage_uri="local://uploads/test.pdf",
+    mime_type="application/pdf",
+    size_bytes=1024,
+)
+
+
+@pytest.mark.asyncio
+async def test_attach_evidence_rejects_generated_document(db_session):
+    """Cannot attach evidence to generated_document category items."""
+    from services.web_app.api.studio import attach_evidence, AttachEvidenceRequest
+    from services.web_app.api.deps import CurrentUser
+    from fastapi import HTTPException
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    items = await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await attach_evidence(
+            project_id=project.id, item_id=items[0].id,  # proposal = generated_document
+            req=AttachEvidenceRequest(**_EVIDENCE_REQ_ARGS),
+            user=user, db=db_session,
+        )
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_attach_evidence_rejects_already_uploaded(db_session):
+    """Cannot re-attach evidence to already uploaded item."""
+    from services.web_app.api.studio import attach_evidence, AttachEvidenceRequest
+    from services.web_app.api.deps import CurrentUser
+    from fastapi import HTTPException
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    items = await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    # First attach — success
+    await attach_evidence(
+        project_id=project.id, item_id=items[1].id,  # evidence, missing
+        req=AttachEvidenceRequest(**_EVIDENCE_REQ_ARGS),
+        user=user, db=db_session,
+    )
+
+    # Second attach — should fail (already uploaded)
+    with pytest.raises(HTTPException) as exc_info:
+        await attach_evidence(
+            project_id=project.id, item_id=items[1].id,
+            req=AttachEvidenceRequest(**_EVIDENCE_REQ_ARGS),
+            user=user, db=db_session,
+        )
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_attach_evidence_rejects_verified(db_session):
+    """Cannot attach evidence to verified item."""
+    from services.web_app.api.studio import attach_evidence, update_package_item_status, AttachEvidenceRequest, UpdatePackageItemStatusRequest
+    from services.web_app.api.deps import CurrentUser
+    from fastapi import HTTPException
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    items = await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    # Verify the generated proposal item
+    await update_package_item_status(
+        project_id=project.id, item_id=items[0].id,
+        req=UpdatePackageItemStatusRequest(status="verified"),
+        user=user, db=db_session,
+    )
+
+    # Try to attach evidence to verified item — should fail
+    with pytest.raises(HTTPException) as exc_info:
+        await attach_evidence(
+            project_id=project.id, item_id=items[0].id,
+            req=AttachEvidenceRequest(**_EVIDENCE_REQ_ARGS),
+            user=user, db=db_session,
+        )
+    assert exc_info.value.status_code == 400
