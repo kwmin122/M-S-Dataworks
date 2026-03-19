@@ -2,7 +2,7 @@
 
 Tests:
 1. presentation creates run + revision with slides/qna in content_json
-2. generation contract includes proposal/exec revision ids + degraded_inputs
+2. generation contract includes proposal/exec revision ids + available_inputs
 3. .pptx asset created and linked
 4. fallback without proposal revision
 5. fallback without execution_plan revision
@@ -199,7 +199,7 @@ async def test_presentation_contract_includes_revision_ids(db_session, tmp_path)
     assert contract["proposal_revision_id"] == prop_rev.id
     assert contract["execution_plan_revision_id"] == exec_rev.id
     assert contract["doc_type"] == "presentation"
-    assert "degraded_inputs" in contract
+    assert "available_inputs" in contract
 
 
 @pytest.mark.asyncio
@@ -231,7 +231,7 @@ async def test_presentation_without_proposal_fallback(db_session, tmp_path):
     assert result["status"] == "completed"
     contract = result["generation_contract"]
     assert contract["proposal_revision_id"] is None
-    assert contract["degraded_inputs"]["proposal"] is False
+    assert contract["available_inputs"]["proposal"] is False
 
 
 @pytest.mark.asyncio

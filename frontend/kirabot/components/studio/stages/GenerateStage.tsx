@@ -77,7 +77,7 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
       setPhase('error');
       setError(err instanceof Error ? err.message : '생성 중 오류가 발생했습니다');
     }
-  }, [projectId, onProjectUpdate]);
+  }, [projectId, docType, onProjectUpdate]);
 
   return (
     <div className="max-w-3xl">

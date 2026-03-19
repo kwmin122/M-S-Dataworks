@@ -1273,7 +1273,7 @@ async def generate_proposal(
             "target_slide_count": req.target_slide_count,
             "duration_min": req.duration_min,
             "qna_count": req.qna_count,
-            "degraded_inputs": {
+            "available_inputs": {
                 "proposal": proposal_rev is not None,
                 "execution_plan": exec_plan_rev is not None,
             },
@@ -1323,15 +1323,23 @@ async def generate_proposal(
             quality_issues = []
             generation_time_sec = getattr(gen_result, 'generation_time_sec', None)
         elif req.doc_type == "presentation":
-            # Build proposal_sections from current revision
-            prop_sections = None
+            # Build proposal_sections from current revision + exec plan enrichment
+            prop_sections: list[dict[str, str]] = []
             if proposal_rev and proposal_rev.content_json:
-                prop_sections = proposal_rev.content_json.get("sections")
+                prop_sections = proposal_rev.content_json.get("sections", [])
+            # Merge execution plan sections as supplementary context
+            if exec_plan_rev and exec_plan_rev.content_json:
+                exec_sections = exec_plan_rev.content_json.get("sections", [])
+                for es in exec_sections:
+                    prop_sections.append({
+                        "name": f"[수행계획] {es.get('name', '')}",
+                        "text": es.get("text", ""),
+                    })
 
             gen_result = await asyncio.to_thread(
                 _run_ppt_generation,
                 rfx_result=snap.analysis_json,
-                proposal_sections=prop_sections,
+                proposal_sections=prop_sections if prop_sections else None,
                 company_context=company_context,
                 style_profile_md=style_profile_md,
                 company_name=company_name,
@@ -1409,7 +1417,8 @@ async def generate_proposal(
             source="ai_generated",
             status="draft",
             title=snap.analysis_json.get("title", {
-                "proposal": "제안서", "execution_plan": "수행계획서", "track_record": "실적기술서",
+                "proposal": "제안서", "execution_plan": "수행계획서",
+                "track_record": "실적기술서", "presentation": "발표자료",
             }.get(req.doc_type, "문서")),
             content_json={
                 "sections": [
@@ -1422,6 +1431,7 @@ async def generate_proposal(
                 "proposal": "proposal_sections_v1",
                 "execution_plan": "execution_plan_tasks_v1",
                 "track_record": "track_record_entries_v1",
+                "presentation": "presentation_slides_v1",
             }.get(req.doc_type, "unknown_v1"),
             quality_report_json={
                 "issues": quality_issues,
@@ -2014,6 +2024,43 @@ async def get_package_completeness(
         "required_remaining": required_remaining,
         "completeness_pct": completeness_pct,
     }
+
+
+@router.get("/projects/{project_id}/documents/presentation/download")
+async def download_presentation(
+    project_id: str,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Download the generated .pptx file for a project."""
+    from fastapi.responses import FileResponse
+
+    await _require_studio_project_access(project_id, "viewer", user, db)
+
+    # Find the latest pptx asset for this project
+    asset = (await db.execute(
+        select(DocumentAsset)
+        .where(
+            DocumentAsset.project_id == project_id,
+            DocumentAsset.asset_type == "pptx",
+        )
+        .order_by(DocumentAsset.created_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    if asset is None:
+        raise HTTPException(404, "발표자료 파일이 없습니다. 먼저 발표자료를 생성해주세요.")
+
+    # Resolve file path
+    local_path = asset.storage_uri.replace("local://", "")
+    file_path = os.path.join(_PPT_ASSET_DIR, *local_path.split("ppt_assets/", 1)[-1].split("/"))
+    if not os.path.isfile(file_path):
+        raise HTTPException(404, "서버에서 파일을 찾을 수 없습니다")
+
+    return FileResponse(
+        path=file_path,
+        filename=asset.original_filename or "presentation.pptx",
+        media_type=asset.mime_type or "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    )
 
 
 @router.get("/projects/{project_id}/package-items/{item_id}/evidence/download")
