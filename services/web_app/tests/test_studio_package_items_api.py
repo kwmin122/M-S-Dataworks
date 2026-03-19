@@ -175,10 +175,12 @@ async def test_invalid_transition_rejected(db_session):
 
 
 @pytest.mark.asyncio
-async def test_evidence_upload_creates_asset(db_session):
-    """Evidence upload creates DocumentAsset and links to package item."""
-    from services.web_app.api.studio import attach_evidence, AttachEvidenceRequest
+async def test_evidence_upload_creates_asset(db_session, tmp_path):
+    """Multipart file upload creates DocumentAsset, saves file, and links to package item."""
+    from services.web_app.api.studio import attach_evidence
     from services.web_app.api.deps import CurrentUser
+    from fastapi import UploadFile
+    import io
 
     org = await _create_org(db_session)
     project = await _create_studio_project(db_session, org.id)
@@ -188,16 +190,14 @@ async def test_evidence_upload_creates_asset(db_session):
 
     user = CurrentUser(username="testuser", org_id=org.id, role="editor")
 
-    result = await attach_evidence(
-        project_id=project.id, item_id=items[1].id,
-        req=AttachEvidenceRequest(
-            original_filename="실적확인서.pdf",
-            storage_uri="local://uploads/실적확인서.pdf",
-            mime_type="application/pdf",
-            size_bytes=102400,
-        ),
-        user=user, db=db_session,
-    )
+    file_content = b"PDF file content for testing"
+    upload = UploadFile(filename="실적확인서.pdf", file=io.BytesIO(file_content))
+
+    with patch("services.web_app.api.studio._EVIDENCE_STORAGE_DIR", str(tmp_path)):
+        result = await attach_evidence(
+            project_id=project.id, item_id=items[1].id,
+            file=upload, user=user, db=db_session,
+        )
 
     assert result["asset_id"] is not None
     assert result["status"] == "uploaded"
@@ -207,7 +207,8 @@ async def test_evidence_upload_creates_asset(db_session):
         select(DocumentAsset).where(DocumentAsset.id == result["asset_id"])
     )).scalar_one()
     assert asset.original_filename == "실적확인서.pdf"
-    assert asset.revision_id is None  # evidence, not a generated revision
+    assert asset.size_bytes == len(file_content)
+    assert asset.storage_uri.startswith("local://")
 
     # Verify package item linked
     item = (await db_session.execute(
@@ -215,6 +216,16 @@ async def test_evidence_upload_creates_asset(db_session):
     )).scalar_one()
     assert item.asset_id == result["asset_id"]
     assert item.status == "uploaded"
+
+    # Verify actual file saved on disk
+    import os
+    # File is at _EVIDENCE_STORAGE_DIR/{project_id}/{item_id}/{filename}
+    saved_dir = os.path.join(str(tmp_path), project.id, items[1].id)
+    assert os.path.isdir(saved_dir)
+    saved_files = os.listdir(saved_dir)
+    assert len(saved_files) == 1
+    with open(os.path.join(saved_dir, saved_files[0]), "rb") as f:
+        assert f.read() == file_content
 
 
 @pytest.mark.asyncio
@@ -276,20 +287,18 @@ async def test_non_studio_project_rejected(db_session):
     assert exc_info.value.status_code == 400
 
 
-# ---- Task 9.6: attach_evidence guard tests ----
+# ---- Task 9.7: multipart upload guard tests ----
 
-_EVIDENCE_REQ_ARGS = dict(
-    original_filename="테스트.pdf",
-    storage_uri="local://uploads/test.pdf",
-    mime_type="application/pdf",
-    size_bytes=1024,
-)
+def _make_upload(content: bytes = b"test file", filename: str = "test.pdf"):
+    from fastapi import UploadFile
+    import io
+    return UploadFile(filename=filename, file=io.BytesIO(content))
 
 
 @pytest.mark.asyncio
-async def test_attach_evidence_rejects_generated_document(db_session):
+async def test_attach_evidence_rejects_generated_document(db_session, tmp_path):
     """Cannot attach evidence to generated_document category items."""
-    from services.web_app.api.studio import attach_evidence, AttachEvidenceRequest
+    from services.web_app.api.studio import attach_evidence
     from services.web_app.api.deps import CurrentUser
     from fastapi import HTTPException
 
@@ -302,18 +311,18 @@ async def test_attach_evidence_rejects_generated_document(db_session):
     user = CurrentUser(username="testuser", org_id=org.id, role="editor")
 
     with pytest.raises(HTTPException) as exc_info:
-        await attach_evidence(
-            project_id=project.id, item_id=items[0].id,  # proposal = generated_document
-            req=AttachEvidenceRequest(**_EVIDENCE_REQ_ARGS),
-            user=user, db=db_session,
-        )
+        with patch("services.web_app.api.studio._EVIDENCE_STORAGE_DIR", str(tmp_path)):
+            await attach_evidence(
+                project_id=project.id, item_id=items[0].id,
+                file=_make_upload(), user=user, db=db_session,
+            )
     assert exc_info.value.status_code == 400
 
 
 @pytest.mark.asyncio
-async def test_attach_evidence_rejects_already_uploaded(db_session):
+async def test_attach_evidence_rejects_already_uploaded(db_session, tmp_path):
     """Cannot re-attach evidence to already uploaded item."""
-    from services.web_app.api.studio import attach_evidence, AttachEvidenceRequest
+    from services.web_app.api.studio import attach_evidence
     from services.web_app.api.deps import CurrentUser
     from fastapi import HTTPException
 
@@ -325,27 +334,24 @@ async def test_attach_evidence_rejects_already_uploaded(db_session):
 
     user = CurrentUser(username="testuser", org_id=org.id, role="editor")
 
-    # First attach — success
-    await attach_evidence(
-        project_id=project.id, item_id=items[1].id,  # evidence, missing
-        req=AttachEvidenceRequest(**_EVIDENCE_REQ_ARGS),
-        user=user, db=db_session,
-    )
-
-    # Second attach — should fail (already uploaded)
-    with pytest.raises(HTTPException) as exc_info:
+    with patch("services.web_app.api.studio._EVIDENCE_STORAGE_DIR", str(tmp_path)):
         await attach_evidence(
             project_id=project.id, item_id=items[1].id,
-            req=AttachEvidenceRequest(**_EVIDENCE_REQ_ARGS),
-            user=user, db=db_session,
+            file=_make_upload(), user=user, db=db_session,
         )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await attach_evidence(
+                project_id=project.id, item_id=items[1].id,
+                file=_make_upload(), user=user, db=db_session,
+            )
     assert exc_info.value.status_code == 400
 
 
 @pytest.mark.asyncio
-async def test_attach_evidence_rejects_verified(db_session):
+async def test_attach_evidence_rejects_verified(db_session, tmp_path):
     """Cannot attach evidence to verified item."""
-    from services.web_app.api.studio import attach_evidence, update_package_item_status, AttachEvidenceRequest, UpdatePackageItemStatusRequest
+    from services.web_app.api.studio import attach_evidence, update_package_item_status, UpdatePackageItemStatusRequest
     from services.web_app.api.deps import CurrentUser
     from fastapi import HTTPException
 
@@ -357,18 +363,40 @@ async def test_attach_evidence_rejects_verified(db_session):
 
     user = CurrentUser(username="testuser", org_id=org.id, role="editor")
 
-    # Verify the generated proposal item
     await update_package_item_status(
         project_id=project.id, item_id=items[0].id,
         req=UpdatePackageItemStatusRequest(status="verified"),
         user=user, db=db_session,
     )
 
-    # Try to attach evidence to verified item — should fail
     with pytest.raises(HTTPException) as exc_info:
-        await attach_evidence(
-            project_id=project.id, item_id=items[0].id,
-            req=AttachEvidenceRequest(**_EVIDENCE_REQ_ARGS),
-            user=user, db=db_session,
-        )
+        with patch("services.web_app.api.studio._EVIDENCE_STORAGE_DIR", str(tmp_path)):
+            await attach_evidence(
+                project_id=project.id, item_id=items[0].id,
+                file=_make_upload(), user=user, db=db_session,
+            )
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_attach_evidence_rejects_empty_file(db_session, tmp_path):
+    """Cannot attach empty file."""
+    from services.web_app.api.studio import attach_evidence
+    from services.web_app.api.deps import CurrentUser
+    from fastapi import HTTPException
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    items = await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    with pytest.raises(HTTPException) as exc_info:
+        with patch("services.web_app.api.studio._EVIDENCE_STORAGE_DIR", str(tmp_path)):
+            await attach_evidence(
+                project_id=project.id, item_id=items[1].id,
+                file=_make_upload(content=b""), user=user, db=db_session,
+            )
     assert exc_info.value.status_code == 400

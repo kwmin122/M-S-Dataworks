@@ -7,7 +7,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1456,11 +1456,7 @@ class UpdatePackageItemStatusRequest(BaseModel):
     status: Literal["missing", "waived", "verified"]  # uploaded only via attach_evidence
 
 
-class AttachEvidenceRequest(BaseModel):
-    original_filename: str = Field(min_length=1, max_length=500)
-    storage_uri: str = Field(min_length=1)
-    mime_type: str | None = None
-    size_bytes: int | None = None
+_EVIDENCE_STORAGE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "package_evidence")
 
 
 # --- Package item lifecycle endpoints ---
@@ -1502,13 +1498,13 @@ async def update_package_item_status(
 async def attach_evidence(
     project_id: str,
     item_id: str,
-    req: AttachEvidenceRequest,
+    file: UploadFile = File(...),
     user: CurrentUser = Depends(resolve_org_membership),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """Attach evidence file to a package item.
+    """Attach evidence file to a package item via multipart upload.
 
-    Creates a DocumentAsset, links it via asset_id, and transitions status to uploaded.
+    Saves file to local storage, creates DocumentAsset, links via asset_id.
     """
     await _require_studio_project_access(project_id, "editor", user, db)
 
@@ -1529,16 +1525,44 @@ async def attach_evidence(
     if item.status != "missing":
         raise HTTPException(400, f"'{item.status}' 상태의 항목에는 증빙을 첨부할 수 없습니다")
 
+    # Read file content
+    content = await file.read()
+    if len(content) == 0:
+        raise HTTPException(400, "빈 파일은 첨부할 수 없습니다")
+
+    # Sanitize filename + generate storage path
+    import re as _re
+    original_filename = file.filename or "unnamed"
+    safe_name = _re.sub(r"[^a-zA-Z0-9가-힣._-]", "_", original_filename)[:100]
+    if not safe_name:
+        safe_name = "file"
+    # Add unique suffix to prevent collisions
+    import hashlib
+    content_hash = hashlib.sha256(content).hexdigest()[:12]
+    stored_name = f"{content_hash}_{safe_name}"
+
+    # Save to local storage
+    storage_subdir = os.path.join("package_evidence", project_id, item_id)
+    storage_abs_dir = os.path.join(_EVIDENCE_STORAGE_DIR, project_id, item_id)
+    os.makedirs(storage_abs_dir, exist_ok=True)
+
+    file_path = os.path.join(storage_abs_dir, stored_name)
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    storage_uri = f"local://{storage_subdir}/{stored_name}"
+
     # Create DocumentAsset
     asset = DocumentAsset(
         org_id=user.org_id,
         project_id=project_id,
         asset_type="original",
-        storage_uri=req.storage_uri,
+        storage_uri=storage_uri,
         upload_status="uploaded",
-        original_filename=req.original_filename,
-        mime_type=req.mime_type,
-        size_bytes=req.size_bytes,
+        original_filename=original_filename,
+        mime_type=file.content_type,
+        size_bytes=len(content),
+        content_hash=content_hash,
     )
     db.add(asset)
     await db.flush()
@@ -1556,7 +1580,8 @@ async def attach_evidence(
         target_id=item_id,
         detail_json={
             "asset_id": asset.id,
-            "filename": req.original_filename,
+            "filename": original_filename,
+            "size_bytes": len(content),
         },
     ))
 
