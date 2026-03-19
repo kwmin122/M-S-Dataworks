@@ -269,3 +269,36 @@ export async function promoteStyleSkill(
     method: 'POST',
   });
 }
+
+// --- Proposal Generation ---
+
+export interface GenerationContract {
+  snapshot_id: string;
+  snapshot_version: number;
+  company_assets_count: number;
+  company_context_length: number;
+  pinned_style_skill_id: string | null;
+  pinned_style_name: string | null;
+  pinned_style_version: number | null;
+  doc_type: string;
+  total_pages: number;
+}
+
+export interface GenerateResult {
+  run_id: string;
+  revision_id: string;
+  status: string;
+  generation_contract: GenerationContract;
+  sections_count: number;
+  generation_time_sec: number | null;
+}
+
+export async function generateProposal(
+  projectId: string,
+  params?: { doc_type?: string; total_pages?: number },
+): Promise<GenerateResult> {
+  return studioFetch(`/api/studio/projects/${projectId}/generate`, {
+    method: 'POST',
+    body: JSON.stringify(params ?? { doc_type: 'proposal' }),
+  });
+}

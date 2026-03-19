@@ -5,6 +5,7 @@ import RfpStage from './stages/RfpStage';
 import PackageStage from './stages/PackageStage';
 import CompanyStage from './stages/CompanyStage';
 import StyleStage from './stages/StyleStage';
+import GenerateStage from './stages/GenerateStage';
 import {
   getStudioProject,
   updateStudioStage,
@@ -145,6 +146,14 @@ function StageContent({
         <StyleStage
           projectId={project.id}
           pinnedStyleSkillId={project.pinned_style_skill_id}
+          onProjectUpdate={onProjectUpdate}
+        />
+      );
+    case 'generate':
+      return (
+        <GenerateStage
+          projectId={project.id}
+          project={project}
           onProjectUpdate={onProjectUpdate}
         />
       );

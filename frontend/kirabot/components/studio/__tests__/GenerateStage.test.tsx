@@ -1,0 +1,114 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import '@testing-library/jest-dom';
+import GenerateStage from '../stages/GenerateStage';
+import type { StudioProject, GenerateResult } from '../../../services/studioApi';
+
+vi.mock('../../../services/studioApi', async () => {
+  const actual = await vi.importActual('../../../services/studioApi');
+  return {
+    ...actual,
+    generateProposal: vi.fn(),
+  };
+});
+
+import { generateProposal } from '../../../services/studioApi';
+const mockGenerate = vi.mocked(generateProposal);
+
+const PROJECT_WITH_SNAPSHOT: StudioProject = {
+  id: 'proj1',
+  title: '테스트 프로젝트',
+  status: 'ready_for_generation',
+  project_type: 'studio',
+  studio_stage: 'generate',
+  pinned_style_skill_id: 'style-1',
+  active_analysis_snapshot_id: 'snap-1',
+  rfp_source_type: null,
+  rfp_source_ref: null,
+  created_at: '2026-03-18T10:00:00Z',
+  updated_at: '2026-03-18T10:00:00Z',
+};
+
+const PROJECT_NO_SNAPSHOT: StudioProject = {
+  ...PROJECT_WITH_SNAPSHOT,
+  active_analysis_snapshot_id: null,
+  pinned_style_skill_id: null,
+};
+
+const SAMPLE_RESULT: GenerateResult = {
+  run_id: 'run-abc123',
+  revision_id: 'rev-def456',
+  status: 'completed',
+  generation_contract: {
+    snapshot_id: 'snap-1',
+    snapshot_version: 1,
+    company_assets_count: 3,
+    company_context_length: 200,
+    pinned_style_skill_id: 'style-1',
+    pinned_style_name: '테스트 스타일',
+    pinned_style_version: 1,
+    doc_type: 'proposal',
+    total_pages: 50,
+  },
+  sections_count: 5,
+  generation_time_sec: 12.3,
+};
+
+const noop = () => {};
+
+describe('GenerateStage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('renders generate conditions and button', () => {
+    render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={noop} />);
+
+    expect(screen.getByText('문서 생성')).toBeInTheDocument();
+    expect(screen.getByText('공고 분석 완료')).toBeInTheDocument();
+    expect(screen.getByText('스타일 핀')).toBeInTheDocument();
+    expect(screen.getByText('제안서 생성')).toBeInTheDocument();
+  });
+
+  it('disables generate button without snapshot', () => {
+    render(<GenerateStage projectId="proj1" project={PROJECT_NO_SNAPSHOT} onProjectUpdate={noop} />);
+
+    const button = screen.getByText('제안서 생성').closest('button');
+    expect(button).toBeDisabled();
+  });
+
+  it('shows contract view on toggle', () => {
+    render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={noop} />);
+
+    fireEvent.click(screen.getByText('입력 계약 보기'));
+    expect(screen.getByText('생성 입력 계약')).toBeInTheDocument();
+    expect(screen.getByText(/snap-1/)).toBeInTheDocument();
+  });
+
+  it('calls generateProposal and shows result', async () => {
+    mockGenerate.mockResolvedValue(SAMPLE_RESULT);
+    const onUpdate = vi.fn();
+
+    render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={onUpdate} />);
+
+    fireEvent.click(screen.getByText('제안서 생성'));
+
+    await waitFor(() => {
+      expect(mockGenerate).toHaveBeenCalledWith('proj1');
+    });
+
+    expect(await screen.findByText('생성 완료')).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument(); // sections_count
+    expect(onUpdate).toHaveBeenCalled();
+  });
+
+  it('shows error state on generation failure', async () => {
+    mockGenerate.mockRejectedValue(new Error('생성 실패'));
+
+    render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={noop} />);
+
+    fireEvent.click(screen.getByText('제안서 생성'));
+
+    expect(await screen.findByText('생성 실패')).toBeInTheDocument();
+  });
+});

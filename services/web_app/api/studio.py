@@ -1,11 +1,11 @@
-"""Studio project control plane — CRUD + snapshot clone + analyze + classify + company assets."""
+"""Studio project control plane — CRUD + snapshot clone + analyze + classify + company assets + generate."""
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -17,6 +17,7 @@ from services.web_app.db.models.base import new_cuid
 from services.web_app.db.models.project import BidProject, ProjectAccess, AnalysisSnapshot
 from services.web_app.db.models.studio import ProjectCompanyAsset, ProjectPackageItem, ProjectStyleSkill
 from services.web_app.db.models.company import CompanyProfile, CompanyTrackRecord, CompanyPersonnel
+from services.web_app.db.models.document import DocumentRun, DocumentRevision
 from services.web_app.db.models.audit import AuditLog
 from services.web_app.api.deps import CurrentUser, resolve_org_membership, require_project_access
 from services.web_app.services.package_classifier import classify_and_build
@@ -1155,6 +1156,278 @@ def _skill_to_response(skill: ProjectStyleSkill) -> StyleSkillResponse:
         style_json=skill.style_json,
         is_shared_default=skill.is_shared_default,
         created_at=skill.created_at.isoformat(),
+    )
+
+
+# --- Proposal Generation schemas ---
+
+class GenerateProposalRequest(BaseModel):
+    doc_type: str = Field(pattern="^(proposal)$", default="proposal")
+    total_pages: int = Field(default=50, ge=10, le=200)
+
+
+# --- Proposal Generation endpoint ---
+
+@router.post("/projects/{project_id}/generate")
+async def generate_proposal(
+    project_id: str,
+    req: GenerateProposalRequest,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Generate a proposal document for a Studio project.
+
+    Builds effective company context from shared + staging,
+    applies pinned style, and creates DocumentRun + DocumentRevision.
+    Returns the generation contract for transparency.
+    """
+    await _require_studio_project_access(project_id, "editor", user, db)
+
+    # Load project
+    project = (await db.execute(
+        select(BidProject).where(BidProject.id == project_id)
+    )).scalar_one()
+
+    # Require analysis snapshot
+    if not project.active_analysis_snapshot_id:
+        raise HTTPException(400, "분석 스냅샷이 없습니다. 먼저 공고를 분석해주세요.")
+
+    snap = (await db.execute(
+        select(AnalysisSnapshot).where(
+            AnalysisSnapshot.id == project.active_analysis_snapshot_id,
+        )
+    )).scalar_one_or_none()
+    if snap is None:
+        raise HTTPException(400, "분석 스냅샷을 찾을 수 없습니다.")
+
+    # --- Build generation contract ---
+
+    # 1. Company context: shared + staging merged into narrative
+    company_context, company_assets_count = await _build_company_context(db, project_id, user.org_id)
+
+    # 2. Pinned style
+    pinned_style = None
+    style_profile_md = ""
+    if project.pinned_style_skill_id:
+        pinned_style = (await db.execute(
+            select(ProjectStyleSkill).where(
+                ProjectStyleSkill.id == project.pinned_style_skill_id,
+            )
+        )).scalar_one_or_none()
+        if pinned_style:
+            style_profile_md = pinned_style.profile_md_content or ""
+
+    generation_contract = {
+        "snapshot_id": snap.id,
+        "snapshot_version": snap.version,
+        "company_assets_count": company_assets_count,
+        "company_context_length": len(company_context),
+        "pinned_style_skill_id": project.pinned_style_skill_id,
+        "pinned_style_name": pinned_style.name if pinned_style else None,
+        "pinned_style_version": pinned_style.version if pinned_style else None,
+        "doc_type": req.doc_type,
+        "total_pages": req.total_pages,
+    }
+
+    # --- Create DocumentRun ---
+    run = DocumentRun(
+        org_id=user.org_id,
+        project_id=project_id,
+        analysis_snapshot_id=snap.id,
+        doc_type=req.doc_type,
+        status="running",
+        params_json=generation_contract,
+        created_by=user.username,
+        started_at=datetime.now(timezone.utc),
+    )
+    db.add(run)
+    await db.flush()
+
+    # --- Run generation (mocked in tests) ---
+    try:
+        proposal_result = await asyncio.to_thread(
+            _run_proposal_generation,
+            rfx_result=snap.analysis_json,
+            company_context=company_context,
+            style_profile_md=style_profile_md,
+            total_pages=req.total_pages,
+        )
+
+        # --- Create DocumentRevision ---
+        # Compute revision number
+        rev_count_result = await db.execute(
+            select(DocumentRevision.revision_number)
+            .where(
+                DocumentRevision.project_id == project_id,
+                DocumentRevision.doc_type == req.doc_type,
+            )
+            .order_by(DocumentRevision.revision_number.desc())
+            .limit(1)
+        )
+        prev_rev = rev_count_result.scalar_one_or_none() or 0
+
+        revision = DocumentRevision(
+            org_id=user.org_id,
+            project_id=project_id,
+            doc_type=req.doc_type,
+            run_id=run.id,
+            revision_number=prev_rev + 1,
+            source="ai_generated",
+            status="draft",
+            title=snap.analysis_json.get("title", "제안서"),
+            content_json={
+                "sections": [
+                    {"name": name, "text": text}
+                    for name, text in (proposal_result.sections or [])
+                ],
+            },
+            content_schema="proposal_sections_v1",
+            quality_report_json={
+                "issues": [str(i) for i in (proposal_result.quality_issues or [])],
+                "residual": [str(i) for i in (proposal_result.residual_issues or [])],
+            },
+            created_by=user.username,
+        )
+        db.add(revision)
+        await db.flush()
+
+        # Update run status
+        run.status = "completed"
+        run.completed_at = datetime.now(timezone.utc)
+
+        # Update package item status if applicable
+        pkg_result = await db.execute(
+            select(ProjectPackageItem).where(
+                ProjectPackageItem.project_id == project_id,
+                ProjectPackageItem.generation_target == req.doc_type,
+            )
+        )
+        for pkg_item in pkg_result.scalars().all():
+            pkg_item.status = "generated"
+
+    except Exception as exc:
+        run.status = "failed"
+        run.completed_at = datetime.now(timezone.utc)
+        run.error_message = str(exc)[:1000]
+        await db.commit()
+        raise HTTPException(500, f"제안서 생성 중 오류가 발생했습니다: {str(exc)[:200]}")
+
+    # Audit log
+    db.add(AuditLog(
+        org_id=user.org_id,
+        user_id=user.username,
+        project_id=project_id,
+        action="proposal_generated",
+        target_type="document_run",
+        target_id=run.id,
+        detail_json=generation_contract,
+    ))
+
+    await db.commit()
+
+    return {
+        "run_id": run.id,
+        "revision_id": revision.id,
+        "status": run.status,
+        "generation_contract": generation_contract,
+        "sections_count": len(proposal_result.sections or []),
+        "generation_time_sec": getattr(proposal_result, 'generation_time_sec', None),
+    }
+
+
+async def _build_company_context(db: AsyncSession, project_id: str, org_id: str) -> tuple[str, int]:
+    """Build effective company context from shared + staging assets.
+
+    Returns (context_narrative, total_asset_count).
+    """
+    parts: list[str] = []
+    asset_count = 0
+
+    # Shared profile
+    profile = (await db.execute(
+        select(CompanyProfile).where(CompanyProfile.org_id == org_id)
+    )).scalar_one_or_none()
+    if profile:
+        asset_count += 1
+        items = []
+        if profile.company_name:
+            items.append(f"회사명: {profile.company_name}")
+        if profile.business_type:
+            items.append(f"업종: {profile.business_type}")
+        if profile.headcount:
+            items.append(f"직원 수: {profile.headcount}명")
+        if items:
+            parts.append("## 회사 기본정보\n" + "\n".join(f"- {i}" for i in items))
+
+    # Shared track records
+    shared_tracks = (await db.execute(
+        select(CompanyTrackRecord).where(CompanyTrackRecord.org_id == org_id)
+    )).scalars().all()
+    for t in shared_tracks:
+        asset_count += 1
+        parts.append(f"- 실적: {t.project_name or '(무제)'} ({t.client_name or '미상'})")
+
+    # Shared personnel
+    shared_personnel = (await db.execute(
+        select(CompanyPersonnel).where(CompanyPersonnel.org_id == org_id)
+    )).scalars().all()
+    for p in shared_personnel:
+        asset_count += 1
+        parts.append(f"- 인력: {p.name or '(무명)'} / {p.role or ''} / {p.years_experience or 0}년")
+
+    # Project staging assets (not yet promoted)
+    staging = (await db.execute(
+        select(ProjectCompanyAsset)
+        .where(
+            ProjectCompanyAsset.project_id == project_id,
+            ProjectCompanyAsset.promoted_at.is_(None),
+        )
+        .order_by(ProjectCompanyAsset.created_at)
+    )).scalars().all()
+    for a in staging:
+        asset_count += 1
+        content = a.content_json
+        if a.asset_category == "track_record":
+            parts.append(f"- 실적(스테이징): {content.get('project_name', '(무제)')} ({content.get('client_name', '')})")
+        elif a.asset_category == "personnel":
+            parts.append(f"- 인력(스테이징): {content.get('name', '(무명)')} / {content.get('role', '')}")
+        elif a.asset_category == "profile":
+            if content.get("company_name"):
+                parts.insert(0, f"## 회사 기본정보 (스테이징)\n- 회사명: {content['company_name']}")
+
+    return "\n".join(parts), asset_count
+
+
+def _run_proposal_generation(
+    rfx_result: dict[str, Any],
+    company_context: str,
+    style_profile_md: str,
+    total_pages: int,
+) -> Any:
+    """Run proposal generation using existing orchestrator.
+
+    This function runs in a thread (called via asyncio.to_thread).
+    """
+    import tempfile
+    from proposal_orchestrator import generate_proposal as _gen
+
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY가 설정되지 않았습니다")
+
+    # Write style profile to temp dir for orchestrator
+    style_dir = ""
+    if style_profile_md:
+        style_dir = tempfile.mkdtemp(prefix="studio_style_")
+        with open(os.path.join(style_dir, "profile.md"), "w", encoding="utf-8") as f:
+            f.write(style_profile_md)
+
+    return _gen(
+        rfx_result=rfx_result,
+        company_context=company_context,
+        total_pages=total_pages,
+        api_key=api_key,
+        company_skills_dir=style_dir,
     )
 
 
