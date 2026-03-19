@@ -341,3 +341,22 @@ def test_construction_quotation_excludes_presentation():
     )
     codes = {i.document_code for i in items}
     assert "presentation" not in codes
+
+
+# Slice 4.5+ regression: "구축" false positive
+def test_cctv_system_classified_as_service():
+    """CCTV 감시 시스템 구축 용역은 construction이 아니라 service여야 한다.
+
+    "정보통신공사업자"의 "공사"가 construction으로 잡히는 false positive 방지.
+    """
+    result = classify_procurement({
+        "title": "CCTV 감시 시스템 구축 및 유지보수 관리 운영",
+        "requirements": [
+            {"category": "필수자격", "description": "정보통신공사업자 등록"},
+            {"category": "필수자격", "description": "중소기업 확인서 소지"},
+        ],
+        "evaluation_criteria": [
+            {"category": "기술평가", "description": "기술제안서 및 발표평가 배점 70점"},
+        ],
+    })
+    assert result.procurement_domain == "service", f"CCTV 구축이 {result.procurement_domain}로 분류됨"
