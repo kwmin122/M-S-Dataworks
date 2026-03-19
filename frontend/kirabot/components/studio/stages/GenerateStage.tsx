@@ -18,13 +18,11 @@ interface GenerateStageProps {
 
 type GenerationPhase = 'idle' | 'assembling_contract' | 'generating_sections' | 'saving_revision' | 'done' | 'error';
 
-const PHASE_LABELS: Record<GenerationPhase, string> = {
-  idle: '',
-  assembling_contract: '입력 계약 조립 중...',
-  generating_sections: '제안서 섹션 생성 중... (1~2분 소요)',
-  saving_revision: '리비전 저장 중...',
-  done: '완료',
-  error: '오류 발생',
+const PHASE_LABELS_BY_DOC: Record<GenerateDocType, Record<GenerationPhase, string>> = {
+  proposal: { idle: '', assembling_contract: '입력 계약 조립 중...', generating_sections: '제안서 섹션 생성 중... (1~2분 소요)', saving_revision: '리비전 저장 중...', done: '완료', error: '오류 발생' },
+  execution_plan: { idle: '', assembling_contract: '입력 계약 조립 중...', generating_sections: 'WBS/수행계획 생성 중... (1~2분 소요)', saving_revision: '리비전 저장 중...', done: '완료', error: '오류 발생' },
+  track_record: { idle: '', assembling_contract: '입력 계약 조립 중...', generating_sections: '실적기술서 생성 중... (1~2분 소요)', saving_revision: '리비전 저장 중...', done: '완료', error: '오류 발생' },
+  presentation: { idle: '', assembling_contract: '입력 계약 조립 중...', generating_sections: '슬라이드 생성 중... (1~2분 소요)', saving_revision: '리비전 저장 중...', done: '완료', error: '오류 발생' },
 };
 
 export default function GenerateStage({ projectId, project, onProjectUpdate }: GenerateStageProps) {
@@ -85,7 +83,7 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
         <div>
           <h2 className="text-lg font-bold text-slate-900">문서 생성</h2>
           <p className="text-sm text-slate-500 mt-0.5">
-            분석 결과와 회사 역량을 기반으로 제안서를 생성합니다
+            분석 결과와 회사 역량을 기반으로 문서를 생성합니다
           </p>
         </div>
       </div>
@@ -146,7 +144,7 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
           className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-kira-600 rounded-lg hover:bg-kira-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {generating ? (
-            <><Loader2 size={16} className="animate-spin" /> {PHASE_LABELS[phase]}</>
+            <><Loader2 size={16} className="animate-spin" /> {PHASE_LABELS_BY_DOC[docType][phase]}</>
           ) : (
             <><Play size={16} /> {{ proposal: '제안서 생성', execution_plan: '수행계획서 생성', track_record: '실적기술서 생성', presentation: '발표자료 생성' }[docType]}</>
           )}
@@ -186,7 +184,11 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
           </div>
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div className="text-slate-600">상태: <span className="font-medium text-green-700">{result.status}</span></div>
-            <div className="text-slate-600">섹션 수: <span className="font-medium">{result.sections_count}</span></div>
+            {docType === 'presentation' ? (
+              <div className="text-slate-600">슬라이드: <span className="font-medium">{result.generation_contract?.target_slide_count ?? result.sections_count}장</span></div>
+            ) : (
+              <div className="text-slate-600">섹션 수: <span className="font-medium">{result.sections_count}</span></div>
+            )}
             {result.generation_time_sec && (
               <div className="text-slate-600">소요 시간: <span className="font-medium">{result.generation_time_sec.toFixed(1)}초</span></div>
             )}
@@ -197,6 +199,16 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
               Run: {result.run_id.slice(0, 8)}... / Revision: {result.revision_id.slice(0, 8)}...
             </span>
           </div>
+          {docType === 'presentation' && (
+            <a
+              href={`${import.meta.env.VITE_API_BASE_URL || (typeof window !== 'undefined' && window.location.port === '5173' ? 'http://localhost:8000' : '')}/api/studio/projects/${projectId}/documents/presentation/download`}
+              className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-kira-600 border border-kira-200 rounded-lg hover:bg-kira-50"
+              download
+            >
+              <FileCheck size={14} />
+              .pptx 다운로드
+            </a>
+          )}
         </div>
       )}
 

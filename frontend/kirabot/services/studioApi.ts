@@ -282,6 +282,13 @@ export interface GenerationContract {
   pinned_style_version: number | null;
   doc_type: string;
   total_pages: number;
+  // PPT-specific
+  proposal_revision_id?: string | null;
+  execution_plan_revision_id?: string | null;
+  target_slide_count?: number;
+  duration_min?: number;
+  qna_count?: number;
+  available_inputs?: { proposal: boolean; execution_plan: boolean };
 }
 
 export interface GenerateResult {
