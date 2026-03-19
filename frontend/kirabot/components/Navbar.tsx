@@ -109,8 +109,13 @@ const Navbar: React.FC<NavbarProps> = ({ user, onNavigate, onLoginClick, onLogou
             {user ? (
               <>
                 <Button onClick={() => { setMobileOpen(false); onNavigate('/chat'); }} size="sm" className="w-full">
-                  대시보드
+                  공고 탐색
                 </Button>
+                {isStudioVisible() && (
+                  <Button onClick={() => { setMobileOpen(false); onNavigate('/studio'); }} size="sm" variant="secondary" className="w-full">
+                    입찰 문서 AI 작성
+                  </Button>
+                )}
                 <button
                   type="button"
                   onClick={() => { setMobileOpen(false); onLogoutClick(); }}

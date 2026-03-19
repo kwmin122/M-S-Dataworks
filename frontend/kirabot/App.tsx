@@ -189,7 +189,7 @@ function AppRoutes() {
         onScrollToSection={scrollToSection}
       />
       <main className="flex-grow">
-        <Hero onStart={handleStart} onStartStudio={handleStartStudio} onAlertSetup={handleAlertSetup} />
+        <Hero onStart={handleStart} onStartStudio={isStudioVisible() ? handleStartStudio : undefined} onAlertSetup={handleAlertSetup} />
         <ProductHub
           onNavigateChat={handleStart}
           onNavigateStudio={handleStartStudio}
