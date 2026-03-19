@@ -293,7 +293,7 @@ export interface GenerateResult {
   generation_time_sec: number | null;
 }
 
-export type GenerateDocType = 'proposal' | 'execution_plan';
+export type GenerateDocType = 'proposal' | 'execution_plan' | 'track_record';
 
 export async function generateProposal(
   projectId: string,

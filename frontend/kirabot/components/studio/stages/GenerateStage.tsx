@@ -122,7 +122,7 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
       {/* Doc type selector */}
       <div className="flex items-center gap-2 mb-4">
         <span className="text-sm text-slate-600">생성 대상:</span>
-        {([['proposal', '기술 제안서'], ['execution_plan', '수행계획서/WBS']] as const).map(([key, label]) => (
+        {([['proposal', '기술 제안서'], ['execution_plan', '수행계획서/WBS'], ['track_record', '실적기술서']] as const).map(([key, label]) => (
           <button
             key={key}
             onClick={() => { setDocType(key); setResult(null); }}
@@ -147,7 +147,7 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
           {generating ? (
             <><Loader2 size={16} className="animate-spin" /> {PHASE_LABELS[phase]}</>
           ) : (
-            <><Play size={16} /> {docType === 'proposal' ? '제안서 생성' : '수행계획서 생성'}</>
+            <><Play size={16} /> {{ proposal: '제안서 생성', execution_plan: '수행계획서 생성', track_record: '실적기술서 생성' }[docType]}</>
           )}
         </button>
         <button
