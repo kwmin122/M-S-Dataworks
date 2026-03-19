@@ -293,7 +293,7 @@ export interface GenerateResult {
   generation_time_sec: number | null;
 }
 
-export type GenerateDocType = 'proposal' | 'execution_plan' | 'track_record';
+export type GenerateDocType = 'proposal' | 'execution_plan' | 'track_record' | 'presentation';
 
 export async function generateProposal(
   projectId: string,
@@ -324,6 +324,17 @@ export interface PersonnelEntry {
   match_reason?: string;
 }
 
+export interface SlideMetadata {
+  slide_type: string;
+  title: string;
+}
+
+export interface QnaPairData {
+  question: string;
+  answer: string;
+  category?: string;
+}
+
 export interface CurrentRevisionData {
   revision_id: string;
   revision_number: number;
@@ -334,6 +345,10 @@ export interface CurrentRevisionData {
   sections: RevisionSection[];
   records?: TrackRecordEntry[];
   personnel?: PersonnelEntry[];
+  slides?: SlideMetadata[];
+  qna_pairs?: QnaPairData[];
+  slide_count?: number;
+  total_duration_min?: number;
   quality_report: Record<string, unknown> | null;
   created_at: string | null;
 }

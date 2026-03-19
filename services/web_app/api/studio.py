@@ -1162,8 +1162,15 @@ def _skill_to_response(skill: ProjectStyleSkill) -> StyleSkillResponse:
 # --- Proposal Generation schemas ---
 
 class GenerateProposalRequest(BaseModel):
-    doc_type: Literal["proposal", "execution_plan", "track_record"] = "proposal"
+    doc_type: Literal["proposal", "execution_plan", "track_record", "presentation"] = "proposal"
     total_pages: int = Field(default=50, ge=10, le=200)
+    # PPT-specific params
+    target_slide_count: int = Field(default=15, ge=5, le=50)
+    duration_min: int = Field(default=25, ge=5, le=120)
+    qna_count: int = Field(default=10, ge=0, le=30)
+
+
+_PPT_ASSET_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ppt_assets")
 
 
 # --- Proposal Generation endpoint ---
@@ -1227,7 +1234,7 @@ async def generate_proposal(
         if pinned_style:
             style_profile_md = pinned_style.profile_md_content or ""
 
-    generation_contract = {
+    generation_contract: dict[str, Any] = {
         "snapshot_id": snap.id,
         "snapshot_version": snap.version,
         "company_assets_count": company_assets_count,
@@ -1238,6 +1245,39 @@ async def generate_proposal(
         "doc_type": req.doc_type,
         "total_pages": req.total_pages,
     }
+
+    # PPT-specific: load proposal/execution_plan revisions for enriched input
+    proposal_rev = None
+    exec_plan_rev = None
+    if req.doc_type == "presentation":
+        from services.web_app.db.models.document import ProjectCurrentDocument
+        for dt, attr in [("proposal", "proposal_rev"), ("execution_plan", "exec_plan_rev")]:
+            cur = (await db.execute(
+                select(ProjectCurrentDocument).where(
+                    ProjectCurrentDocument.project_id == project_id,
+                    ProjectCurrentDocument.doc_type == dt,
+                )
+            )).scalar_one_or_none()
+            if cur:
+                rev = (await db.execute(
+                    select(DocumentRevision).where(DocumentRevision.id == cur.current_revision_id)
+                )).scalar_one_or_none()
+                if attr == "proposal_rev":
+                    proposal_rev = rev
+                else:
+                    exec_plan_rev = rev
+
+        generation_contract.update({
+            "proposal_revision_id": proposal_rev.id if proposal_rev else None,
+            "execution_plan_revision_id": exec_plan_rev.id if exec_plan_rev else None,
+            "target_slide_count": req.target_slide_count,
+            "duration_min": req.duration_min,
+            "qna_count": req.qna_count,
+            "degraded_inputs": {
+                "proposal": proposal_rev is not None,
+                "execution_plan": exec_plan_rev is not None,
+            },
+        })
 
     # --- Create DocumentRun ---
     run = DocumentRun(
@@ -1282,6 +1322,57 @@ async def generate_proposal(
             }
             quality_issues = []
             generation_time_sec = getattr(gen_result, 'generation_time_sec', None)
+        elif req.doc_type == "presentation":
+            # Build proposal_sections from current revision
+            prop_sections = None
+            if proposal_rev and proposal_rev.content_json:
+                prop_sections = proposal_rev.content_json.get("sections")
+
+            gen_result = await asyncio.to_thread(
+                _run_ppt_generation,
+                rfx_result=snap.analysis_json,
+                proposal_sections=prop_sections,
+                company_context=company_context,
+                style_profile_md=style_profile_md,
+                company_name=company_name,
+                target_slide_count=req.target_slide_count,
+                duration_min=req.duration_min,
+                qna_count=req.qna_count,
+            )
+            sections = []
+            content_json_extra = {
+                "slides": gen_result.slides_metadata or [],
+                "qna_pairs": [
+                    {"question": q.question, "answer": q.answer, "category": q.category}
+                    for q in (gen_result.qna_pairs or [])
+                ],
+                "slide_count": gen_result.slide_count,
+                "total_duration_min": gen_result.total_duration_min,
+            }
+            quality_issues = []
+            generation_time_sec = getattr(gen_result, 'generation_time_sec', None)
+
+            # Persist .pptx as DocumentAsset
+            if gen_result.pptx_path and os.path.isfile(gen_result.pptx_path):
+                import shutil
+                ppt_dest_dir = os.path.join(_PPT_ASSET_DIR, project_id)
+                os.makedirs(ppt_dest_dir, exist_ok=True)
+                ppt_filename = os.path.basename(gen_result.pptx_path)
+                ppt_dest = os.path.join(ppt_dest_dir, ppt_filename)
+                shutil.copy2(gen_result.pptx_path, ppt_dest)
+
+                ppt_asset = DocumentAsset(
+                    org_id=user.org_id,
+                    project_id=project_id,
+                    asset_type="pptx",
+                    storage_uri=f"local://ppt_assets/{project_id}/{ppt_filename}",
+                    upload_status="uploaded",
+                    original_filename=ppt_filename,
+                    mime_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    size_bytes=os.path.getsize(ppt_dest),
+                )
+                db.add(ppt_asset)
+                await db.flush()
         else:
             gen_result = await asyncio.to_thread(
                 _run_proposal_generation,
@@ -1415,7 +1506,7 @@ async def generate_proposal(
 @router.get("/projects/{project_id}/documents/{doc_type}/current")
 async def get_current_revision(
     project_id: str,
-    doc_type: Literal["proposal", "execution_plan", "track_record"],
+    doc_type: Literal["proposal", "execution_plan", "track_record", "presentation"],
     user: CurrentUser = Depends(resolve_org_membership),
     db: AsyncSession = Depends(get_async_session),
 ):
@@ -1443,9 +1534,6 @@ async def get_current_revision(
         raise HTTPException(404, "리비전을 찾을 수 없습니다.")
 
     content = revision.content_json or {}
-    sections = content.get("sections", [])
-    records = content.get("records", [])
-    personnel = content.get("personnel", [])
 
     return {
         "revision_id": revision.id,
@@ -1454,9 +1542,13 @@ async def get_current_revision(
         "source": revision.source,
         "status": revision.status,
         "title": revision.title,
-        "sections": sections,
-        "records": records,
-        "personnel": personnel,
+        "sections": content.get("sections", []),
+        "records": content.get("records", []),
+        "personnel": content.get("personnel", []),
+        "slides": content.get("slides", []),
+        "qna_pairs": content.get("qna_pairs", []),
+        "slide_count": content.get("slide_count"),
+        "total_duration_min": content.get("total_duration_min"),
         "quality_report": revision.quality_report_json,
         "created_at": revision.created_at.isoformat() if revision.created_at else None,
     }
@@ -2138,6 +2230,51 @@ def _run_track_record_generation(
     return generate_track_record_doc(
         rfx_result=rfx_result,
         company_name=company_name,
+        api_key=api_key,
+        company_skills_dir="",
+    )
+
+
+def _run_ppt_generation(
+    rfx_result: dict[str, Any],
+    proposal_sections: list[dict[str, str]] | None,
+    company_context: str,
+    style_profile_md: str,
+    company_name: str | None = None,
+    target_slide_count: int = 15,
+    duration_min: int = 25,
+    qna_count: int = 10,
+) -> Any:
+    """Run PPT generation using existing ppt_orchestrator."""
+    import tempfile
+    from ppt_orchestrator import generate_ppt
+
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY가 설정되지 않았습니다")
+
+    if style_profile_md:
+        with tempfile.TemporaryDirectory(prefix="studio_ppt_style_") as style_dir:
+            with open(os.path.join(style_dir, "profile.md"), "w", encoding="utf-8") as f:
+                f.write(style_profile_md)
+            return generate_ppt(
+                rfx_result=rfx_result,
+                proposal_sections=proposal_sections,
+                company_name=company_name or "",
+                target_slide_count=target_slide_count,
+                duration_min=duration_min,
+                qna_count=qna_count,
+                api_key=api_key,
+                company_skills_dir=style_dir,
+            )
+
+    return generate_ppt(
+        rfx_result=rfx_result,
+        proposal_sections=proposal_sections,
+        company_name=company_name or "",
+        target_slide_count=target_slide_count,
+        duration_min=duration_min,
+        qna_count=qna_count,
         api_key=api_key,
         company_skills_dir="",
     )

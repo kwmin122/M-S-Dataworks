@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import type {
   GenerateResult, StudioProject, CurrentRevisionData, RevisionSection, GenerateDocType,
+  SlideMetadata, QnaPairData,
 } from '../../../services/studioApi';
 import { generateProposal, getCurrentRevision } from '../../../services/studioApi';
 import GenerateContractView from './GenerateContractView';
@@ -122,7 +123,7 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
       {/* Doc type selector */}
       <div className="flex items-center gap-2 mb-4">
         <span className="text-sm text-slate-600">생성 대상:</span>
-        {([['proposal', '기술 제안서'], ['execution_plan', '수행계획서/WBS'], ['track_record', '실적기술서']] as const).map(([key, label]) => (
+        {([['proposal', '기술 제안서'], ['execution_plan', '수행계획서/WBS'], ['track_record', '실적기술서'], ['presentation', '발표자료(PPT)']] as const).map(([key, label]) => (
           <button
             key={key}
             onClick={() => { setDocType(key); setResult(null); }}
@@ -147,7 +148,7 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
           {generating ? (
             <><Loader2 size={16} className="animate-spin" /> {PHASE_LABELS[phase]}</>
           ) : (
-            <><Play size={16} /> {{ proposal: '제안서 생성', execution_plan: '수행계획서 생성', track_record: '실적기술서 생성' }[docType]}</>
+            <><Play size={16} /> {{ proposal: '제안서 생성', execution_plan: '수행계획서 생성', track_record: '실적기술서 생성', presentation: '발표자료 생성' }[docType]}</>
           )}
         </button>
         <button
@@ -211,7 +212,8 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
 function RevisionPreview({ revision }: { revision: CurrentRevisionData }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(0);
   const isTrackRecord = revision.doc_type === 'track_record' || ((revision.records?.length ?? 0) > 0 && revision.sections.length === 0);
-  const hasContent = revision.sections.length > 0 || (revision.records?.length ?? 0) > 0 || (revision.personnel?.length ?? 0) > 0;
+  const isPresentation = revision.doc_type === 'presentation' || ((revision.slides?.length ?? 0) > 0);
+  const hasContent = revision.sections.length > 0 || (revision.records?.length ?? 0) > 0 || (revision.personnel?.length ?? 0) > 0 || (revision.slides?.length ?? 0) > 0;
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 mb-4">
@@ -225,6 +227,13 @@ function RevisionPreview({ revision }: { revision: CurrentRevisionData }) {
 
       {!hasContent ? (
         <p className="text-sm text-slate-400">내용이 없습니다.</p>
+      ) : isPresentation ? (
+        <PresentationPreview
+          slides={revision.slides ?? []}
+          qnaPairs={revision.qna_pairs ?? []}
+          slideCount={revision.slide_count}
+          durationMin={revision.total_duration_min}
+        />
       ) : isTrackRecord ? (
         <TrackRecordPreview records={revision.records ?? []} personnel={revision.personnel ?? []} />
       ) : (
@@ -292,6 +301,62 @@ function TrackRecordPreview({
                   <span className="text-xs text-slate-400">{p.role}</span>
                 </div>
                 {p.match_reason && <p className="text-xs text-slate-500">{p.match_reason}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function PresentationPreview({
+  slides,
+  qnaPairs,
+  slideCount,
+  durationMin,
+}: {
+  slides: SlideMetadata[];
+  qnaPairs: QnaPairData[];
+  slideCount?: number;
+  durationMin?: number;
+}) {
+  return (
+    <div className="space-y-4">
+      {/* Summary */}
+      <div className="flex gap-4 text-xs text-slate-500">
+        {slideCount != null && <span>슬라이드 {slideCount}장</span>}
+        {durationMin != null && <span>발표 {durationMin}분</span>}
+        {qnaPairs.length > 0 && <span>예상 Q&A {qnaPairs.length}건</span>}
+      </div>
+
+      {/* Slide list */}
+      {slides.length > 0 && (
+        <div>
+          <h4 className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">슬라이드 구성</h4>
+          <div className="space-y-1">
+            {slides.map((slide, i) => (
+              <div key={i} className="flex items-center gap-2 rounded-lg border border-slate-100 px-3 py-2">
+                <span className="text-xs text-slate-400 w-6">{i + 1}</span>
+                <span className="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">{slide.slide_type}</span>
+                <span className="text-sm text-slate-700">{slide.title}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Q&A */}
+      {qnaPairs.length > 0 && (
+        <div>
+          <h4 className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">예상 질의응답</h4>
+          <div className="space-y-2">
+            {qnaPairs.map((qa, i) => (
+              <div key={i} className="rounded-lg border border-slate-100 p-3">
+                <p className="text-sm font-medium text-slate-700 mb-1">Q: {qa.question}</p>
+                <p className="text-xs text-slate-500">A: {qa.answer}</p>
+                {qa.category && <span className="text-xs text-slate-400 mt-1 inline-block">#{qa.category}</span>}
               </div>
             ))}
           </div>
