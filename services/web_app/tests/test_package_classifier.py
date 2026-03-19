@@ -136,9 +136,10 @@ def test_summary_md_affects_classification():
 # --- Package item generation tests ---
 
 def test_service_negotiated_package_items():
-    """Service negotiated should have proposal, execution_plan, presentation, track_record."""
+    """Service negotiated with presentation evidence should have all 4 generated docs."""
     classification = ClassificationResult("service", "negotiated", 0.9, "rule")
-    items = build_package_items(classification)
+    # With presentation evidence
+    items = build_package_items(classification, text="기술제안서 및 발표평가 배점한도 70점")
 
     codes = {i.document_code for i in items}
     # Generated documents
@@ -256,3 +257,87 @@ def test_classify_and_build_construction():
     codes = {i.document_code for i in items}
     assert "construction_record" in codes
     assert "license_cert" in codes
+
+
+# --- Slice 4.5: misclassification hotfix tests ---
+
+# Real-world fixture: 수의계약/견적 공고 (Doc A from validation)
+PRIVATE_CONTRACT_QUOTATION_RFP = {
+    "title": "2026년 동탄구 오수관로 흡입준설, CCTV, 송연조사, 비굴착보수 단가공사",
+    "requirements": [
+        {"category": "필수자격", "description": "지방자치단체를 당사자로 하는 계약에 관한 법률 시행령 제13조 및 같은 법 시행규칙 제14조의 자격을 갖추고, 건설산업기본법 제16조에 의한 전문건설업 중 상하수도설비공사업을 등록한 건설사업자"},
+        {"category": "필수자격", "description": "입찰공고일 현재 하수도 준설차량과 관로조사용CCTV촬영장비를 소유한 업체"},
+    ],
+}
+
+# Real-world: 감리 견적 공고 (Doc B from validation)
+SUPERVISION_QUOTATION_RFP = {
+    "title": "[9권역]학교 유무선 네트워크개선 3차 정보통신공사 감리용역",
+    "requirements": [
+        {"category": "필수자격", "description": "지방자치단체를 당사자로 하는 계약에 관한 법률 시행령제13조에 따른 요건을 갖춘 자"},
+        {"category": "기타", "description": "조달청에 입찰참가자격등록을 한 자"},
+    ],
+}
+
+# Real-world: 협상형 + 발표평가 명시 (Doc C from validation)
+NEGOTIATED_WITH_PRESENTATION_RFP = {
+    "title": "CCTV 감시 시스템 구축 및 유지보수 관리·운영",
+    "requirements": [
+        {"category": "필수자격", "description": "정보통신공사업자 등록"},
+        {"category": "필수자격", "description": "중소기업 확인서 소지"},
+    ],
+    "evaluation_criteria": [
+        {"category": "기술평가", "description": "기술제안서 및 발표평가 배점 70점"},
+        {"category": "가격평가", "description": "가격평가 30점"},
+    ],
+}
+
+# Explicit 수의계약 keywords in summary
+EXPLICIT_PRIVATE_CONTRACT_SUMMARY = "본 공사는 지방자치단체 입찰 및 집행기준 제5장 수의계약 운영요령에 따라 견적제출하는 수의계약 공사입니다."
+EXPLICIT_QUOTATION_SUMMARY = "견적에 의한 수의시담 견적서 제출 안내 공고"
+
+
+def test_private_contract_not_negotiated():
+    """수의계약/견적 공고는 negotiated가 아니어야 한다."""
+    result = classify_procurement(
+        PRIVATE_CONTRACT_QUOTATION_RFP,
+        summary_md=EXPLICIT_PRIVATE_CONTRACT_SUMMARY,
+    )
+    assert result.contract_method != "negotiated", f"수의계약이 negotiated로 분류됨: {result}"
+
+
+def test_quotation_supervision_not_negotiated():
+    """견적제출 감리 공고는 negotiated가 아니어야 한다."""
+    result = classify_procurement(
+        SUPERVISION_QUOTATION_RFP,
+        summary_md=EXPLICIT_QUOTATION_SUMMARY,
+    )
+    assert result.contract_method != "negotiated", f"견적제출이 negotiated로 분류됨: {result}"
+
+
+def test_no_presentation_without_evidence():
+    """발표평가 근거가 없는 공고에는 presentation이 포함되지 않아야 한다."""
+    # 수의계약 공사 → presentation false positive 방지
+    classification, items = classify_and_build(
+        PRIVATE_CONTRACT_QUOTATION_RFP,
+        summary_md=EXPLICIT_PRIVATE_CONTRACT_SUMMARY,
+    )
+    codes = {i.document_code for i in items}
+    assert "presentation" not in codes, f"발표 근거 없는데 presentation 포함됨"
+
+
+def test_negotiated_with_presentation_evidence_includes_presentation():
+    """협상계약 + 발표평가 명시 공고에는 presentation이 포함되어야 한다."""
+    classification, items = classify_and_build(NEGOTIATED_WITH_PRESENTATION_RFP)
+    codes = {i.document_code for i in items}
+    assert "presentation" in codes, f"발표평가 있는데 presentation 미포함"
+
+
+def test_construction_quotation_excludes_presentation():
+    """공사 견적 공고에는 presentation이 없어야 한다."""
+    classification, items = classify_and_build(
+        PRIVATE_CONTRACT_QUOTATION_RFP,
+        summary_md=EXPLICIT_PRIVATE_CONTRACT_SUMMARY,
+    )
+    codes = {i.document_code for i in items}
+    assert "presentation" not in codes

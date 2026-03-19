@@ -85,6 +85,37 @@ _METHOD_KEYWORDS: dict[str, list[tuple[str, int]]] = {
 }
 
 
+# --- 수의계약/견적 detection (must run before method scoring) ---
+
+_PRIVATE_CONTRACT_KEYWORDS: list[str] = [
+    "수의계약", "수의시담", "수의견적", "견적제출", "전자견적",
+    "소액수의", "1인 견적", "2인 이상 견적", "견적에 의한",
+    "견적서 제출", "견적 제출",
+]
+
+
+def _is_private_contract(text: str) -> bool:
+    """Detect if the bid is a 수의계약/견적 type (not negotiated)."""
+    text_lower = text.lower()
+    count = sum(1 for kw in _PRIVATE_CONTRACT_KEYWORDS if kw in text_lower)
+    return count >= 1
+
+
+# --- Presentation evidence gate ---
+
+_PRESENTATION_EVIDENCE_KEYWORDS: list[str] = [
+    "발표평가", "제안발표", "발표자료", "프레젠테이션",
+    "PT 평가", "PT평가", "발표 시간", "발표시간",
+    "발표 순서", "발표순서", "발표장", "발표심사",
+]
+
+
+def _has_presentation_evidence(text: str) -> bool:
+    """Check if bid explicitly requires presentation/발표평가."""
+    text_lower = text.lower()
+    return any(kw.lower() in text_lower for kw in _PRESENTATION_EVIDENCE_KEYWORDS)
+
+
 def _score_keywords(text: str, keywords: dict[str, list[tuple[str, int]]]) -> dict[str, int]:
     """Score text against keyword groups."""
     scores: dict[str, int] = {k: 0 for k in keywords}
@@ -154,12 +185,18 @@ def classify_procurement(
     if not best_domain:
         best_domain = "service"  # default: 용역 (most common in Korean public procurement)
 
-    # Method scoring
-    method_scores = _score_keywords(text, _METHOD_KEYWORDS)
-    best_method, method_score = _best_with_threshold(method_scores, threshold=3)
+    # Method scoring — 수의계약/견적 우선 분기
+    if _is_private_contract(text):
+        # 수의계약/견적 공고 → pq (가장 가까운 비-협상 방식)로 분류
+        best_method = "pq"
+        method_score = 5
+        logger.info("Private contract/quotation detected → classified as pq (not negotiated)")
+    else:
+        method_scores = _score_keywords(text, _METHOD_KEYWORDS)
+        best_method, method_score = _best_with_threshold(method_scores, threshold=3)
 
-    if not best_method:
-        best_method = "negotiated"  # default: 협상 (most common for service)
+        if not best_method:
+            best_method = "negotiated"  # default: 협상 (most common for service)
 
     # Confidence based on score margin
     all_domain_scores = sorted(domain_scores.values(), reverse=True)
@@ -283,13 +320,21 @@ _PACKAGE_TEMPLATES: dict[tuple[str, str], list[PackageItemSpec]] = {
 
 def build_package_items(
     classification: ClassificationResult,
+    text: str = "",
 ) -> list[PackageItemSpec]:
     """Build the required submission package items for a classified project.
 
     Returns domain-specific items + common evidence + common admin items.
+    Applies presentation evidence gate: presentation only included when
+    explicit 발표평가/발표자료 evidence exists in the text.
     """
     key = (classification.procurement_domain, classification.contract_method)
     domain_items = _PACKAGE_TEMPLATES.get(key, _SERVICE_NEGOTIATED)
+
+    # Presentation evidence gate: strip presentation if no evidence
+    has_pres = _has_presentation_evidence(text) if text else False
+    if not has_pres:
+        domain_items = [i for i in domain_items if i.generation_target != "presentation"]
 
     # Merge: domain-specific + common evidence + common admin
     # Avoid duplicate document_codes
@@ -320,7 +365,16 @@ def classify_and_build(
 ) -> tuple[ClassificationResult, list[PackageItemSpec]]:
     """End-to-end: classify procurement type and build package items."""
     classification = classify_procurement(analysis_json, summary_md)
-    items = build_package_items(classification)
+    # Build text corpus for presentation evidence gate
+    text_parts: list[str] = [analysis_json.get("title", "")]
+    for req in analysis_json.get("requirements", []):
+        text_parts.append(req.get("description", ""))
+    for crit in analysis_json.get("evaluation_criteria", []):
+        text_parts.append(crit.get("description", ""))
+    if summary_md:
+        text_parts.append(summary_md)
+    full_text = "\n".join(text_parts)
+    items = build_package_items(classification, text=full_text)
 
     logger.info(
         "Package classified: domain=%s method=%s confidence=%.2f items=%d",
