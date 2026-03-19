@@ -401,3 +401,46 @@ export async function attachEvidenceFile(
   }
   return res.json();
 }
+
+// --- Proposal review/relearn ---
+
+export interface DiffSection {
+  name: string;
+  original: string;
+  edited: string;
+  changed: boolean;
+}
+
+export interface ProposalDiffResult {
+  sections: DiffSection[];
+  changed_sections_count: number;
+  total_sections: number;
+  edit_rate: number;
+}
+
+export interface RelearnResult {
+  new_skill_id: string;
+  new_skill_version: number;
+  derived_from_id: string;
+  edit_notes_count: number;
+}
+
+export async function saveEditedProposal(
+  projectId: string,
+  sections: Array<{ name: string; text: string }>,
+): Promise<{ revision_id: string; revision_number: number; source: string }> {
+  return studioFetch(`/api/studio/projects/${projectId}/documents/proposal/edited`, {
+    method: 'POST',
+    body: JSON.stringify({ sections }),
+  });
+}
+
+export async function getProposalDiff(projectId: string): Promise<ProposalDiffResult> {
+  return studioFetch(`/api/studio/projects/${projectId}/documents/proposal/diff`);
+}
+
+export async function relearnProposalStyle(projectId: string): Promise<RelearnResult> {
+  return studioFetch(`/api/studio/projects/${projectId}/relearn`, {
+    method: 'POST',
+  });
+}

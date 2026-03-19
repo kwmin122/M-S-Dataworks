@@ -1462,6 +1462,284 @@ async def get_current_revision(
     }
 
 
+# --- Proposal review/relearn schemas ---
+
+class SaveEditedProposalRequest(BaseModel):
+    sections: list[dict[str, str]]  # [{"name": "...", "text": "..."}]
+
+
+# --- Proposal review/relearn endpoints ---
+
+@router.post("/projects/{project_id}/documents/proposal/edited")
+async def save_edited_proposal(
+    project_id: str,
+    req: SaveEditedProposalRequest,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Save user-edited proposal as a new revision (source=user_edited)."""
+    await _require_studio_project_access(project_id, "editor", user, db)
+
+    from services.web_app.db.models.document import ProjectCurrentDocument
+
+    # Get current AI-generated revision to determine next version
+    current = (await db.execute(
+        select(ProjectCurrentDocument).where(
+            ProjectCurrentDocument.project_id == project_id,
+            ProjectCurrentDocument.doc_type == "proposal",
+        )
+    )).scalar_one_or_none()
+    if current is None:
+        raise HTTPException(400, "먼저 제안서를 생성해주세요.")
+
+    prev_rev = (await db.execute(
+        select(DocumentRevision).where(DocumentRevision.id == current.current_revision_id)
+    )).scalar_one()
+
+    # Compute next revision number
+    ver_result = await db.execute(
+        select(DocumentRevision.revision_number)
+        .where(DocumentRevision.project_id == project_id, DocumentRevision.doc_type == "proposal")
+        .order_by(DocumentRevision.revision_number.desc())
+        .limit(1)
+    )
+    prev_num = ver_result.scalar_one_or_none() or 0
+
+    revision = DocumentRevision(
+        org_id=user.org_id,
+        project_id=project_id,
+        doc_type="proposal",
+        run_id=None,
+        derived_from_revision_id=prev_rev.id,
+        revision_number=prev_num + 1,
+        source="user_edited",
+        status="draft",
+        title=prev_rev.title,
+        content_json={"sections": req.sections},
+        content_schema="proposal_sections_v1",
+        created_by=user.username,
+    )
+    db.add(revision)
+    await db.flush()
+
+    # Update current pointer
+    current.current_revision_id = revision.id
+
+    await db.commit()
+
+    return {
+        "revision_id": revision.id,
+        "revision_number": revision.revision_number,
+        "source": revision.source,
+    }
+
+
+@router.get("/projects/{project_id}/documents/proposal/diff")
+async def get_proposal_diff(
+    project_id: str,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Get section-level diff between latest AI-generated and user-edited revisions."""
+    await _require_studio_project_access(project_id, "viewer", user, db)
+
+    # Find latest AI-generated and user-edited revisions
+    ai_rev = (await db.execute(
+        select(DocumentRevision)
+        .where(
+            DocumentRevision.project_id == project_id,
+            DocumentRevision.doc_type == "proposal",
+            DocumentRevision.source == "ai_generated",
+        )
+        .order_by(DocumentRevision.revision_number.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+    edited_rev = (await db.execute(
+        select(DocumentRevision)
+        .where(
+            DocumentRevision.project_id == project_id,
+            DocumentRevision.doc_type == "proposal",
+            DocumentRevision.source == "user_edited",
+        )
+        .order_by(DocumentRevision.revision_number.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+    if ai_rev is None or edited_rev is None:
+        raise HTTPException(400, "원본과 편집본이 모두 필요합니다.")
+
+    original_sections = {s["name"]: s["text"] for s in (ai_rev.content_json or {}).get("sections", [])}
+    edited_sections = {s["name"]: s["text"] for s in (edited_rev.content_json or {}).get("sections", [])}
+
+    all_names = list(dict.fromkeys(list(original_sections.keys()) + list(edited_sections.keys())))
+
+    diff_sections = []
+    changed_count = 0
+    total_original_len = 0
+    total_edit_distance = 0
+
+    for name in all_names:
+        orig = original_sections.get(name, "")
+        edit = edited_sections.get(name, "")
+        changed = orig != edit
+        if changed:
+            changed_count += 1
+        total_original_len += len(orig) or 1
+        total_edit_distance += _simple_edit_distance(orig, edit)
+        diff_sections.append({
+            "name": name,
+            "original": orig,
+            "edited": edit,
+            "changed": changed,
+        })
+
+    edit_rate = round(total_edit_distance / max(total_original_len, 1), 3)
+
+    return {
+        "sections": diff_sections,
+        "changed_sections_count": changed_count,
+        "total_sections": len(all_names),
+        "edit_rate": min(edit_rate, 1.0),
+    }
+
+
+@router.post("/projects/{project_id}/relearn")
+async def relearn_proposal_style(
+    project_id: str,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Derive a new project-scoped style skill from edited proposal diff.
+
+    Takes the diff between AI-generated and user-edited proposal,
+    appends edit patterns to the pinned style's profile_md_content,
+    and creates a new derived ProjectStyleSkill.
+    """
+    await _require_studio_project_access(project_id, "editor", user, db)
+
+    # Load project
+    project = (await db.execute(
+        select(BidProject).where(BidProject.id == project_id)
+    )).scalar_one()
+
+    if not project.pinned_style_skill_id:
+        raise HTTPException(400, "핀 설정된 스타일이 없습니다.")
+
+    # Get pinned style
+    pinned = (await db.execute(
+        select(ProjectStyleSkill).where(ProjectStyleSkill.id == project.pinned_style_skill_id)
+    )).scalar_one_or_none()
+    if pinned is None:
+        raise HTTPException(404, "핀 설정된 스타일을 찾을 수 없습니다.")
+
+    # Get diff (reuse logic)
+    ai_rev = (await db.execute(
+        select(DocumentRevision)
+        .where(
+            DocumentRevision.project_id == project_id,
+            DocumentRevision.doc_type == "proposal",
+            DocumentRevision.source == "ai_generated",
+        )
+        .order_by(DocumentRevision.revision_number.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+    edited_rev = (await db.execute(
+        select(DocumentRevision)
+        .where(
+            DocumentRevision.project_id == project_id,
+            DocumentRevision.doc_type == "proposal",
+            DocumentRevision.source == "user_edited",
+        )
+        .order_by(DocumentRevision.revision_number.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+    if ai_rev is None or edited_rev is None:
+        raise HTTPException(400, "원본과 편집본이 모두 필요합니다.")
+
+    # Build edit summary for profile augmentation
+    original_sections = {s["name"]: s["text"] for s in (ai_rev.content_json or {}).get("sections", [])}
+    edited_sections = {s["name"]: s["text"] for s in (edited_rev.content_json or {}).get("sections", [])}
+
+    edit_notes: list[str] = []
+    for name in original_sections:
+        orig = original_sections.get(name, "")
+        edit = edited_sections.get(name, "")
+        if orig != edit:
+            edit_notes.append(f"- [{name}] 섹션이 사용자에 의해 수정됨")
+
+    if not edit_notes:
+        raise HTTPException(400, "편집된 내용이 없습니다.")
+
+    # Augment profile with edit patterns
+    base_profile = pinned.profile_md_content or ""
+    augmented_profile = (
+        base_profile + "\n\n"
+        "## 사용자 수정 패턴 (자동 학습)\n"
+        + "\n".join(edit_notes) + "\n"
+        "위 수정 패턴을 향후 제안서 생성 시 반영하세요."
+    )
+
+    # Compute next version
+    ver_result = await db.execute(
+        select(ProjectStyleSkill.version)
+        .where(ProjectStyleSkill.project_id == project_id)
+        .order_by(ProjectStyleSkill.version.desc())
+        .limit(1)
+    )
+    prev_version = ver_result.scalar_one_or_none() or 0
+
+    new_skill = ProjectStyleSkill(
+        project_id=project_id,
+        org_id=user.org_id,
+        version=prev_version + 1,
+        name=f"{pinned.name} (학습 v{prev_version + 1})",
+        source_type="derived",
+        derived_from_id=pinned.id,
+        profile_md_content=augmented_profile,
+        style_json=pinned.style_json,
+    )
+    db.add(new_skill)
+    await db.flush()
+
+    db.add(AuditLog(
+        org_id=user.org_id,
+        user_id=user.username,
+        project_id=project_id,
+        action="style_skill_relearned",
+        target_type="project_style_skill",
+        target_id=new_skill.id,
+        detail_json={
+            "derived_from_id": pinned.id,
+            "edit_notes_count": len(edit_notes),
+        },
+    ))
+
+    await db.commit()
+
+    return {
+        "new_skill_id": new_skill.id,
+        "new_skill_version": new_skill.version,
+        "derived_from_id": pinned.id,
+        "edit_notes_count": len(edit_notes),
+    }
+
+
+def _simple_edit_distance(a: str, b: str) -> int:
+    """Character-level edit distance approximation (fast, not Levenshtein)."""
+    if a == b:
+        return 0
+    # Use length difference + changed character count as approximation
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+    changes = len(longer) - len(shorter)
+    for i in range(len(shorter)):
+        if shorter[i] != longer[i]:
+            changes += 1
+    return changes
+
+
 # --- Package item lifecycle schemas ---
 
 _VALID_STATUS_TRANSITIONS: dict[str, set[str]] = {

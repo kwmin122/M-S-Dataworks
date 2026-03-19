@@ -7,6 +7,7 @@ import CompanyStage from './stages/CompanyStage';
 import StyleStage from './stages/StyleStage';
 import GenerateStage from './stages/GenerateStage';
 import ChecklistStage from './stages/ChecklistStage';
+import ReviewStage from './stages/ReviewStage';
 import {
   getStudioProject,
   updateStudioStage,
@@ -159,7 +160,13 @@ function StageContent({
         />
       );
     case 'review':
-      return <ChecklistStage projectId={project.id} />;
+      return (
+        <ReviewStage
+          projectId={project.id}
+          project={project}
+          onProjectUpdate={onProjectUpdate}
+        />
+      );
     default:
       return <StagePlaceholder stage={stage} />;
   }
