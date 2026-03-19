@@ -45,11 +45,29 @@
 | 패키지 | 13개 | 15개 | 15개 |
 | PPT 포함 적절성 | ⚠️ false positive | ⚠️ 미확인 | ✅ 발표평가 있음 |
 
+### LLM Generation Verification (Doc C — CCTV 협상형)
+
+실제 LLM (gpt-4o-mini) 호출로 문서 생성 검증:
+
+| 문서 | 결과 | 시간 | 산출물 |
+|------|------|------|--------|
+| **Proposal** | **SUCCESS** | 71.9s | 7 sections, 45KB DOCX |
+| **WBS** | **SUCCESS** | 25.3s | 21 tasks, 10 personnel, 6개월, XLSX+DOCX |
+
+Proposal 섹션:
+- 제안 개요 (1,119자)
+- 사업 이해도 (1,668자)
+- 기술적 접근방안 (1,601자)
+- 수행관리 방안 (1,752자)
+- 투입인력 및 조직 (2,043자)
+- + 2 additional sections
+
+Quality issues: 0 (blind-check 통과)
+
 ### Known Issues from Validation
 1. **수의계약 견적 공고를 negotiated로 분류** — 수의계약 vs 협상계약 구분 로직 필요
 2. **PPT false positive** — 발표평가 없는 공고에도 PPT 생성 대상 포함
 3. **HWPX 지원 추가됨** — document_parser.py에 ZIP+XML 기반 HWPX 파싱 구현
-4. **LLM 기반 생성은 미검증** — 분석/분류까지 확인, proposal/WBS/PPT 생성은 API 키 + 서버 기동 필요
 
 ---
 
@@ -128,7 +146,7 @@
 |------|--------|------|
 | `VITE_STUDIO_VISIBLE` | `true` (default) | Studio 자체 노출 (Navbar, ProductHub) |
 | `VITE_CHAT_GENERATION_CUTOVER` | `false` | Chat 분석 결과에서 Studio handoff CTA 노출 |
-| `studioEnabled` (App.tsx) | `true` | ProductHub에서 Studio 카드 활성화 (VITE_STUDIO_VISIBLE과 연동 권장) |
+| `studioEnabled` (App.tsx) | `isStudioVisible()` | ProductHub — VITE_STUDIO_VISIBLE에 연동됨 (별도 관리 불필요) |
 
 ### Enable Order
 1. `studioEnabled=true` (이미 적용됨) — ProductHub에서 Studio 접근 가능
