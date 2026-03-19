@@ -83,7 +83,76 @@ class ClassifyResponse(BaseModel):
     package_items: list[PackageItemResponse]
 
 
+# --- Chat handoff schema ---
+
+class ChatHandoffRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=500)
+    analysis_json: dict
+    summary_md: str = ""
+    go_nogo_result_json: dict | None = None
+
+
 # --- Endpoints ---
+
+@router.post("/handoff-from-chat", response_model=StudioProjectResponse, status_code=201)
+async def handoff_from_chat(
+    req: ChatHandoffRequest,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Create a Studio project from Chat analysis data.
+
+    One-call handoff: creates project + snapshot from inline analysis.
+    No need to pass a snapshot ID — the analysis data is embedded directly.
+    """
+    project = BidProject(
+        org_id=user.org_id,
+        created_by=user.username,
+        title=req.title,
+        status="ready_for_generation",
+        project_type="studio",
+        studio_stage="package",
+        rfp_source_type="manual",
+    )
+    db.add(project)
+    await db.flush()
+
+    db.add(ProjectAccess(
+        project_id=project.id,
+        user_id=user.username,
+        access_level="owner",
+    ))
+
+    snapshot = AnalysisSnapshot(
+        id=new_cuid(),
+        org_id=user.org_id,
+        project_id=project.id,
+        version=1,
+        analysis_json=req.analysis_json,
+        analysis_schema="rfx_analysis_v1",
+        summary_md=req.summary_md,
+        go_nogo_result_json=req.go_nogo_result_json,
+        is_active=True,
+        created_by=user.username,
+    )
+    db.add(snapshot)
+    await db.flush()
+    project.active_analysis_snapshot_id = snapshot.id
+
+    db.add(AuditLog(
+        org_id=user.org_id,
+        user_id=user.username,
+        project_id=project.id,
+        action="studio_handoff_from_chat",
+        target_type="bid_project",
+        target_id=project.id,
+    ))
+
+    await db.commit()
+    await db.refresh(project)
+
+    return _project_to_response(project)
+
 
 @router.post("/projects", response_model=StudioProjectResponse, status_code=201)
 async def create_studio_project(

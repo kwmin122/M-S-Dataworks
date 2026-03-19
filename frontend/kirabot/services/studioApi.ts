@@ -65,6 +65,24 @@ export const STUDIO_STAGES: { key: StudioStage; label: string }[] = [
 
 export type RfpSourceType = 'upload' | 'nara_search' | 'manual';
 
+// --- Feature flag ---
+export function isStudioCutoverEnabled(): boolean {
+  return import.meta.env.VITE_STUDIO_CUTOVER === 'true';
+}
+
+// --- Chat handoff ---
+export async function handoffFromChat(params: {
+  title: string;
+  analysis_json: Record<string, unknown>;
+  summary_md?: string;
+  go_nogo_result_json?: Record<string, unknown> | null;
+}): Promise<StudioProject> {
+  return studioFetch('/api/studio/handoff-from-chat', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+}
+
 export async function createStudioProject(params: {
   title: string;
   from_analysis_snapshot_id?: string;
