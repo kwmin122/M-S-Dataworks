@@ -138,3 +138,32 @@ async def test_track_record_updates_package_item(db_session):
         )
     )).scalar_one()
     assert pkg.status == "generated"
+
+
+@pytest.mark.asyncio
+async def test_track_record_current_revision_returns_records(db_session):
+    """current revision for track_record returns records + personnel."""
+    from services.web_app.api.studio import generate_proposal, get_current_revision, GenerateProposalRequest
+    from services.web_app.api.deps import CurrentUser
+
+    org = await _create_org(db_session)
+    project, snap = await _setup(db_session, org.id)
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    with patch("services.web_app.api.studio._run_track_record_generation") as mock_gen:
+        mock_gen.return_value = _MOCK_TR_RESULT
+        await generate_proposal(
+            project_id=project.id,
+            req=GenerateProposalRequest(doc_type="track_record"),
+            user=user, db=db_session,
+        )
+
+    rev_data = await get_current_revision(
+        project_id=project.id, doc_type="track_record", user=user, db=db_session,
+    )
+
+    assert rev_data["doc_type"] == "track_record"
+    assert len(rev_data["records"]) >= 1
+    assert rev_data["records"][0]["project_name"] == "AI 플랫폼"
+    assert len(rev_data["personnel"]) >= 1
+    assert rev_data["personnel"][0]["name"] == "홍길동"

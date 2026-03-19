@@ -312,13 +312,28 @@ export interface RevisionSection {
   text: string;
 }
 
+export interface TrackRecordEntry {
+  project_name: string;
+  description: string;
+  relevance_score?: number;
+}
+
+export interface PersonnelEntry {
+  name: string;
+  role: string;
+  match_reason?: string;
+}
+
 export interface CurrentRevisionData {
   revision_id: string;
   revision_number: number;
+  doc_type?: string;
   source: string;
   status: string;
   title: string | null;
   sections: RevisionSection[];
+  records?: TrackRecordEntry[];
+  personnel?: PersonnelEntry[];
   quality_report: Record<string, unknown> | null;
   created_at: string | null;
 }

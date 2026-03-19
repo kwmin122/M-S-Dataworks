@@ -210,19 +210,23 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
 
 function RevisionPreview({ revision }: { revision: CurrentRevisionData }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(0);
+  const isTrackRecord = revision.doc_type === 'track_record' || ((revision.records?.length ?? 0) > 0 && revision.sections.length === 0);
+  const hasContent = revision.sections.length > 0 || (revision.records?.length ?? 0) > 0 || (revision.personnel?.length ?? 0) > 0;
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 mb-4">
       <div className="flex items-center gap-2 mb-3">
         <BookOpen size={16} className="text-slate-600" />
         <h3 className="text-sm font-semibold text-slate-700">
-          {revision.title || '제안서'} — 리비전 #{revision.revision_number}
+          {revision.title || '문서'} — 리비전 #{revision.revision_number}
         </h3>
         <span className="text-xs text-slate-400">{revision.source === 'ai_generated' ? 'AI 생성' : revision.source}</span>
       </div>
 
-      {revision.sections.length === 0 ? (
-        <p className="text-sm text-slate-400">섹션이 없습니다.</p>
+      {!hasContent ? (
+        <p className="text-sm text-slate-400">내용이 없습니다.</p>
+      ) : isTrackRecord ? (
+        <TrackRecordPreview records={revision.records ?? []} personnel={revision.personnel ?? []} />
       ) : (
         <div className="space-y-1">
           {revision.sections.map((section, idx) => (
@@ -244,6 +248,53 @@ function RevisionPreview({ revision }: { revision: CurrentRevisionData }) {
               )}
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TrackRecordPreview({
+  records,
+  personnel,
+}: {
+  records: Array<{ project_name: string; description: string; relevance_score?: number }>;
+  personnel: Array<{ name: string; role: string; match_reason?: string }>;
+}) {
+  return (
+    <div className="space-y-4">
+      {records.length > 0 && (
+        <div>
+          <h4 className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">수행실적 ({records.length}건)</h4>
+          <div className="space-y-2">
+            {records.map((r, i) => (
+              <div key={i} className="rounded-lg border border-slate-100 p-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-medium text-slate-800">{r.project_name}</span>
+                  {r.relevance_score != null && (
+                    <span className="text-xs text-kira-600">관련도 {Math.round(r.relevance_score * 100)}%</span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 line-clamp-2">{r.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {personnel.length > 0 && (
+        <div>
+          <h4 className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">투입인력 ({personnel.length}명)</h4>
+          <div className="space-y-2">
+            {personnel.map((p, i) => (
+              <div key={i} className="rounded-lg border border-slate-100 p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-medium text-slate-800">{p.name}</span>
+                  <span className="text-xs text-slate-400">{p.role}</span>
+                </div>
+                {p.match_reason && <p className="text-xs text-slate-500">{p.match_reason}</p>}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

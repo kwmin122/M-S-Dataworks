@@ -1442,17 +1442,21 @@ async def get_current_revision(
     if revision is None:
         raise HTTPException(404, "리비전을 찾을 수 없습니다.")
 
-    sections = []
-    if revision.content_json and "sections" in revision.content_json:
-        sections = revision.content_json["sections"]
+    content = revision.content_json or {}
+    sections = content.get("sections", [])
+    records = content.get("records", [])
+    personnel = content.get("personnel", [])
 
     return {
         "revision_id": revision.id,
         "revision_number": revision.revision_number,
+        "doc_type": revision.doc_type,
         "source": revision.source,
         "status": revision.status,
         "title": revision.title,
         "sections": sections,
+        "records": records,
+        "personnel": personnel,
         "quality_report": revision.quality_report_json,
         "created_at": revision.created_at.isoformat() if revision.created_at else None,
     }
