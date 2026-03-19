@@ -17,7 +17,7 @@ from services.web_app.db.models.base import new_cuid
 from services.web_app.db.models.project import BidProject, ProjectAccess, AnalysisSnapshot
 from services.web_app.db.models.studio import ProjectCompanyAsset, ProjectPackageItem, ProjectStyleSkill
 from services.web_app.db.models.company import CompanyProfile, CompanyTrackRecord, CompanyPersonnel
-from services.web_app.db.models.document import DocumentRun, DocumentRevision
+from services.web_app.db.models.document import DocumentRun, DocumentRevision, DocumentAsset
 from services.web_app.db.models.audit import AuditLog
 from services.web_app.api.deps import CurrentUser, resolve_org_membership, require_project_access
 from services.web_app.services.package_classifier import classify_and_build
@@ -1435,6 +1435,159 @@ async def get_current_revision(
         "sections": sections,
         "quality_report": revision.quality_report_json,
         "created_at": revision.created_at.isoformat() if revision.created_at else None,
+    }
+
+
+# --- Package item lifecycle schemas ---
+
+_VALID_STATUS_TRANSITIONS: dict[str, set[str]] = {
+    "missing": {"uploaded", "waived"},
+    "ready_to_generate": {"generated"},
+    "generated": {"verified"},
+    "uploaded": {"verified"},
+    "verified": set(),  # terminal
+    "waived": {"missing"},  # can un-waive
+}
+
+_COMPLETED_STATUSES = frozenset({"generated", "uploaded", "verified"})
+
+
+class UpdatePackageItemStatusRequest(BaseModel):
+    status: Literal["missing", "uploaded", "waived", "verified"]
+
+
+class AttachEvidenceRequest(BaseModel):
+    original_filename: str = Field(min_length=1, max_length=500)
+    storage_uri: str = Field(min_length=1)
+    mime_type: str | None = None
+    size_bytes: int | None = None
+
+
+# --- Package item lifecycle endpoints ---
+
+@router.patch("/projects/{project_id}/package-items/{item_id}/status")
+async def update_package_item_status(
+    project_id: str,
+    item_id: str,
+    req: UpdatePackageItemStatusRequest,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Update package item status with server-enforced transition rules."""
+    await _require_studio_project_access(project_id, "editor", user, db)
+
+    item = (await db.execute(
+        select(ProjectPackageItem).where(
+            ProjectPackageItem.id == item_id,
+            ProjectPackageItem.project_id == project_id,
+        )
+    )).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(404, "패키지 항목을 찾을 수 없습니다")
+
+    allowed = _VALID_STATUS_TRANSITIONS.get(item.status, set())
+    if req.status not in allowed:
+        raise HTTPException(
+            400,
+            f"'{item.status}' → '{req.status}' 상태 전환은 허용되지 않습니다",
+        )
+
+    item.status = req.status
+    await db.commit()
+
+    return {"id": item.id, "status": item.status, "document_code": item.document_code}
+
+
+@router.post("/projects/{project_id}/package-items/{item_id}/evidence")
+async def attach_evidence(
+    project_id: str,
+    item_id: str,
+    req: AttachEvidenceRequest,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Attach evidence file to a package item.
+
+    Creates a DocumentAsset, links it via asset_id, and transitions status to uploaded.
+    """
+    await _require_studio_project_access(project_id, "editor", user, db)
+
+    item = (await db.execute(
+        select(ProjectPackageItem).where(
+            ProjectPackageItem.id == item_id,
+            ProjectPackageItem.project_id == project_id,
+        )
+    )).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(404, "패키지 항목을 찾을 수 없습니다")
+
+    # Create DocumentAsset
+    asset = DocumentAsset(
+        org_id=user.org_id,
+        project_id=project_id,
+        asset_type="original",
+        storage_uri=req.storage_uri,
+        upload_status="uploaded",
+        original_filename=req.original_filename,
+        mime_type=req.mime_type,
+        size_bytes=req.size_bytes,
+    )
+    db.add(asset)
+    await db.flush()
+
+    # Link and transition
+    item.asset_id = asset.id
+    item.status = "uploaded"
+
+    db.add(AuditLog(
+        org_id=user.org_id,
+        user_id=user.username,
+        project_id=project_id,
+        action="evidence_attached",
+        target_type="project_package_item",
+        target_id=item_id,
+        detail_json={
+            "asset_id": asset.id,
+            "filename": req.original_filename,
+        },
+    ))
+
+    await db.commit()
+
+    return {
+        "asset_id": asset.id,
+        "status": item.status,
+        "document_code": item.document_code,
+    }
+
+
+@router.get("/projects/{project_id}/package-completeness")
+async def get_package_completeness(
+    project_id: str,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Get package completeness summary (server-computed)."""
+    await _require_studio_project_access(project_id, "viewer", user, db)
+
+    result = await db.execute(
+        select(ProjectPackageItem).where(ProjectPackageItem.project_id == project_id)
+    )
+    items = result.scalars().all()
+
+    total = len(items)
+    completed = sum(1 for i in items if i.status in _COMPLETED_STATUSES)
+    waived = sum(1 for i in items if i.status == "waived")
+    required_items = [i for i in items if i.required]
+    required_remaining = sum(1 for i in required_items if i.status not in _COMPLETED_STATUSES and i.status != "waived")
+    completeness_pct = round((completed + waived) / total * 100, 1) if total > 0 else 0
+
+    return {
+        "total": total,
+        "completed": completed,
+        "waived": waived,
+        "required_remaining": required_remaining,
+        "completeness_pct": completeness_pct,
     }
 
 
