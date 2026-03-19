@@ -442,6 +442,107 @@ _REGRESSION_CORPUS = [
     ("공사", CONSTRUCTION_RFP, None, "construction", None, None),
     ("정보통신공사 실제", {"title": "○○청사 정보통신공사", "requirements": [{"description": "시공능력평가액 10억"}]}, None, "construction", None, None),
     ("IoT 서비스", {"title": "IoT 스마트 센서 운영관리 용역", "requirements": [{"description": "IoT 솔루션 납품"}]}, None, "service", None, None),
+
+    # --- 확장 corpus (10~18) ---
+
+    # 발표 없는 IT 유지보수
+    ("발표 없는 IT 유지보수", {
+        "title": "2026년 통합정보시스템 유지보수 용역",
+        "requirements": [
+            {"description": "소프트웨어 유지보수 실적 3건 이상"},
+            {"description": "정보처리기사 2명 이상 보유"},
+        ],
+        "evaluation_criteria": [
+            {"description": "적격심사 기술능력 평가"},
+        ],
+    }, None, "service", "pq", False),
+
+    # 발표 명시 ISP 컨설팅
+    ("ISP 컨설팅 발표형", {
+        "title": "2026년 정보화전략계획(ISP) 수립 용역",
+        "requirements": [
+            {"description": "ISP/BPR 수행 용역실적"},
+            {"description": "정보시스템 컨설팅 전문기업"},
+        ],
+        "evaluation_criteria": [
+            {"description": "기술제안서 평가 및 발표심사 배점 80점"},
+            {"description": "가격평가 20점"},
+        ],
+    }, None, "service", "negotiated", True),
+
+    # 전기공사 적격심사
+    ("전기공사 적격심사", {
+        "title": "2026년 △△센터 전기공사",
+        "requirements": [
+            {"description": "전기공사업 면허 보유"},
+            {"description": "시공능력평가액 5억 이상"},
+        ],
+        "evaluation_criteria": [
+            {"description": "적격심사 시공능력 평가"},
+        ],
+    }, None, "construction", "pq", False),
+
+    # 통신공사 실제 시공형 (CCTV 구축 service와 구분)
+    ("통신공사 시공형", {
+        "title": "○○마을 정보통신공사 (광케이블 포설)",
+        "requirements": [
+            {"description": "정보통신공사업 등록"},
+            {"description": "시공능력평가액 3억 이상"},
+            {"description": "건설기술인 3명 이상"},
+        ],
+    }, None, "construction", None, False),
+
+    # 물품: 서버/PC 납품
+    ("물품 서버PC 납품", {
+        "title": "2026년 사무용 서버 및 네트워크 장비 구매",
+        "requirements": [
+            {"description": "서버 20대, 네트워크 스위치 50대 납품"},
+            {"description": "시험성적서 및 규격서 제출"},
+        ],
+    }, None, "goods", None, False),
+
+    # 물품: 소프트웨어 라이선스 구매 (goods/service 경계)
+    ("SW 라이선스 구매", {
+        "title": "2026년 업무용 소프트웨어 라이선스 구매",
+        "requirements": [
+            {"description": "라이선스 수량 500매 납품"},
+            {"description": "카탈로그 및 가격 증빙"},
+        ],
+    }, None, "goods", None, False),
+
+    # 감리용역 협상형 발표 없음
+    ("감리용역 협상 발표없음", {
+        "title": "2026년 정보시스템 감리용역",
+        "requirements": [
+            {"description": "감리법인 등록"},
+            {"description": "감리원 자격 보유자 3명"},
+        ],
+        "evaluation_criteria": [
+            {"description": "기술평가 기술제안서 점수 70점"},
+            {"description": "가격평가 30점"},
+        ],
+    }, None, "service", "negotiated", False),
+
+    # 연구/컨설팅 발표형
+    ("연구용역 발표형", {
+        "title": "2026년 공공데이터 활용 정책연구 용역",
+        "requirements": [
+            {"description": "연구용역 수행 실적"},
+            {"description": "박사급 연구원 보유"},
+        ],
+        "evaluation_criteria": [
+            {"description": "제안발표 평가 60점"},
+            {"description": "기술평가 40점"},
+        ],
+    }, None, "service", "negotiated", True),
+
+    # 소액수의 물품
+    ("소액수의 물품", {
+        "title": "사무용품 구매",
+        "requirements": [
+            {"description": "물품 공급업체"},
+        ],
+    }, "소액수의 견적제출", "goods", "pq", False),
 ]
 
 

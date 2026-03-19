@@ -61,10 +61,10 @@ GROUP BY 1;
 - 형식: parametrized pytest fixture
 - 각 케이스: `(name, analysis_json, summary_md, expected_domain, expected_method, expected_presentation)`
 
-### 현재 corpus (9건)
+### 현재 corpus (18건) — 목표 15~20건 달성
 
-| # | 이름 | 기대 domain | 기대 method | PPT |
-|---|------|-------------|-------------|-----|
+| # | 이름 | domain | method | PPT |
+|---|------|--------|--------|-----|
 | 1 | 공사 수의계약 (오수관로) | construction | pq | No |
 | 2 | 감리 견적 (학교 네트워크) | service | pq | No |
 | 3 | 협상+발표 IT (CCTV) | service | negotiated | Yes |
@@ -74,6 +74,15 @@ GROUP BY 1;
 | 7 | 공사 (청사 리모델링) | construction | - | - |
 | 8 | 정보통신공사 실제 | construction | - | - |
 | 9 | IoT 서비스 | service | - | - |
+| 10 | 발표 없는 IT 유지보수 | service | pq | No |
+| 11 | ISP 컨설팅 발표형 | service | negotiated | Yes |
+| 12 | 전기공사 적격심사 | construction | pq | No |
+| 13 | 통신공사 시공형 | construction | - | No |
+| 14 | 물품 서버/PC 납품 | goods | - | No |
+| 15 | SW 라이선스 구매 | goods | - | No |
+| 16 | 감리용역 협상 발표없음 | service | negotiated | No |
+| 17 | 연구용역 발표형 | service | negotiated | Yes |
+| 18 | 소액수의 물품 | goods | pq | No |
 
 ### 새 오분류 편입 규칙
 1. 운영 중 오분류 발견 → 이슈로 기록
@@ -82,8 +91,8 @@ GROUP BY 1;
 4. 테스트 통과 확인 후 hotfix 커밋
 
 ### 목표
-- 최소 15~20건 (현재 9건)
-- 카테고리별 최소 2건씩
+- 최소 15~20건 **(현재 18건 — 목표 달성)**
+- 카테고리별 최소 2건씩 **(달성)**
 
 ## 3. review_required 체계
 
