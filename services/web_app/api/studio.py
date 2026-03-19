@@ -1183,6 +1183,16 @@ async def generate_proposal(
     """
     await _require_studio_project_access(project_id, "editor", user, db)
 
+    # Concurrent generation guard
+    existing_running = (await db.execute(
+        select(DocumentRun).where(
+            DocumentRun.project_id == project_id,
+            DocumentRun.status == "running",
+        )
+    )).scalar_one_or_none()
+    if existing_running:
+        raise HTTPException(409, "이미 생성 중인 문서가 있습니다.")
+
     # Load project
     project = (await db.execute(
         select(BidProject).where(BidProject.id == project_id)
@@ -1306,11 +1316,39 @@ async def generate_proposal(
             pkg_item.status = "generated"
 
     except Exception as exc:
+        logger.exception("Proposal generation failed for project=%s", project_id)
         run.status = "failed"
         run.completed_at = datetime.now(timezone.utc)
         run.error_message = str(exc)[:1000]
+        db.add(AuditLog(
+            org_id=user.org_id,
+            user_id=user.username,
+            project_id=project_id,
+            action="proposal_generation_failed",
+            target_type="document_run",
+            target_id=run.id,
+            detail_json={"error": str(exc)[:500], **generation_contract},
+        ))
         await db.commit()
-        raise HTTPException(500, f"제안서 생성 중 오류가 발생했습니다: {str(exc)[:200]}")
+        raise HTTPException(500, "제안서 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
+
+    # Update ProjectCurrentDocument (upsert)
+    from services.web_app.db.models.document import ProjectCurrentDocument
+    current_doc = (await db.execute(
+        select(ProjectCurrentDocument).where(
+            ProjectCurrentDocument.project_id == project_id,
+            ProjectCurrentDocument.doc_type == req.doc_type,
+        )
+    )).scalar_one_or_none()
+    if current_doc:
+        current_doc.current_revision_id = revision.id
+    else:
+        db.add(ProjectCurrentDocument(
+            org_id=user.org_id,
+            project_id=project_id,
+            doc_type=req.doc_type,
+            current_revision_id=revision.id,
+        ))
 
     # Audit log
     db.add(AuditLog(
@@ -1415,19 +1453,25 @@ def _run_proposal_generation(
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY가 설정되지 않았습니다")
 
-    # Write style profile to temp dir for orchestrator
-    style_dir = ""
+    # Write style profile to temp dir for orchestrator (auto-cleaned)
     if style_profile_md:
-        style_dir = tempfile.mkdtemp(prefix="studio_style_")
-        with open(os.path.join(style_dir, "profile.md"), "w", encoding="utf-8") as f:
-            f.write(style_profile_md)
+        with tempfile.TemporaryDirectory(prefix="studio_style_") as style_dir:
+            with open(os.path.join(style_dir, "profile.md"), "w", encoding="utf-8") as f:
+                f.write(style_profile_md)
+            return _gen(
+                rfx_result=rfx_result,
+                company_context=company_context,
+                total_pages=total_pages,
+                api_key=api_key,
+                company_skills_dir=style_dir,
+            )
 
     return _gen(
         rfx_result=rfx_result,
         company_context=company_context,
         total_pages=total_pages,
         api_key=api_key,
-        company_skills_dir=style_dir,
+        company_skills_dir="",
     )
 
 

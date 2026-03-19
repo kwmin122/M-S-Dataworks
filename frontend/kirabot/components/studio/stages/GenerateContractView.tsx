@@ -25,6 +25,14 @@ export default function GenerateContractView({ project }: GenerateContractViewPr
           status={project.active_analysis_snapshot_id ? 'ready' : 'missing'}
         />
 
+        {/* Company Context */}
+        <ContractItem
+          icon={Building2}
+          label="회사 역량"
+          value="공유 + 스테이징 자산 병합 사용"
+          status="ready"
+        />
+
         {/* Pinned Style */}
         <ContractItem
           icon={Palette}
