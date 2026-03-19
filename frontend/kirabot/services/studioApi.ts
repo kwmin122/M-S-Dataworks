@@ -295,10 +295,35 @@ export interface GenerateResult {
 
 export async function generateProposal(
   projectId: string,
-  params?: { doc_type?: string; total_pages?: number },
+  params?: { doc_type?: 'proposal'; total_pages?: number },
 ): Promise<GenerateResult> {
   return studioFetch(`/api/studio/projects/${projectId}/generate`, {
     method: 'POST',
     body: JSON.stringify(params ?? { doc_type: 'proposal' }),
   });
+}
+
+// --- Revision read ---
+
+export interface RevisionSection {
+  name: string;
+  text: string;
+}
+
+export interface CurrentRevisionData {
+  revision_id: string;
+  revision_number: number;
+  source: string;
+  status: string;
+  title: string | null;
+  sections: RevisionSection[];
+  quality_report: Record<string, unknown> | null;
+  created_at: string | null;
+}
+
+export async function getCurrentRevision(
+  projectId: string,
+  docType: string,
+): Promise<CurrentRevisionData> {
+  return studioFetch(`/api/studio/projects/${projectId}/documents/${docType}/current`);
 }

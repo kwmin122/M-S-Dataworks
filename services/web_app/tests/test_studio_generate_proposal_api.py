@@ -328,3 +328,122 @@ async def test_generate_creates_audit_log(db_session):
         )
     )).scalars().all()
     assert len(logs) >= 1
+
+
+# ---- Hardening tests: orchestrator args, revision read, company_name ----
+
+@pytest.mark.asyncio
+async def test_orchestrator_receives_correct_args(db_session):
+    """Mock args verification: company_context, style_profile_md, total_pages, company_name."""
+    from services.web_app.api.studio import generate_proposal, GenerateProposalRequest
+    from services.web_app.api.deps import CurrentUser
+    from services.web_app.db.models.company import CompanyProfile
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    snap = await _create_snapshot(db_session, org.id, project.id)
+    project.active_analysis_snapshot_id = snap.id
+    await _create_package_item_proposal(db_session, org.id, project.id)
+
+    # Company profile
+    db_session.add(CompanyProfile(
+        org_id=org.id, company_name="테스트기업 주식회사", business_type="IT",
+    ))
+
+    # Staging asset
+    db_session.add(ProjectCompanyAsset(
+        project_id=project.id, org_id=org.id,
+        asset_category="track_record", label="AI 플랫폼",
+        content_json={"project_name": "AI 플랫폼 구축", "client_name": "과기부"},
+    ))
+
+    # Pin style
+    style = await _create_pinned_style(db_session, org.id, project.id)
+    project.pinned_style_skill_id = style.id
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    with patch("services.web_app.api.studio._run_proposal_generation") as mock_gen:
+        mock_gen.return_value = _MOCK_PROPOSAL_RESULT
+        await generate_proposal(
+            project_id=project.id,
+            req=GenerateProposalRequest(doc_type="proposal", total_pages=80),
+            user=user, db=db_session,
+        )
+
+    mock_gen.assert_called_once()
+    call_kwargs = mock_gen.call_args.kwargs
+
+    # company_context should include staging asset
+    assert "AI 플랫폼 구축" in call_kwargs["company_context"]
+    # style profile should be from pinned style
+    assert "경어체 사용" in call_kwargs["style_profile_md"]
+    # total_pages forwarded
+    assert call_kwargs["total_pages"] == 80
+    # company_name propagated
+    assert call_kwargs["company_name"] == "테스트기업 주식회사"
+
+
+@pytest.mark.asyncio
+async def test_read_current_revision(db_session):
+    """GET current revision returns sections content after generation."""
+    from services.web_app.api.studio import generate_proposal, get_current_revision, GenerateProposalRequest
+    from services.web_app.api.deps import CurrentUser
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    snap = await _create_snapshot(db_session, org.id, project.id)
+    project.active_analysis_snapshot_id = snap.id
+    await _create_package_item_proposal(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    with patch("services.web_app.api.studio._run_proposal_generation") as mock_gen:
+        mock_gen.return_value = _MOCK_PROPOSAL_RESULT
+        await generate_proposal(
+            project_id=project.id,
+            req=GenerateProposalRequest(doc_type="proposal"),
+            user=user, db=db_session,
+        )
+
+    # Read current revision
+    revision_data = await get_current_revision(
+        project_id=project.id, doc_type="proposal", user=user, db=db_session,
+    )
+
+    assert revision_data["revision_number"] >= 1
+    assert revision_data["source"] == "ai_generated"
+    assert len(revision_data["sections"]) >= 1
+    assert revision_data["sections"][0]["name"] == "개요"
+
+
+@pytest.mark.asyncio
+async def test_company_name_absent_passes_none(db_session):
+    """When no CompanyProfile exists, company_name=None is passed to orchestrator."""
+    from services.web_app.api.studio import generate_proposal, GenerateProposalRequest
+    from services.web_app.api.deps import CurrentUser
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    snap = await _create_snapshot(db_session, org.id, project.id)
+    project.active_analysis_snapshot_id = snap.id
+    await _create_package_item_proposal(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    with patch("services.web_app.api.studio._run_proposal_generation") as mock_gen:
+        mock_gen.return_value = _MOCK_PROPOSAL_RESULT
+        await generate_proposal(
+            project_id=project.id,
+            req=GenerateProposalRequest(doc_type="proposal"),
+            user=user, db=db_session,
+        )
+
+    call_kwargs = mock_gen.call_args.kwargs
+    assert call_kwargs["company_name"] is None

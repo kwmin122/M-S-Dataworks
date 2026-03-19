@@ -1162,7 +1162,7 @@ def _skill_to_response(skill: ProjectStyleSkill) -> StyleSkillResponse:
 # --- Proposal Generation schemas ---
 
 class GenerateProposalRequest(BaseModel):
-    doc_type: str = Field(pattern="^(proposal)$", default="proposal")
+    doc_type: Literal["proposal"] = "proposal"
     total_pages: int = Field(default=50, ge=10, le=200)
 
 
@@ -1213,7 +1213,7 @@ async def generate_proposal(
     # --- Build generation contract ---
 
     # 1. Company context: shared + staging merged into narrative
-    company_context, company_assets_count = await _build_company_context(db, project_id, user.org_id)
+    company_context, company_assets_count, company_name = await _build_company_context(db, project_id, user.org_id)
 
     # 2. Pinned style
     pinned_style = None
@@ -1261,6 +1261,7 @@ async def generate_proposal(
             company_context=company_context,
             style_profile_md=style_profile_md,
             total_pages=req.total_pages,
+            company_name=company_name,
         )
 
         # --- Create DocumentRevision ---
@@ -1373,19 +1374,67 @@ async def generate_proposal(
     }
 
 
-async def _build_company_context(db: AsyncSession, project_id: str, org_id: str) -> tuple[str, int]:
+@router.get("/projects/{project_id}/documents/{doc_type}/current")
+async def get_current_revision(
+    project_id: str,
+    doc_type: str,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Get the current revision for a document type in a Studio project.
+
+    Returns revision metadata + sections content for preview.
+    """
+    await _require_studio_project_access(project_id, "viewer", user, db)
+
+    from services.web_app.db.models.document import ProjectCurrentDocument
+
+    current = (await db.execute(
+        select(ProjectCurrentDocument).where(
+            ProjectCurrentDocument.project_id == project_id,
+            ProjectCurrentDocument.doc_type == doc_type,
+        )
+    )).scalar_one_or_none()
+    if current is None:
+        raise HTTPException(404, "현재 리비전이 없습니다. 먼저 문서를 생성해주세요.")
+
+    revision = (await db.execute(
+        select(DocumentRevision).where(DocumentRevision.id == current.current_revision_id)
+    )).scalar_one_or_none()
+    if revision is None:
+        raise HTTPException(404, "리비전을 찾을 수 없습니다.")
+
+    sections = []
+    if revision.content_json and "sections" in revision.content_json:
+        sections = revision.content_json["sections"]
+
+    return {
+        "revision_id": revision.id,
+        "revision_number": revision.revision_number,
+        "source": revision.source,
+        "status": revision.status,
+        "title": revision.title,
+        "sections": sections,
+        "quality_report": revision.quality_report_json,
+        "created_at": revision.created_at.isoformat() if revision.created_at else None,
+    }
+
+
+async def _build_company_context(db: AsyncSession, project_id: str, org_id: str) -> tuple[str, int, str | None]:
     """Build effective company context from shared + staging assets.
 
-    Returns (context_narrative, total_asset_count).
+    Returns (context_narrative, total_asset_count, company_name).
     """
     parts: list[str] = []
     asset_count = 0
+    company_name: str | None = None
 
     # Shared profile
     profile = (await db.execute(
         select(CompanyProfile).where(CompanyProfile.org_id == org_id)
     )).scalar_one_or_none()
     if profile:
+        company_name = profile.company_name
         asset_count += 1
         items = []
         if profile.company_name:
@@ -1431,9 +1480,10 @@ async def _build_company_context(db: AsyncSession, project_id: str, org_id: str)
             parts.append(f"- 인력(스테이징): {content.get('name', '(무명)')} / {content.get('role', '')}")
         elif a.asset_category == "profile":
             if content.get("company_name"):
+                company_name = content["company_name"]  # staging overrides shared
                 parts.insert(0, f"## 회사 기본정보 (스테이징)\n- 회사명: {content['company_name']}")
 
-    return "\n".join(parts), asset_count
+    return "\n".join(parts), asset_count, company_name
 
 
 def _run_proposal_generation(
@@ -1441,6 +1491,7 @@ def _run_proposal_generation(
     company_context: str,
     style_profile_md: str,
     total_pages: int,
+    company_name: str | None = None,
 ) -> Any:
     """Run proposal generation using existing orchestrator.
 
@@ -1461,6 +1512,7 @@ def _run_proposal_generation(
             return _gen(
                 rfx_result=rfx_result,
                 company_context=company_context,
+                company_name=company_name,
                 total_pages=total_pages,
                 api_key=api_key,
                 company_skills_dir=style_dir,
@@ -1469,6 +1521,7 @@ def _run_proposal_generation(
     return _gen(
         rfx_result=rfx_result,
         company_context=company_context,
+        company_name=company_name,
         total_pages=total_pages,
         api_key=api_key,
         company_skills_dir="",

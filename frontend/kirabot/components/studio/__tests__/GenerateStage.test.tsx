@@ -9,11 +9,13 @@ vi.mock('../../../services/studioApi', async () => {
   return {
     ...actual,
     generateProposal: vi.fn(),
+    getCurrentRevision: vi.fn(),
   };
 });
 
-import { generateProposal } from '../../../services/studioApi';
+import { generateProposal, getCurrentRevision } from '../../../services/studioApi';
 const mockGenerate = vi.mocked(generateProposal);
+const mockGetRevision = vi.mocked(getCurrentRevision);
 
 const PROJECT_WITH_SNAPSHOT: StudioProject = {
   id: 'proj1',
@@ -59,6 +61,8 @@ const noop = () => {};
 describe('GenerateStage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: no existing revision
+    mockGetRevision.mockRejectedValue(new Error('not found'));
   });
 
   it('renders generate conditions and button', () => {
@@ -85,8 +89,21 @@ describe('GenerateStage', () => {
     expect(screen.getByText(/snap-1/)).toBeInTheDocument();
   });
 
-  it('calls generateProposal and shows result', async () => {
+  it('calls generateProposal and shows result with preview', async () => {
     mockGenerate.mockResolvedValue(SAMPLE_RESULT);
+    // After generation, getCurrentRevision returns content
+    mockGetRevision
+      .mockRejectedValueOnce(new Error('not found')) // initial mount
+      .mockResolvedValueOnce({
+        revision_id: 'rev-1',
+        revision_number: 1,
+        source: 'ai_generated',
+        status: 'draft',
+        title: '테스트 제안서',
+        sections: [{ name: '개요', text: '테스트 개요 본문' }],
+        quality_report: null,
+        created_at: '2026-03-19T10:00:00Z',
+      });
     const onUpdate = vi.fn();
 
     render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={onUpdate} />);
@@ -100,6 +117,10 @@ describe('GenerateStage', () => {
     expect(await screen.findByText('생성 완료')).toBeInTheDocument();
     expect(screen.getByText('5')).toBeInTheDocument(); // sections_count
     expect(onUpdate).toHaveBeenCalled();
+
+    // Preview should auto-show with section content
+    expect(await screen.findByText('개요')).toBeInTheDocument();
+    expect(screen.getByText('테스트 개요 본문')).toBeInTheDocument();
   });
 
   it('shows error state on generation failure', async () => {
