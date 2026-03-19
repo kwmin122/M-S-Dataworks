@@ -1548,36 +1548,7 @@ async def get_proposal_diff(
     """Get section-level diff between latest AI-generated and user-edited revisions."""
     await _require_studio_project_access(project_id, "viewer", user, db)
 
-    # Find latest AI-generated and user-edited revisions
-    ai_rev = (await db.execute(
-        select(DocumentRevision)
-        .where(
-            DocumentRevision.project_id == project_id,
-            DocumentRevision.doc_type == "proposal",
-            DocumentRevision.source == "ai_generated",
-        )
-        .order_by(DocumentRevision.revision_number.desc())
-        .limit(1)
-    )).scalar_one_or_none()
-
-    edited_rev = (await db.execute(
-        select(DocumentRevision)
-        .where(
-            DocumentRevision.project_id == project_id,
-            DocumentRevision.doc_type == "proposal",
-            DocumentRevision.source == "user_edited",
-        )
-        .order_by(DocumentRevision.revision_number.desc())
-        .limit(1)
-    )).scalar_one_or_none()
-
-    if ai_rev is None or edited_rev is None:
-        raise HTTPException(400, "원본과 편집본이 모두 필요합니다.")
-
-    original_sections = {s["name"]: s["text"] for s in (ai_rev.content_json or {}).get("sections", [])}
-    edited_sections = {s["name"]: s["text"] for s in (edited_rev.content_json or {}).get("sections", [])}
-
-    all_names = list(dict.fromkeys(list(original_sections.keys()) + list(edited_sections.keys())))
+    ai_rev, edited_rev, original_sections, edited_sections, all_names = await _get_proposal_diff_pair(db, project_id)
 
     diff_sections = []
     changed_count = 0
@@ -1638,38 +1609,12 @@ async def relearn_proposal_style(
     if pinned is None:
         raise HTTPException(404, "핀 설정된 스타일을 찾을 수 없습니다.")
 
-    # Get diff (reuse logic)
-    ai_rev = (await db.execute(
-        select(DocumentRevision)
-        .where(
-            DocumentRevision.project_id == project_id,
-            DocumentRevision.doc_type == "proposal",
-            DocumentRevision.source == "ai_generated",
-        )
-        .order_by(DocumentRevision.revision_number.desc())
-        .limit(1)
-    )).scalar_one_or_none()
+    # Get diff pair (shared helper)
+    _, _, original_sections, edited_sections, all_names = await _get_proposal_diff_pair(db, project_id)
 
-    edited_rev = (await db.execute(
-        select(DocumentRevision)
-        .where(
-            DocumentRevision.project_id == project_id,
-            DocumentRevision.doc_type == "proposal",
-            DocumentRevision.source == "user_edited",
-        )
-        .order_by(DocumentRevision.revision_number.desc())
-        .limit(1)
-    )).scalar_one_or_none()
-
-    if ai_rev is None or edited_rev is None:
-        raise HTTPException(400, "원본과 편집본이 모두 필요합니다.")
-
-    # Build edit summary for profile augmentation
-    original_sections = {s["name"]: s["text"] for s in (ai_rev.content_json or {}).get("sections", [])}
-    edited_sections = {s["name"]: s["text"] for s in (edited_rev.content_json or {}).get("sections", [])}
-
+    # Build edit summary for profile augmentation — iterate union of keys
     edit_notes: list[str] = []
-    for name in original_sections:
+    for name in all_names:
         orig = original_sections.get(name, "")
         edit = edited_sections.get(name, "")
         if orig != edit:
@@ -1736,6 +1681,45 @@ async def relearn_proposal_style(
         "derived_from_id": pinned.id,
         "edit_notes_count": len(edit_notes),
     }
+
+
+async def _get_proposal_diff_pair(
+    db: AsyncSession, project_id: str,
+) -> tuple[DocumentRevision, DocumentRevision, dict[str, str], dict[str, str], list[str]]:
+    """Fetch latest AI-generated and user-edited proposal revisions.
+
+    Returns: (ai_rev, edited_rev, original_sections, edited_sections, all_section_names)
+    """
+    ai_rev = (await db.execute(
+        select(DocumentRevision)
+        .where(
+            DocumentRevision.project_id == project_id,
+            DocumentRevision.doc_type == "proposal",
+            DocumentRevision.source == "ai_generated",
+        )
+        .order_by(DocumentRevision.revision_number.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+    edited_rev = (await db.execute(
+        select(DocumentRevision)
+        .where(
+            DocumentRevision.project_id == project_id,
+            DocumentRevision.doc_type == "proposal",
+            DocumentRevision.source == "user_edited",
+        )
+        .order_by(DocumentRevision.revision_number.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+    if ai_rev is None or edited_rev is None:
+        raise HTTPException(400, "원본과 편집본이 모두 필요합니다.")
+
+    original_sections = {s["name"]: s["text"] for s in (ai_rev.content_json or {}).get("sections", [])}
+    edited_sections = {s["name"]: s["text"] for s in (edited_rev.content_json or {}).get("sections", [])}
+    all_names = list(dict.fromkeys(list(original_sections.keys()) + list(edited_sections.keys())))
+
+    return ai_rev, edited_rev, original_sections, edited_sections, all_names
 
 
 def _simple_edit_distance(a: str, b: str) -> int:

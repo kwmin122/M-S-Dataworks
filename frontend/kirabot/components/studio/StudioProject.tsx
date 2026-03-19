@@ -167,6 +167,8 @@ function StageContent({
           onProjectUpdate={onProjectUpdate}
         />
       );
+    case 'relearn':
+      return <ChecklistStage projectId={project.id} />;
     default:
       return <StagePlaceholder stage={stage} />;
   }
