@@ -100,7 +100,7 @@
 | 6.2 | generated → verified 전환 | 상태 변경 정상 | |
 | 6.3 | missing → waived 전환 | 면제 처리 정상 | |
 | 6.4 | evidence 파일 업로드 | 파일 선택 → 업로드 → uploaded 전환 | |
-| 6.5 | evidence 파일 다운로드 | 다운로드 endpoint 동작 | |
+| 6.5 | evidence 파일 다운로드 | API 직접 호출로 확인 (`GET /api/studio/projects/{id}/package-items/{itemId}/evidence/download`) — 프론트 다운로드 버튼은 미연결 | |
 
 ---
 

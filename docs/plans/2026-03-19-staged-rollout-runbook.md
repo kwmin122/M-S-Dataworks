@@ -138,12 +138,21 @@ SELECT count(*) FROM bid_projects WHERE project_type = 'studio';
 -- Handoff 프로젝트 (Chat에서 전환)
 SELECT count(*) FROM audit_logs WHERE action = 'studio_handoff_from_chat';
 
--- 분류 결과 분포
+-- 생성 문서 유형 분포 (doc_type별)
 SELECT
-  params_json->>'doc_type' as doc_type,
+  doc_type,
   count(*)
 FROM document_runs
 GROUP BY 1;
+
+-- 분류 결과 분포 (domain/method — audit_logs 기반)
+SELECT
+  detail_json->>'procurement_domain' as domain,
+  detail_json->>'contract_method' as method,
+  count(*)
+FROM audit_logs
+WHERE action = 'package_classified'
+GROUP BY 1, 2;
 
 -- PPT 생성 건수 (false positive 모니터링)
 SELECT count(*) FROM document_runs WHERE doc_type = 'presentation';
