@@ -329,3 +329,60 @@ export async function getCurrentRevision(
 ): Promise<CurrentRevisionData> {
   return studioFetch(`/api/studio/projects/${projectId}/documents/${docType}/current`);
 }
+
+// --- Package item lifecycle ---
+
+export interface PackageCompleteness {
+  total: number;
+  completed: number;
+  waived: number;
+  required_remaining: number;
+  completeness_pct: number;
+}
+
+export async function getPackageCompleteness(projectId: string): Promise<PackageCompleteness> {
+  return studioFetch(`/api/studio/projects/${projectId}/package-completeness`);
+}
+
+export async function updatePackageItemStatus(
+  projectId: string,
+  itemId: string,
+  status: 'missing' | 'waived' | 'verified',
+): Promise<{ id: string; status: string; document_code: string }> {
+  return studioFetch(`/api/studio/projects/${projectId}/package-items/${itemId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function attachEvidenceFile(
+  projectId: string,
+  itemId: string,
+  file: File,
+): Promise<{ asset_id: string; status: string; document_code: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const API_BASE_URL =
+    import.meta.env.VITE_API_BASE_URL ||
+    (typeof window !== 'undefined' && window.location.port === '5173'
+      ? 'http://localhost:8000'
+      : '');
+
+  const res = await fetch(
+    `${API_BASE_URL}/api/studio/projects/${projectId}/package-items/${itemId}/evidence`,
+    {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+      // No Content-Type header — browser sets multipart boundary
+    },
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    let msg = `오류 ${res.status}`;
+    try { const j = JSON.parse(body); if (j.detail) msg = j.detail; } catch { /* */ }
+    throw new Error(msg);
+  }
+  return res.json();
+}

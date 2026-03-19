@@ -6,6 +6,7 @@ import PackageStage from './stages/PackageStage';
 import CompanyStage from './stages/CompanyStage';
 import StyleStage from './stages/StyleStage';
 import GenerateStage from './stages/GenerateStage';
+import ChecklistStage from './stages/ChecklistStage';
 import {
   getStudioProject,
   updateStudioStage,
@@ -157,6 +158,8 @@ function StageContent({
           onProjectUpdate={onProjectUpdate}
         />
       );
+    case 'review':
+      return <ChecklistStage projectId={project.id} />;
     default:
       return <StagePlaceholder stage={stage} />;
   }
