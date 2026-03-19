@@ -82,10 +82,12 @@ async def _create_package_items(db, org_id: str, project_id: str) -> list[Projec
 # ---- Tests ----
 
 @pytest.mark.asyncio
-async def test_transition_missing_to_uploaded(db_session):
-    """PATCH status: missing → uploaded with evidence asset."""
+async def test_missing_to_uploaded_via_patch_rejected(db_session):
+    """PATCH status: missing → uploaded is NOT allowed (must use attach_evidence)."""
     from services.web_app.api.studio import update_package_item_status, UpdatePackageItemStatusRequest
     from services.web_app.api.deps import CurrentUser
+    from fastapi import HTTPException
+    from pydantic import ValidationError
 
     org = await _create_org(db_session)
     project = await _create_studio_project(db_session, org.id)
@@ -94,15 +96,14 @@ async def test_transition_missing_to_uploaded(db_session):
     await db_session.commit()
 
     user = CurrentUser(username="testuser", org_id=org.id, role="editor")
-    evidence_item = items[1]  # experience_cert, status=missing
 
-    result = await update_package_item_status(
-        project_id=project.id, item_id=evidence_item.id,
-        req=UpdatePackageItemStatusRequest(status="uploaded"),
-        user=user, db=db_session,
-    )
-
-    assert result["status"] == "uploaded"
+    # "uploaded" is not a valid Literal value for UpdatePackageItemStatusRequest
+    with pytest.raises((ValidationError, HTTPException)):
+        await update_package_item_status(
+            project_id=project.id, item_id=items[1].id,
+            req=UpdatePackageItemStatusRequest(status="uploaded"),  # type: ignore[arg-type]
+            user=user, db=db_session,
+        )
 
 
 @pytest.mark.asyncio
@@ -269,7 +270,7 @@ async def test_non_studio_project_rejected(db_session):
     with pytest.raises(HTTPException) as exc_info:
         await update_package_item_status(
             project_id=chat.id, item_id=item.id,
-            req=UpdatePackageItemStatusRequest(status="uploaded"),
+            req=UpdatePackageItemStatusRequest(status="waived"),
             user=user, db=db_session,
         )
     assert exc_info.value.status_code == 400

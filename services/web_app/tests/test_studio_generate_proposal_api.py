@@ -324,7 +324,7 @@ async def test_generate_creates_audit_log(db_session):
     logs = (await db_session.execute(
         select(AuditLog).where(
             AuditLog.project_id == project.id,
-            AuditLog.action == "proposal_generated",
+            AuditLog.action == "document_generated",
         )
     )).scalars().all()
     assert len(logs) >= 1

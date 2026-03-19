@@ -1335,7 +1335,7 @@ async def generate_proposal(
             pkg_item.status = "generated"
 
     except Exception as exc:
-        logger.exception("Proposal generation failed for project=%s", project_id)
+        logger.exception("Document generation failed for project=%s doc_type=%s", project_id, req.doc_type)
         run.status = "failed"
         run.completed_at = datetime.now(timezone.utc)
         run.error_message = str(exc)[:1000]
@@ -1343,13 +1343,13 @@ async def generate_proposal(
             org_id=user.org_id,
             user_id=user.username,
             project_id=project_id,
-            action="proposal_generation_failed",
+            action="document_generation_failed",
             target_type="document_run",
             target_id=run.id,
             detail_json={"error": str(exc)[:500], **generation_contract},
         ))
         await db.commit()
-        raise HTTPException(500, "제안서 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
+        raise HTTPException(500, "문서 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
 
     # Update ProjectCurrentDocument (upsert)
     from services.web_app.db.models.document import ProjectCurrentDocument
@@ -1374,7 +1374,7 @@ async def generate_proposal(
         org_id=user.org_id,
         user_id=user.username,
         project_id=project_id,
-        action="proposal_generated",
+        action="document_generated",
         target_type="document_run",
         target_id=run.id,
         detail_json=generation_contract,
@@ -1441,7 +1441,7 @@ async def get_current_revision(
 # --- Package item lifecycle schemas ---
 
 _VALID_STATUS_TRANSITIONS: dict[str, set[str]] = {
-    "missing": {"uploaded", "waived"},
+    "missing": {"waived"},  # uploaded only via attach_evidence
     "ready_to_generate": {"generated"},
     "generated": {"verified"},
     "uploaded": {"verified"},
@@ -1453,7 +1453,7 @@ _COMPLETED_STATUSES = frozenset({"generated", "uploaded", "verified"})
 
 
 class UpdatePackageItemStatusRequest(BaseModel):
-    status: Literal["missing", "uploaded", "waived", "verified"]
+    status: Literal["missing", "waived", "verified"]  # uploaded only via attach_evidence
 
 
 class AttachEvidenceRequest(BaseModel):
