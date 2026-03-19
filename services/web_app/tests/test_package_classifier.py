@@ -360,3 +360,31 @@ def test_cctv_system_classified_as_service():
         ],
     })
     assert result.procurement_domain == "service", f"CCTV 구축이 {result.procurement_domain}로 분류됨"
+
+
+def test_real_telecom_construction_stays_construction():
+    """실제 정보통신공사는 여전히 construction이어야 한다.
+
+    "정보통신"이 service 키워드지만, "~공사"가 title에 있고
+    시공능력 등 construction 신호가 강하면 construction 유지.
+    """
+    result = classify_procurement({
+        "title": "○○청사 정보통신공사",
+        "requirements": [
+            {"description": "정보통신공사업 등록업체"},
+            {"description": "시공능력평가액 10억 이상"},
+        ],
+    })
+    assert result.procurement_domain == "construction"
+
+
+def test_iot_service_not_construction():
+    """IoT 솔루션 설치 운영은 service여야 한다."""
+    result = classify_procurement({
+        "title": "IoT 스마트 센서 설치 및 운영관리 용역",
+        "requirements": [
+            {"description": "정보통신공사업자 등록"},
+            {"description": "IoT 솔루션 납품 실적"},
+        ],
+    })
+    assert result.procurement_domain == "service"
