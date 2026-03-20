@@ -238,8 +238,11 @@ async def lifespan(app: FastAPI):
         logger.info("Bid Workspace DB closed")
 
 
-# Rate limiting
-limiter = Limiter(key_func=get_remote_address)
+# Rate limiting — global default + Studio-specific
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=["60/minute"],  # Global default: 60 req/min per IP
+)
 
 app = FastAPI(title="Kira Web Runtime", version="0.1.0", lifespan=lifespan)
 app.state.limiter = limiter

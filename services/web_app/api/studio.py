@@ -2005,10 +2005,17 @@ async def attach_evidence(
     # Read file content
     content = await file.read()
     _MAX_EVIDENCE_SIZE = 50 * 1024 * 1024  # 50MB
+    _ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx", ".hwp", ".hwpx", ".xlsx", ".xls", ".pptx", ".ppt", ".jpg", ".jpeg", ".png", ".gif", ".zip"}
     if len(content) == 0:
         raise HTTPException(400, "빈 파일은 첨부할 수 없습니다")
     if len(content) > _MAX_EVIDENCE_SIZE:
         raise HTTPException(400, f"파일 크기가 제한({_MAX_EVIDENCE_SIZE // (1024*1024)}MB)을 초과합니다")
+
+    # Validate file extension
+    import pathlib
+    file_ext = pathlib.Path(file.filename or "").suffix.lower()
+    if file_ext not in _ALLOWED_EXTENSIONS:
+        raise HTTPException(400, f"허용되지 않는 파일 형식입니다: {file_ext}")
 
     # Sanitize filename + generate storage path
     import re as _re
@@ -2128,14 +2135,17 @@ async def download_presentation(
     if asset is None:
         raise HTTPException(404, "발표자료 파일이 없습니다. 먼저 발표자료를 생성해주세요.")
 
-    # Resolve file path
+    # Resolve file path with traversal guard
     local_path = asset.storage_uri.replace("local://", "")
     file_path = os.path.join(_PPT_ASSET_DIR, *local_path.split("ppt_assets/", 1)[-1].split("/"))
-    if not os.path.isfile(file_path):
+    resolved = os.path.realpath(file_path)
+    if not resolved.startswith(os.path.realpath(_PPT_ASSET_DIR)):
+        raise HTTPException(403, "잘못된 파일 경로입니다")
+    if not os.path.isfile(resolved):
         raise HTTPException(404, "서버에서 파일을 찾을 수 없습니다")
 
     return FileResponse(
-        path=file_path,
+        path=resolved,
         filename=asset.original_filename or "presentation.pptx",
         media_type=asset.mime_type or "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     )
@@ -2170,10 +2180,13 @@ async def download_evidence(
     if asset is None:
         raise HTTPException(404, "파일 자산을 찾을 수 없습니다")
 
-    # Resolve local file path
+    # Resolve local file path with traversal guard
     local_path = asset.storage_uri.replace("local://", "")
     file_path = os.path.join(_EVIDENCE_STORAGE_DIR, *local_path.split("package_evidence/", 1)[-1].split("/"))
-    if not os.path.isfile(file_path):
+    resolved = os.path.realpath(file_path)
+    if not resolved.startswith(os.path.realpath(_EVIDENCE_STORAGE_DIR)):
+        raise HTTPException(403, "잘못된 파일 경로입니다")
+    if not os.path.isfile(resolved):
         raise HTTPException(404, "서버에서 파일을 찾을 수 없습니다")
 
     return FileResponse(
