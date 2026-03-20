@@ -386,7 +386,8 @@ export type MessageAction =
   | { type: 'generate_presentation' }
   | { type: 'generate_track_record' }
   | { type: 'open_company_onboarding' }
-  | { type: 'open_pending_knowledge' };
+  | { type: 'open_pending_knowledge' }
+  | { type: 'handoff_to_studio'; bidTitle: string; analysisJson: Record<string, unknown>; rfpSummary: string; matchingJson: Record<string, unknown> | null };
 
 // ── 문서 멘션 (다중 문서 질의) ──
 

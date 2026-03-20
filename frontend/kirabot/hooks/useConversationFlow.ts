@@ -1685,6 +1685,30 @@ export function useConversationFlow() {
           updateConv({ activeDocFilter: [action.sourceFile] });
           break;
         }
+
+        case 'handoff_to_studio': {
+          setProcessing(true);
+          pushStatus('loading', 'Studio 프로젝트 생성 중...');
+          try {
+            const { handoffFromChat } = await import('../services/studioApi');
+            const project = await handoffFromChat({
+              title: action.bidTitle || '새 입찰 프로젝트',
+              analysis_json: action.analysisJson,
+              summary_md: action.rfpSummary || '',
+              go_nogo_result_json: action.matchingJson,
+            });
+            removeLastStatus();
+            pushText(`Studio 프로젝트 "${project.title}"이(가) 생성되었습니다. 이동합니다...`);
+            // Navigate to Studio project
+            window.location.href = `/studio/projects/${project.id}`;
+          } catch (err) {
+            removeLastStatus();
+            pushText(`Studio 전환 실패: ${err instanceof Error ? err.message : '알 수 없는 오류'}`);
+          } finally {
+            setProcessing(false);
+          }
+          break;
+        }
       }
     },
     [conversationId, conversation, push, pushText, pushStatus, removeLastStatus, updateMsg, updateConv, setPhase, setProcessing, dispatch, handleFeatureSelection],

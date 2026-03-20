@@ -1,0 +1,483 @@
+"""Package item lifecycle + evidence upload tests.
+
+Tests:
+1. status transition: missing → uploaded (with evidence)
+2. status transition: missing → waived
+3. status transition: generated → verified
+4. invalid transition rejected (e.g., missing → verified)
+5. evidence upload creates DocumentAsset + links asset_id
+6. completeness summary from API
+7. non-studio project rejected
+"""
+from __future__ import annotations
+
+import pytest
+from unittest.mock import patch
+from sqlalchemy import select
+
+from services.web_app.db.models.org import Organization, Membership
+from services.web_app.db.models.project import BidProject, ProjectAccess
+from services.web_app.db.models.studio import ProjectPackageItem
+from services.web_app.db.models.document import DocumentAsset
+from services.web_app.db.models.base import new_cuid
+
+
+# --- Helpers ---
+
+async def _create_org(db, name: str = "패키지 테스트기관") -> Organization:
+    org = Organization(name=name)
+    db.add(org)
+    await db.flush()
+    return org
+
+
+async def _create_studio_project(db, org_id: str) -> BidProject:
+    project = BidProject(
+        org_id=org_id, created_by="testuser", title="패키지 Studio",
+        status="draft", project_type="studio", studio_stage="review",
+    )
+    db.add(project)
+    await db.flush()
+    return project
+
+
+async def _setup_user(db, org_id: str, project_id: str):
+    db.add(Membership(org_id=org_id, user_id="testuser", role="editor", is_active=True))
+    db.add(ProjectAccess(project_id=project_id, user_id="testuser", access_level="owner"))
+    await db.flush()
+
+
+async def _create_package_items(db, org_id: str, project_id: str) -> list[ProjectPackageItem]:
+    items = [
+        ProjectPackageItem(
+            project_id=project_id, org_id=org_id,
+            package_category="generated_document", document_code="proposal",
+            document_label="기술 제안서", required=True,
+            status="generated", generation_target="proposal", sort_order=1,
+        ),
+        ProjectPackageItem(
+            project_id=project_id, org_id=org_id,
+            package_category="evidence", document_code="experience_cert",
+            document_label="용역수행실적확인서", required=True,
+            status="missing", sort_order=10,
+        ),
+        ProjectPackageItem(
+            project_id=project_id, org_id=org_id,
+            package_category="administrative", document_code="bid_letter",
+            document_label="입찰서", required=True,
+            status="missing", sort_order=20,
+        ),
+        ProjectPackageItem(
+            project_id=project_id, org_id=org_id,
+            package_category="price", document_code="price_proposal",
+            document_label="가격제안서", required=False,
+            status="missing", sort_order=30,
+        ),
+    ]
+    db.add_all(items)
+    await db.flush()
+    return items
+
+
+# ---- Tests ----
+
+@pytest.mark.asyncio
+async def test_missing_to_uploaded_via_patch_rejected(db_session):
+    """PATCH status: missing → uploaded is NOT allowed (must use attach_evidence)."""
+    from services.web_app.api.studio import update_package_item_status, UpdatePackageItemStatusRequest
+    from services.web_app.api.deps import CurrentUser
+    from fastapi import HTTPException
+    from pydantic import ValidationError
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    items = await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    # "uploaded" is not a valid Literal value for UpdatePackageItemStatusRequest
+    with pytest.raises((ValidationError, HTTPException)):
+        await update_package_item_status(
+            project_id=project.id, item_id=items[1].id,
+            req=UpdatePackageItemStatusRequest(status="uploaded"),  # type: ignore[arg-type]
+            user=user, db=db_session,
+        )
+
+
+@pytest.mark.asyncio
+async def test_transition_missing_to_waived(db_session):
+    """PATCH status: missing → waived."""
+    from services.web_app.api.studio import update_package_item_status, UpdatePackageItemStatusRequest
+    from services.web_app.api.deps import CurrentUser
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    items = await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    result = await update_package_item_status(
+        project_id=project.id, item_id=items[3].id,  # price_proposal
+        req=UpdatePackageItemStatusRequest(status="waived"),
+        user=user, db=db_session,
+    )
+    assert result["status"] == "waived"
+
+
+@pytest.mark.asyncio
+async def test_transition_generated_to_verified(db_session):
+    """PATCH status: generated → verified."""
+    from services.web_app.api.studio import update_package_item_status, UpdatePackageItemStatusRequest
+    from services.web_app.api.deps import CurrentUser
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    items = await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    result = await update_package_item_status(
+        project_id=project.id, item_id=items[0].id,  # proposal, status=generated
+        req=UpdatePackageItemStatusRequest(status="verified"),
+        user=user, db=db_session,
+    )
+    assert result["status"] == "verified"
+
+
+@pytest.mark.asyncio
+async def test_invalid_transition_rejected(db_session):
+    """PATCH status: missing → verified is not allowed."""
+    from services.web_app.api.studio import update_package_item_status, UpdatePackageItemStatusRequest
+    from services.web_app.api.deps import CurrentUser
+    from fastapi import HTTPException
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    items = await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_package_item_status(
+            project_id=project.id, item_id=items[1].id,  # missing
+            req=UpdatePackageItemStatusRequest(status="verified"),
+            user=user, db=db_session,
+        )
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_evidence_upload_creates_asset(db_session, tmp_path):
+    """Multipart file upload creates DocumentAsset, saves file, and links to package item."""
+    from services.web_app.api.studio import attach_evidence
+    from services.web_app.api.deps import CurrentUser
+    from fastapi import UploadFile
+    import io
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    items = await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    file_content = b"PDF file content for testing"
+    upload = UploadFile(filename="실적확인서.pdf", file=io.BytesIO(file_content))
+
+    with patch("services.web_app.api.studio._EVIDENCE_STORAGE_DIR", str(tmp_path)):
+        result = await attach_evidence(
+            project_id=project.id, item_id=items[1].id,
+            file=upload, user=user, db=db_session,
+        )
+
+    assert result["asset_id"] is not None
+    assert result["status"] == "uploaded"
+
+    # Verify DocumentAsset created
+    asset = (await db_session.execute(
+        select(DocumentAsset).where(DocumentAsset.id == result["asset_id"])
+    )).scalar_one()
+    assert asset.original_filename == "실적확인서.pdf"
+    assert asset.size_bytes == len(file_content)
+    assert asset.storage_uri.startswith("local://")
+
+    # Verify package item linked
+    item = (await db_session.execute(
+        select(ProjectPackageItem).where(ProjectPackageItem.id == items[1].id)
+    )).scalar_one()
+    assert item.asset_id == result["asset_id"]
+    assert item.status == "uploaded"
+
+    # Verify actual file saved on disk
+    import os
+    # File is at _EVIDENCE_STORAGE_DIR/{project_id}/{item_id}/{filename}
+    saved_dir = os.path.join(str(tmp_path), project.id, items[1].id)
+    assert os.path.isdir(saved_dir)
+    saved_files = os.listdir(saved_dir)
+    assert len(saved_files) == 1
+    with open(os.path.join(saved_dir, saved_files[0]), "rb") as f:
+        assert f.read() == file_content
+
+
+@pytest.mark.asyncio
+async def test_completeness_summary(db_session):
+    """GET completeness returns total/completed/required_remaining/pct."""
+    from services.web_app.api.studio import get_package_completeness
+    from services.web_app.api.deps import CurrentUser
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    summary = await get_package_completeness(
+        project_id=project.id, user=user, db=db_session,
+    )
+
+    assert summary["total"] == 4
+    assert summary["completed"] == 1  # proposal is generated
+    assert summary["required_remaining"] == 2  # experience_cert + bid_letter still missing
+    assert 0 < summary["completeness_pct"] < 100
+
+
+@pytest.mark.asyncio
+async def test_non_studio_project_rejected(db_session):
+    """Package item status update rejected on non-studio project."""
+    from services.web_app.api.studio import update_package_item_status, UpdatePackageItemStatusRequest
+    from services.web_app.api.deps import CurrentUser
+    from fastapi import HTTPException
+
+    org = await _create_org(db_session)
+    chat = BidProject(
+        org_id=org.id, created_by="testuser", title="Chat",
+        status="draft", project_type="chat",
+    )
+    db_session.add(chat)
+    await db_session.flush()
+    await _setup_user(db_session, org.id, chat.id)
+
+    item = ProjectPackageItem(
+        project_id=chat.id, org_id=org.id,
+        package_category="evidence", document_code="test",
+        document_label="테스트", status="missing", sort_order=0,
+    )
+    db_session.add(item)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await update_package_item_status(
+            project_id=chat.id, item_id=item.id,
+            req=UpdatePackageItemStatusRequest(status="waived"),
+            user=user, db=db_session,
+        )
+    assert exc_info.value.status_code == 400
+
+
+# ---- Task 9.7: multipart upload guard tests ----
+
+def _make_upload(content: bytes = b"test file", filename: str = "test.pdf"):
+    from fastapi import UploadFile
+    import io
+    return UploadFile(filename=filename, file=io.BytesIO(content))
+
+
+@pytest.mark.asyncio
+async def test_attach_evidence_rejects_generated_document(db_session, tmp_path):
+    """Cannot attach evidence to generated_document category items."""
+    from services.web_app.api.studio import attach_evidence
+    from services.web_app.api.deps import CurrentUser
+    from fastapi import HTTPException
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    items = await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    with pytest.raises(HTTPException) as exc_info:
+        with patch("services.web_app.api.studio._EVIDENCE_STORAGE_DIR", str(tmp_path)):
+            await attach_evidence(
+                project_id=project.id, item_id=items[0].id,
+                file=_make_upload(), user=user, db=db_session,
+            )
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_attach_evidence_rejects_already_uploaded(db_session, tmp_path):
+    """Cannot re-attach evidence to already uploaded item."""
+    from services.web_app.api.studio import attach_evidence
+    from services.web_app.api.deps import CurrentUser
+    from fastapi import HTTPException
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    items = await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    with patch("services.web_app.api.studio._EVIDENCE_STORAGE_DIR", str(tmp_path)):
+        await attach_evidence(
+            project_id=project.id, item_id=items[1].id,
+            file=_make_upload(), user=user, db=db_session,
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await attach_evidence(
+                project_id=project.id, item_id=items[1].id,
+                file=_make_upload(), user=user, db=db_session,
+            )
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_attach_evidence_rejects_verified(db_session, tmp_path):
+    """Cannot attach evidence to verified item."""
+    from services.web_app.api.studio import attach_evidence, update_package_item_status, UpdatePackageItemStatusRequest
+    from services.web_app.api.deps import CurrentUser
+    from fastapi import HTTPException
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    items = await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    await update_package_item_status(
+        project_id=project.id, item_id=items[0].id,
+        req=UpdatePackageItemStatusRequest(status="verified"),
+        user=user, db=db_session,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        with patch("services.web_app.api.studio._EVIDENCE_STORAGE_DIR", str(tmp_path)):
+            await attach_evidence(
+                project_id=project.id, item_id=items[0].id,
+                file=_make_upload(), user=user, db=db_session,
+            )
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_attach_evidence_rejects_empty_file(db_session, tmp_path):
+    """Cannot attach empty file."""
+    from services.web_app.api.studio import attach_evidence
+    from services.web_app.api.deps import CurrentUser
+    from fastapi import HTTPException
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    items = await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    with pytest.raises(HTTPException) as exc_info:
+        with patch("services.web_app.api.studio._EVIDENCE_STORAGE_DIR", str(tmp_path)):
+            await attach_evidence(
+                project_id=project.id, item_id=items[1].id,
+                file=_make_upload(content=b""), user=user, db=db_session,
+            )
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_attach_evidence_rejects_oversized_file(db_session, tmp_path):
+    """Cannot attach file larger than 50MB."""
+    from services.web_app.api.studio import attach_evidence
+    from services.web_app.api.deps import CurrentUser
+    from fastapi import HTTPException
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    items = await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    # 51MB file
+    big_content = b"x" * (51 * 1024 * 1024)
+
+    with pytest.raises(HTTPException) as exc_info:
+        with patch("services.web_app.api.studio._EVIDENCE_STORAGE_DIR", str(tmp_path)):
+            await attach_evidence(
+                project_id=project.id, item_id=items[1].id,
+                file=_make_upload(content=big_content), user=user, db=db_session,
+            )
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_download_evidence(db_session, tmp_path):
+    """Download returns the uploaded file."""
+    from services.web_app.api.studio import attach_evidence, download_evidence
+    from services.web_app.api.deps import CurrentUser
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    items = await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    file_content = b"evidence file bytes"
+    with patch("services.web_app.api.studio._EVIDENCE_STORAGE_DIR", str(tmp_path)):
+        await attach_evidence(
+            project_id=project.id, item_id=items[1].id,
+            file=_make_upload(content=file_content, filename="증빙.pdf"),
+            user=user, db=db_session,
+        )
+
+        resp = await download_evidence(
+            project_id=project.id, item_id=items[1].id,
+            user=user, db=db_session,
+        )
+
+    # FileResponse — check filename
+    assert resp.filename == "증빙.pdf"
+
+
+@pytest.mark.asyncio
+async def test_download_evidence_without_asset_404(db_session):
+    """Download returns 404 when no asset attached."""
+    from services.web_app.api.studio import download_evidence
+    from services.web_app.api.deps import CurrentUser
+    from fastapi import HTTPException
+
+    org = await _create_org(db_session)
+    project = await _create_studio_project(db_session, org.id)
+    await _setup_user(db_session, org.id, project.id)
+    items = await _create_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    user = CurrentUser(username="testuser", org_id=org.id, role="editor")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await download_evidence(
+            project_id=project.id, item_id=items[1].id,  # missing, no asset
+            user=user, db=db_session,
+        )
+    assert exc_info.value.status_code == 404

@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { CheckCircle2, XCircle, AlertCircle, Sparkles, FileText, BarChart3, ClipboardList, CalendarDays, Presentation, FolderOpen } from 'lucide-react';
+import { CheckCircle2, XCircle, AlertCircle, Sparkles, FileText, BarChart3, ClipboardList, CalendarDays, Presentation, FolderOpen, ArrowRight } from 'lucide-react';
 import type { AnalysisResultMessage, MessageAction, OpinionMode } from '../../../types';
+import { isChatGenerationCutover } from '../../../services/studioApi';
 
 interface Props {
   message: AnalysisResultMessage;
@@ -251,39 +252,58 @@ const AnalysisResultView: React.FC<Props> = ({ message, onAction }) => {
       {renderTabs()}
       {activeTab === 'rfp_summary' ? renderRfpSummary() : renderGoNoGo()}
 
-      {/* 제출 체크리스트 버튼 */}
-      <button type="button"
-        onClick={() => onAction?.({ type: 'view_checklist' })}
-        className="mt-2 flex items-center gap-1.5 rounded-lg border border-kira-200 bg-white px-3 py-1.5 text-xs font-medium text-kira-700 shadow-sm hover:bg-kira-50 transition-all"
-      >
-        <ClipboardList size={14} />
-        제출 체크리스트
-      </button>
+      {isChatGenerationCutover() ? (
+        <>
+          {/* Studio handoff CTA */}
+          <button type="button"
+            onClick={() => onAction?.({ type: 'handoff_to_studio', bidTitle: a?.title || '', analysisJson: JSON.parse(JSON.stringify(a || {})), rfpSummary: rfpSummary, matchingJson: matching ? JSON.parse(JSON.stringify(matching)) : null })}
+            className="mt-2 flex items-center gap-2 rounded-lg bg-gradient-to-r from-kira-600 to-kira-700 px-4 py-2 text-sm font-medium text-white shadow-sm hover:from-kira-700 hover:to-kira-800 transition-all"
+          >
+            <Sparkles size={16} />
+            Studio에서 입찰 문서 작성
+            <ArrowRight size={14} />
+          </button>
+          <p className="mt-1 text-xs text-slate-400">
+            제안서, 수행계획서, 발표자료, 실적기술서를 Studio에서 생성/검토/학습할 수 있습니다
+          </p>
+        </>
+      ) : (
+        <>
+          {/* Legacy: 제출 체크리스트 버튼 */}
+          <button type="button"
+            onClick={() => onAction?.({ type: 'view_checklist' })}
+            className="mt-2 flex items-center gap-1.5 rounded-lg border border-kira-200 bg-white px-3 py-1.5 text-xs font-medium text-kira-700 shadow-sm hover:bg-kira-50 transition-all"
+          >
+            <ClipboardList size={14} />
+            제출 체크리스트
+          </button>
 
-      {/* Phase 2 문서 생성 버튼 */}
-      <div className="mt-2 flex flex-wrap gap-2">
-        <button type="button"
-          onClick={() => onAction?.({ type: 'generate_execution_plan' })}
-          className="flex items-center gap-1.5 rounded-lg border border-kira-200 bg-white px-3 py-1.5 text-xs font-medium text-kira-700 shadow-sm hover:bg-kira-50 transition-all"
-        >
-          <CalendarDays size={14} />
-          수행계획서/WBS
-        </button>
-        <button type="button"
-          onClick={() => onAction?.({ type: 'generate_presentation' })}
-          className="flex items-center gap-1.5 rounded-lg border border-kira-200 bg-white px-3 py-1.5 text-xs font-medium text-kira-700 shadow-sm hover:bg-kira-50 transition-all"
-        >
-          <Presentation size={14} />
-          PPT 발표자료
-        </button>
-        <button type="button"
-          onClick={() => onAction?.({ type: 'generate_track_record' })}
-          className="flex items-center gap-1.5 rounded-lg border border-kira-200 bg-white px-3 py-1.5 text-xs font-medium text-kira-700 shadow-sm hover:bg-kira-50 transition-all"
-        >
-          <FolderOpen size={14} />
-          실적/경력 기술서
-        </button>
-      </div>
+          {/* Legacy: Phase 2 문서 생성 버튼 */}
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button"
+              onClick={() => onAction?.({ type: 'generate_execution_plan' })}
+              className="flex items-center gap-1.5 rounded-lg border border-kira-200 bg-white px-3 py-1.5 text-xs font-medium text-kira-700 shadow-sm hover:bg-kira-50 transition-all"
+            >
+              <CalendarDays size={14} />
+              수행계획서/WBS
+            </button>
+            <button type="button"
+              onClick={() => onAction?.({ type: 'generate_presentation' })}
+              className="flex items-center gap-1.5 rounded-lg border border-kira-200 bg-white px-3 py-1.5 text-xs font-medium text-kira-700 shadow-sm hover:bg-kira-50 transition-all"
+            >
+              <Presentation size={14} />
+              PPT 발표자료
+            </button>
+            <button type="button"
+              onClick={() => onAction?.({ type: 'generate_track_record' })}
+              className="flex items-center gap-1.5 rounded-lg border border-kira-200 bg-white px-3 py-1.5 text-xs font-medium text-kira-700 shadow-sm hover:bg-kira-50 transition-all"
+            >
+              <FolderOpen size={14} />
+              실적/경력 기술서
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 };

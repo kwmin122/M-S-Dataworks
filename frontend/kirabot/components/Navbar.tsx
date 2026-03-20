@@ -3,6 +3,7 @@ import { Menu, X, LogOut } from 'lucide-react';
 import KiraBotLogo from './KiraBotLogo';
 import Button from './Button';
 import type { User } from '../types';
+import { isStudioVisible } from '../services/studioApi';
 
 interface NavbarProps {
   user: User | null;
@@ -33,9 +34,22 @@ const Navbar: React.FC<NavbarProps> = ({ user, onNavigate, onLoginClick, onLogou
 
         {/* Desktop nav */}
         <div className="hidden md:flex items-center gap-8">
-          <button onClick={() => scrollToSection('product')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">제품소개</button>
-          <button onClick={() => scrollToSection('solutions')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">활용사례</button>
-          <button onClick={() => scrollToSection('pricing')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">요금제</button>
+          {user ? (
+            <>
+              <button onClick={() => onNavigate('/chat')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">공고 탐색</button>
+              {isStudioVisible() && (
+                <button onClick={() => onNavigate('/studio')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">입찰 문서 AI 작성</button>
+              )}
+              <button onClick={() => onNavigate('/alerts')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">알림</button>
+              <button onClick={() => onNavigate('/forecast')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">예측</button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => scrollToSection('product')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">제품소개</button>
+              <button onClick={() => scrollToSection('solutions')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">활용사례</button>
+              <button onClick={() => scrollToSection('pricing')} className="text-sm font-medium text-slate-600 hover:text-primary-700 transition-colors">요금제</button>
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-3">
@@ -95,8 +109,13 @@ const Navbar: React.FC<NavbarProps> = ({ user, onNavigate, onLoginClick, onLogou
             {user ? (
               <>
                 <Button onClick={() => { setMobileOpen(false); onNavigate('/chat'); }} size="sm" className="w-full">
-                  대시보드
+                  공고 탐색
                 </Button>
+                {isStudioVisible() && (
+                  <Button onClick={() => { setMobileOpen(false); onNavigate('/studio'); }} size="sm" variant="secondary" className="w-full">
+                    입찰 문서 AI 작성
+                  </Button>
+                )}
                 <button
                   type="button"
                   onClick={() => { setMobileOpen(false); onLogoutClick(); }}

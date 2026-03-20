@@ -161,6 +161,8 @@ class DocumentParser:
             return self._parse_txt(path)
         if ext == ".hwp":
             return self._parse_hwp(path)
+        if ext == ".hwpx":
+            return self._parse_hwpx(path)
 
         raise ValueError(f"지원하지 않는 파일 형식입니다: {ext}")
 
@@ -240,6 +242,68 @@ class DocumentParser:
             text=normalized,
             pages=pages,
             metadata={"file_type": "hwp"},
+        )
+
+    def _parse_hwpx(self, path: Path) -> ParsedDocument:
+        """HWPX 파일 파싱 (OOXML 기반, zipfile + xml)."""
+        import zipfile
+        import io
+        from xml.etree import ElementTree as ET
+
+        if not zipfile.is_zipfile(str(path)):
+            raise ValueError("유효한 HWPX 파일이 아닙니다.")
+
+        KNOWN_HP_NS = [
+            "http://www.hancom.co.kr/hwpml/2011/paragraph",
+            "http://www.hancom.co.kr/hwpml/2016/paragraph",
+        ]
+
+        paragraphs: list[str] = []
+        with zipfile.ZipFile(str(path), "r") as zf:
+            section_files = sorted(
+                [n for n in zf.namelist() if n.startswith("Contents/section") and n.endswith(".xml")]
+            )
+            if not section_files:
+                section_files = sorted(
+                    [n for n in zf.namelist() if n.startswith("Contents/") and n.endswith(".xml")]
+                )
+
+            for section_file in section_files:
+                try:
+                    xml_data = zf.read(section_file)
+                    hp_namespaces: list[str] = []
+                    for _event, (prefix, uri) in ET.iterparse(io.BytesIO(xml_data), events=["start-ns"]):
+                        if uri in KNOWN_HP_NS:
+                            hp_namespaces.append(uri)
+                    if not hp_namespaces:
+                        hp_namespaces = KNOWN_HP_NS
+
+                    root = ET.fromstring(xml_data)
+                    for hp_ns in hp_namespaces:
+                        p_tag = "{%s}p" % hp_ns
+                        t_tag = "{%s}t" % hp_ns
+                        for p_elem in root.iter(p_tag):
+                            texts: list[str] = []
+                            for t_elem in p_elem.iter(t_tag):
+                                if t_elem.text:
+                                    texts.append(t_elem.text)
+                            line = "".join(texts).strip()
+                            if line:
+                                paragraphs.append(line)
+                except Exception:
+                    continue
+
+        if not paragraphs:
+            raise ValueError("HWPX 파일에서 텍스트를 추출할 수 없습니다.")
+
+        text = "\n".join(paragraphs)
+        normalized = self.chunker._normalize_text(text)
+        pages = [normalized] if normalized else []
+        return ParsedDocument(
+            filename=path.name,
+            text=normalized,
+            pages=pages,
+            metadata={"file_type": "hwpx"},
         )
 
     def _parse_txt(self, path: Path) -> ParsedDocument:

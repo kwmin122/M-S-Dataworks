@@ -10,6 +10,11 @@ from .base import Base, CuidPkMixin, TimestampMixin, CreatedAtMixin
 _BID_PROJECT_STATUSES = "status IN ('draft','collecting_inputs','analyzing','ready_for_generation','generating','in_review','changes_requested','approved','locked_for_submission','submitted','archived')"
 _RFP_SOURCE_TYPES = "rfp_source_type IN ('upload','nara_search','manual') OR rfp_source_type IS NULL"
 _GENERATION_MODES = "generation_mode IN ('strict_template','starter','upgrade') OR generation_mode IS NULL"
+_PROJECT_TYPES = "project_type IN ('chat','studio')"
+_STUDIO_STAGES = (
+    "studio_stage IN ('rfp','package','company','style','generate','review','relearn') "
+    "OR studio_stage IS NULL"
+)
 _ACCESS_LEVELS = "access_level IN ('owner','editor','reviewer','approver','viewer')"
 _DOC_KINDS = "document_kind IN ('rfp','company_profile','template','past_proposal','track_record','personnel','supporting_material','final_upload')"
 _PARSE_STATUSES = "parse_status IN ('pending','parsing','completed','failed')"
@@ -37,12 +42,23 @@ class BidProject(CuidPkMixin, TimestampMixin, Base):
     generation_mode: Mapped[str | None] = mapped_column(Text)
     settings_json: Mapped[dict | None] = mapped_column(JSONB)
 
+    # --- Studio-specific columns ---
+    project_type: Mapped[str] = mapped_column(Text, nullable=False, default="chat")
+    studio_stage: Mapped[str | None] = mapped_column(Text)
+    pinned_style_skill_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("project_style_skills.id", use_alter=True, deferrable=True, initially="DEFERRED"),
+    )
+
     __table_args__ = (
         CheckConstraint(_BID_PROJECT_STATUSES, name="ck_bid_projects_status"),
         CheckConstraint(_RFP_SOURCE_TYPES, name="ck_bid_projects_rfp_source_type"),
         CheckConstraint(_GENERATION_MODES, name="ck_bid_projects_generation_mode"),
+        CheckConstraint(_PROJECT_TYPES, name="ck_bid_projects_project_type"),
+        CheckConstraint(_STUDIO_STAGES, name="ck_bid_projects_studio_stage"),
         Index("idx_bid_projects_org_status", "org_id", "status"),
         Index("idx_bid_projects_org_created", "org_id", text("created_at DESC")),
+        Index("idx_bid_projects_org_type", "org_id", "project_type"),
     )
 
 

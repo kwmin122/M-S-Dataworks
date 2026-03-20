@@ -250,9 +250,11 @@ if _BID_DB_ENABLED:
     from services.web_app.api.projects import router as projects_router
     from services.web_app.api.assets import router as assets_router
     from services.web_app.api.generate import router as generate_router
+    from services.web_app.api.studio import router as studio_router
     app.include_router(projects_router)
     app.include_router(assets_router)
     app.include_router(generate_router)
+    app.include_router(studio_router)
 
 app.add_middleware(
     CORSMiddleware,
