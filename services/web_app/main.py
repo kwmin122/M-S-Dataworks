@@ -248,6 +248,10 @@ app = FastAPI(title="Kira Web Runtime", version="0.1.0", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# SlowAPIMiddleware enforces default_limits on ALL routes (including Studio)
+from slowapi.middleware import SlowAPIMiddleware
+app.add_middleware(SlowAPIMiddleware)
+
 # Bid Workspace routers (only when DB is configured)
 if _BID_DB_ENABLED:
     from services.web_app.api.projects import router as projects_router

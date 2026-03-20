@@ -2190,7 +2190,7 @@ async def download_evidence(
         raise HTTPException(404, "서버에서 파일을 찾을 수 없습니다")
 
     return FileResponse(
-        path=file_path,
+        path=resolved,
         filename=asset.original_filename or "download",
         media_type=asset.mime_type or "application/octet-stream",
     )
