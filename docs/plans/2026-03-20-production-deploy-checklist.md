@@ -37,7 +37,7 @@ psql "CONNECTION_STRING_FROM_RAILWAY"
   - 필요: `postgresql+asyncpg://user:pass@host:port/db`
   - `postgresql://` → `postgresql+asyncpg://` 로 변환 필요
 - `VITE_*` 변수는 빌드 타임에 주입되므로 설정 후 재배포 필요
-- `BID_DEV_BOOTSTRAP=1` 설정하면 첫 접속 시 자동 org 생성 (초기 설정용)
+- **`BID_DEV_BOOTSTRAP`는 production에서 설정 금지** — 설정 시 아무 사용자나 org 생성 가능. 초기 org 생성은 DB 직접 INSERT로 수행할 것.
 
 ### Step 4: 코드 머지
 ```bash
