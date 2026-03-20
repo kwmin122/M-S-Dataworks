@@ -79,13 +79,10 @@ async def resolve_org_membership(
     membership = memberships[0] if memberships else None
 
     if membership is None:
-        if not _DEV_BOOTSTRAP:
-            raise HTTPException(
-                status_code=403,
-                detail="소속된 조직이 없습니다. 관리자에게 초대를 요청하세요.",
-            )
-        # DEV ONLY: auto-provision org + owner membership
-        logger.warning("DEV_BOOTSTRAP: auto-creating org for user=%s", user.username)
+        # Auto-provision: first-time user gets their own org + owner membership.
+        # This runs exactly once per user (only when no active membership exists).
+        # Safe in production: membership uniqueness prevents duplicate orgs.
+        logger.info("Auto-provisioning org for new user=%s", user.username)
         from services.web_app.db.models.org import Organization
         org = Organization(name=f"{user.username}의 조직")
         db.add(org)
