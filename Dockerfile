@@ -1,6 +1,10 @@
 # ── Stage 1: Build frontend ──
 FROM node:20-slim AS frontend-build
 WORKDIR /app/frontend/kirabot
+ARG VITE_STUDIO_VISIBLE=true
+ARG VITE_CHAT_GENERATION_CUTOVER=false
+ARG VITE_API_BASE_URL
+ARG VITE_GOOGLE_LOGIN_URL
 COPY frontend/kirabot/package.json frontend/kirabot/package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY frontend/kirabot/ ./
