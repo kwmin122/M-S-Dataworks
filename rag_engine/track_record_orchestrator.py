@@ -157,6 +157,7 @@ def generate_track_record_doc(
             "project_name": rec.project_name,
             "description": rec.generated_text or rec.description,
             "relevance_score": rec.relevance_score,
+            "match_reason": rec.match_reason,
         }
         for rec in records
     ]
@@ -164,7 +165,8 @@ def generate_track_record_doc(
         {
             "name": person.name,
             "role": person.role,
-            "match_reason": person.generated_text or "",  # generated_text serves as match_reason
+            "relevance_score": person.relevance_score,
+            "match_reason": person.match_reason,
         }
         for person in personnel
     ]

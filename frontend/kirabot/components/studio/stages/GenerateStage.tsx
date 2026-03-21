@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   FileText, Play, Loader2, AlertCircle, CheckCircle2,
-  FileCheck, Eye, BookOpen, ChevronDown, ChevronUp,
+  FileCheck, Eye, BookOpen, ChevronDown, ChevronUp, RotateCcw, History,
 } from 'lucide-react';
 import type {
   GenerateResult, StudioProject, CurrentRevisionData, RevisionSection, GenerateDocType,
@@ -48,7 +48,7 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
     setPhase('assembling_contract');
     setError('');
     setResult(null);
-    setRevision(null);
+    // Keep previous revision — allows "이전 버전 보기" fallback on failure
 
     try {
       // Phase 1: contract assembly (immediate)
@@ -112,9 +112,30 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
       </div>
 
       {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 mb-4 flex items-center gap-2">
-          <AlertCircle size={16} />
-          {error}
+        <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-700 mb-4">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertCircle size={16} className="shrink-0" />
+            <span>{error}</span>
+          </div>
+          <div className="flex items-center gap-2 ml-6">
+            <button
+              onClick={handleGenerate}
+              disabled={generating || !hasSnapshot}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-50 transition-colors"
+            >
+              <RotateCcw size={12} />
+              다시 시도
+            </button>
+            {revision && (
+              <button
+                onClick={() => { setShowPreview(true); setError(''); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 border border-red-300 rounded-md hover:bg-red-100 transition-colors"
+              >
+                <History size={12} />
+                이전 버전 보기
+              </button>
+            )}
+          </div>
         </div>
       )}
 

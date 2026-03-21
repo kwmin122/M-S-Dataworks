@@ -12,13 +12,15 @@ interface AppShellProps {
 const AppShell: React.FC<AppShellProps> = ({ user, onLogout }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  // /settings/* routes hide sidebar EXCEPT /settings/alerts (stays in sidebar nav)
+  // Hide sidebar for /settings/* and /studio/* routes
   const isFullScreenSettings = location.pathname.startsWith('/settings')
     && !location.pathname.startsWith('/settings/alerts');
+  const isStudio = location.pathname.startsWith('/studio');
+  const hideSidebar = isFullScreenSettings || isStudio;
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
-      {!isFullScreenSettings && (
+      {!hideSidebar && (
         <Sidebar user={user} onLogout={onLogout} onHome={() => navigate('/')} />
       )}
       <div className="flex flex-1 min-w-0 h-full overflow-hidden">

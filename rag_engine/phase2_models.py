@@ -140,6 +140,7 @@ class TrackRecordEntry:
     description: str = ""
     technologies: list[str] = field(default_factory=list)
     relevance_score: float = 0.0   # RFP 유사도 (0~1)
+    match_reason: str = ""         # 선정 사유 (왜 이 실적이 관련 있는지)
     generated_text: str = ""       # LLM 생성 서술형
 
 
@@ -152,6 +153,8 @@ class PersonnelEntry:
     experience_years: int = 0
     certifications: list[str] = field(default_factory=list)
     key_projects: list[str] = field(default_factory=list)
+    relevance_score: float = 0.0   # RFP 유사도 (0~1)
+    match_reason: str = ""         # 선정 사유
     generated_text: str = ""     # LLM 생성 경력 서술
 
 

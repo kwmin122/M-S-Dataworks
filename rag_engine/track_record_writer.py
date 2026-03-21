@@ -1,6 +1,10 @@
 """Track Record Writer — 유사수행실적/투입인력 선정 및 서술 생성.
 
-RFP 과업 vs 실적 유사도 매칭, LLM 서술형 텍스트 생성.
+RFP 과업 vs 실적 다중 신호 매칭, LLM 서술형 텍스트 생성.
+
+Selection uses multi-signal relevance scoring:
+  Track Records: semantic similarity + domain overlap + scale match + tech overlap + recency
+  Personnel: semantic similarity + role match + domain overlap + certification match + experience
 """
 from __future__ import annotations
 
@@ -10,8 +14,25 @@ from typing import Any, Optional
 
 from llm_utils import call_with_retry, LLM_DEFAULT_TIMEOUT
 from phase2_models import TrackRecordEntry, PersonnelEntry
+from relevance_scorer import (
+    extract_rfp_signals,
+    score_track_record_relevance,
+    score_personnel_relevance,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _build_rfp_query(rfx_result: dict[str, Any]) -> str:
+    """Build a search query string from RFP analysis result."""
+    title = rfx_result.get("title", "")
+    requirements = rfx_result.get("requirements", [])
+    query_parts = [title]
+    for req in requirements:
+        desc = req.get("description", "") if isinstance(req, dict) else str(req)
+        if desc:
+            query_parts.append(desc)
+    return " ".join(query_parts)[:2000]
 
 
 def select_track_records(
@@ -19,31 +40,58 @@ def select_track_records(
     company_db: Any,
     max_records: int = 10,
 ) -> list[TrackRecordEntry]:
-    """RFP 과업 vs 실적 유사도 매칭, 관련도 순 정렬."""
-    title = rfx_result.get("title", "")
-    requirements = rfx_result.get("requirements", [])
-    query_parts = [title]
-    for req in requirements:
-        desc = req.get("description", "") if isinstance(req, dict) else str(req)
-        if desc:
-            query_parts.append(desc)
-    query = " ".join(query_parts)[:2000]
+    """RFP 과업 vs 실적 다중 신호 매칭, 관련도 순 정렬.
 
-    results = company_db.search_similar_projects(query, top_k=max_records)
+    Uses 5-signal relevance scoring:
+      1. Semantic similarity (ChromaDB cosine distance)
+      2. Domain/keyword overlap with RFP
+      3. Scale match (budget similarity)
+      4. Technology overlap
+      5. Recency bonus
+    """
+    query = _build_rfp_query(rfx_result)
+
+    # Fetch more candidates than needed so scoring can re-rank
+    fetch_k = min(max_records * 3, max(max_records, 20))
+    results = company_db.search_similar_projects(query, top_k=fetch_k)
+
+    # Pre-compute RFP signals once for batch efficiency
+    rfp_signals = extract_rfp_signals(rfx_result)
+
     entries: list[TrackRecordEntry] = []
     for item in results:
         meta = item.get("metadata", {})
         distance = item.get("distance", 1.0)
-        relevance = max(0.0, 1.0 - distance)  # cosine distance → similarity
+        record_text = item.get("text", "")
+
+        # Multi-signal scoring
+        result = score_track_record_relevance(
+            rfx_result=rfx_result,
+            record_text=record_text,
+            record_metadata=meta,
+            embedding_distance=distance,
+            rfp_signals=rfp_signals,
+        )
+
         entries.append(TrackRecordEntry(
             project_name=meta.get("project_name", ""),
             client=meta.get("client", ""),
             amount=meta.get("amount", 0.0),
-            description=item.get("text", ""),
-            relevance_score=round(relevance, 3),
+            description=record_text,
+            relevance_score=result.score,
+            match_reason=result.match_reason,
         ))
+
     entries.sort(key=lambda e: e.relevance_score, reverse=True)
-    return entries[:max_records]
+    selected = entries[:max_records]
+
+    if selected:
+        logger.info(
+            "Selected %d/%d track records (top score=%.3f, bottom=%.3f)",
+            len(selected), len(entries),
+            selected[0].relevance_score, selected[-1].relevance_score,
+        )
+    return selected
 
 
 def select_personnel(
@@ -51,26 +99,57 @@ def select_personnel(
     company_db: Any,
     max_personnel: int = 10,
 ) -> list[PersonnelEntry]:
-    """요구인력 기반 최적 매칭."""
-    title = rfx_result.get("title", "")
-    requirements = rfx_result.get("requirements", [])
-    query_parts = [title]
-    for req in requirements:
-        desc = req.get("description", "") if isinstance(req, dict) else str(req)
-        if desc:
-            query_parts.append(desc)
-    query = " ".join(query_parts)[:2000]
+    """요구인력 기반 다중 신호 매칭, 관련도 순 정렬.
 
-    results = company_db.find_matching_personnel(query, top_k=max_personnel)
+    Uses 5-signal relevance scoring:
+      1. Semantic similarity (ChromaDB cosine distance)
+      2. Role match against RFP requirements
+      3. Domain keyword overlap
+      4. Certification match
+      5. Experience level bonus
+    """
+    query = _build_rfp_query(rfx_result)
+
+    # Fetch more candidates than needed
+    fetch_k = min(max_personnel * 3, max(max_personnel, 20))
+    results = company_db.find_matching_personnel(query, top_k=fetch_k)
+
+    # Pre-compute RFP signals once
+    rfp_signals = extract_rfp_signals(rfx_result)
+
     entries: list[PersonnelEntry] = []
     for item in results:
         meta = item.get("metadata", {})
+        distance = item.get("distance", 1.0)
+        person_text = item.get("text", "")
+
+        # Multi-signal scoring
+        result = score_personnel_relevance(
+            rfx_result=rfx_result,
+            person_text=person_text,
+            person_metadata=meta,
+            embedding_distance=distance,
+            rfp_signals=rfp_signals,
+        )
+
         entries.append(PersonnelEntry(
             name=meta.get("name", ""),
             role=meta.get("role", ""),
             experience_years=int(meta.get("experience_years", 0)),
+            relevance_score=result.score,
+            match_reason=result.match_reason,
         ))
-    return entries[:max_personnel]
+
+    entries.sort(key=lambda e: e.relevance_score, reverse=True)
+    selected = entries[:max_personnel]
+
+    if selected:
+        logger.info(
+            "Selected %d/%d personnel (top score=%.3f, bottom=%.3f)",
+            len(selected), len(entries),
+            selected[0].relevance_score, selected[-1].relevance_score,
+        )
+    return selected
 
 
 def generate_track_record_text(

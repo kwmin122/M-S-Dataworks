@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { PenTool, Plus, Loader2, FolderOpen } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { PenTool, Plus, Loader2, FolderOpen, Home, MessageSquare } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
 import Button from '../components/Button';
 import {
   listStudioProjects,
@@ -44,7 +44,26 @@ export default function StudioHome() {
   }, [navigate]);
 
   return (
-    <div className="flex-1 overflow-y-auto p-8">
+    <div className="flex flex-col flex-1 h-full overflow-hidden">
+      {/* Top navigation bar */}
+      <header className="flex items-center justify-between h-12 shrink-0 border-b border-slate-200 bg-white px-4">
+        <Link
+          to="/"
+          className="flex items-center gap-1.5 text-sm font-bold text-slate-800 hover:text-kira-600 transition-colors"
+        >
+          <Home size={16} />
+          <span>Kira Bot</span>
+        </Link>
+        <Link
+          to="/chat"
+          className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-kira-600 transition-colors"
+        >
+          <MessageSquare size={15} />
+          <span>채팅</span>
+        </Link>
+      </header>
+
+      <div className="flex-1 overflow-y-auto p-8">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
@@ -92,6 +111,7 @@ export default function StudioHome() {
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 }

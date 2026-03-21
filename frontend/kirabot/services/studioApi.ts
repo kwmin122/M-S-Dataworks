@@ -138,6 +138,72 @@ export async function analyzeRfpText(
   });
 }
 
+export async function uploadAndAnalyzeRfp(
+  projectId: string,
+  file: File,
+): Promise<AnalyzeResult & { filename: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch(
+    `${API_BASE}/api/studio/projects/${projectId}/upload-rfp`,
+    {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+      // No Content-Type header — browser sets multipart boundary
+    },
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    let msg = `오류 ${res.status}`;
+    try { const j = JSON.parse(body); if (j.detail) msg = j.detail; } catch { /* */ }
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+// --- Nara Search ---
+
+export interface NaraBidNotice {
+  id: string;
+  title: string;
+  issuingOrg: string;
+  region: string | null;
+  deadlineAt: string | null;
+  estimatedPrice: string | null;
+  category: string;
+  awardMethod: string | null;
+  url: string | null;
+}
+
+export interface NaraSearchResult {
+  notices: NaraBidNotice[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export async function searchNaraBids(params: {
+  keywords: string;
+  category?: string;
+  region?: string;
+  period?: string;
+  page?: number;
+}): Promise<NaraSearchResult> {
+  return studioFetch('/api/studio/search-bids', {
+    method: 'POST',
+    body: JSON.stringify({
+      keywords: params.keywords,
+      category: params.category || 'all',
+      region: params.region || '',
+      period: params.period || '1m',
+      page: params.page || 1,
+      page_size: 10,
+    }),
+  });
+}
+
 // --- Package classification ---
 
 export interface PackageItem {
@@ -170,6 +236,22 @@ export async function classifyPackage(projectId: string): Promise<ClassifyResult
 
 export async function listPackageItems(projectId: string): Promise<PackageItem[]> {
   return studioFetch(`/api/studio/projects/${projectId}/package-items`);
+}
+
+export async function overridePackageClassification(
+  projectId: string,
+  params: {
+    procurement_domain?: string;
+    contract_method?: string;
+    include_presentation?: boolean;
+    add_items?: Array<{ document_label: string; package_category?: string; required?: boolean }>;
+    remove_item_ids?: string[];
+  },
+): Promise<{ changes: Record<string, unknown>; package_items: PackageItem[] }> {
+  return studioFetch(`/api/studio/projects/${projectId}/package-override`, {
+    method: 'PATCH',
+    body: JSON.stringify(params),
+  });
 }
 
 // --- Company Assets ---
@@ -426,14 +508,8 @@ export async function attachEvidenceFile(
   const formData = new FormData();
   formData.append('file', file);
 
-  const API_BASE_URL =
-    import.meta.env.VITE_API_BASE_URL ||
-    (typeof window !== 'undefined' && window.location.port === '5173'
-      ? 'http://localhost:8000'
-      : '');
-
   const res = await fetch(
-    `${API_BASE_URL}/api/studio/projects/${projectId}/package-items/${itemId}/evidence`,
+    `${API_BASE}/api/studio/projects/${projectId}/package-items/${itemId}/evidence`,
     {
       method: 'POST',
       credentials: 'include',

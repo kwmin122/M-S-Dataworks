@@ -39,8 +39,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 
@@ -238,11 +237,8 @@ async def lifespan(app: FastAPI):
         logger.info("Bid Workspace DB closed")
 
 
-# Rate limiting — global default + Studio-specific
-limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=["60/minute"],  # Global default: 60 req/min per IP
-)
+# Rate limiting — shared instance (importable by sub-routers)
+from services.web_app.rate_limit import limiter
 
 app = FastAPI(title="Kira Web Runtime", version="0.1.0", lifespan=lifespan)
 app.state.limiter = limiter

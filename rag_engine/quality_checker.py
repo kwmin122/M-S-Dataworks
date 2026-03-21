@@ -22,16 +22,17 @@ class QualityIssue:
     suggestion: str = ""
 
 
-# Vague claim patterns — phrases that lack evidence
-VAGUE_PATTERNS = [
-    r"최고\s*수준",
-    r"최적화된",
-    r"혁신적인",
-    r"차별화된\s*기술력",
-    r"탁월한\s*역량",
-    r"풍부한\s*경험",
-    r"우수한\s*인력",
-]
+# Vague claim patterns — loaded from domain-aware prompt module
+try:
+    from prompts.proposal_system_v2 import get_vague_patterns, UNIVERSAL_VAGUE_PATTERNS
+    VAGUE_PATTERNS = UNIVERSAL_VAGUE_PATTERNS
+except ImportError:
+    VAGUE_PATTERNS = [
+        r"최고\s*수준", r"최적화된", r"혁신적인",
+        r"차별화된\s*기술력", r"탁월한\s*역량", r"풍부한\s*경험", r"우수한\s*인력",
+    ]
+    def get_vague_patterns(domain: str = "") -> list[str]:
+        return VAGUE_PATTERNS
 
 VAGUE_RE = re.compile("|".join(VAGUE_PATTERNS), re.IGNORECASE)
 

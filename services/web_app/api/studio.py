@@ -7,7 +7,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +20,7 @@ from services.web_app.db.models.company import CompanyProfile, CompanyTrackRecor
 from services.web_app.db.models.document import DocumentRun, DocumentRevision, DocumentAsset
 from services.web_app.db.models.audit import AuditLog
 from services.web_app.api.deps import CurrentUser, resolve_org_membership, require_project_access
+from services.web_app.rate_limit import limiter
 from services.web_app.services.package_classifier import classify_and_build
 
 logger = logging.getLogger(__name__)
@@ -301,6 +302,41 @@ async def update_studio_stage(
     return _project_to_response(project)
 
 
+# --- Nara Search (proxy for Studio) ---
+
+class NaraSearchRequest(BaseModel):
+    keywords: str = Field(min_length=1, max_length=200)
+    category: Literal['all', 'service', 'goods', 'construction', 'foreign', 'etc'] = "all"
+    region: str = Field(default="", max_length=100)
+    min_amt: float | None = Field(default=None, ge=0)
+    max_amt: float | None = Field(default=None, ge=0)
+    period: Literal['1w', '1m', '3m', '6m', '12m'] = "1m"
+    page: int = Field(default=1, ge=1, le=100)
+    page_size: int = Field(default=10, ge=1, le=50)
+
+
+@router.post("/search-bids")
+@limiter.limit("10/minute")
+async def studio_search_bids(
+    request: Request,
+    req: NaraSearchRequest,
+    user: CurrentUser = Depends(resolve_org_membership),
+):
+    """Search 나라장터 bids from Studio context."""
+    from services.web_app.nara_api import search_bids
+    result = await search_bids(
+        keywords=req.keywords,
+        category=req.category,
+        region=req.region,
+        min_amt=req.min_amt,
+        max_amt=req.max_amt,
+        period=req.period,
+        page=req.page,
+        page_size=req.page_size,
+    )
+    return result
+
+
 @router.post("/projects/{project_id}/analyze")
 async def analyze_rfp_text(
     project_id: str,
@@ -412,6 +448,175 @@ async def analyze_rfp_text(
         "summary_md": summary_md,
         "project": _project_to_response(project),
     }
+
+
+@router.post("/projects/{project_id}/upload-rfp")
+async def upload_and_analyze_rfp(
+    project_id: str,
+    file: UploadFile = File(...),
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Upload an RFP file (PDF/DOCX/HWP/HWPX/TXT), parse it, and analyze."""
+    await require_project_access(project_id, "editor", user, db)
+
+    result = await db.execute(
+        select(BidProject).where(
+            BidProject.id == project_id,
+            BidProject.project_type == "studio",
+        )
+    )
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(404, "Studio 프로젝트를 찾을 수 없습니다")
+
+    # Validate file extension
+    ALLOWED_EXTENSIONS = {'.pdf', '.docx', '.hwp', '.hwpx', '.txt', '.xlsx', '.pptx'}
+    import pathlib
+    ext = pathlib.Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(400, f"지원하지 않는 파일 형식입니다: {ext}. 지원: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
+
+    # Save to temp file
+    import re
+    safe_name = re.sub(r'[^a-zA-Z0-9가-힣._-]', '_', file.filename or 'upload')[:100]
+    tmp_dir = os.path.join("data", "studio_uploads", project_id)
+    os.makedirs(tmp_dir, exist_ok=True)
+    tmp_path = os.path.join(tmp_dir, safe_name)
+
+    # Path traversal guard
+    resolved = os.path.realpath(tmp_path)
+    if not resolved.startswith(os.path.realpath(tmp_dir)):
+        raise HTTPException(400, "잘못된 파일명입니다")
+
+    MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB
+    size = 0
+    with open(tmp_path, "wb") as f:
+        while chunk := await file.read(8192):
+            size += len(chunk)
+            if size > MAX_UPLOAD_SIZE:
+                f.close()
+                os.unlink(tmp_path)
+                raise HTTPException(400, "파일 크기가 50MB를 초과합니다")
+            f.write(chunk)
+    # Validate file magic bytes
+    MAGIC_BYTES = {
+        '.pdf': [b'%PDF'],
+        '.docx': [b'PK\x03\x04'],
+        '.xlsx': [b'PK\x03\x04'],
+        '.pptx': [b'PK\x03\x04'],
+    }
+    with open(tmp_path, "rb") as check_f:
+        header = check_f.read(8)
+    expected_magic = MAGIC_BYTES.get(ext, [])
+    if expected_magic and not any(header.startswith(m) for m in expected_magic):
+        os.unlink(tmp_path)
+        raise HTTPException(400, "파일 내용이 확장자와 일치하지 않습니다")
+
+    try:
+        # Parse document to extract text
+        try:
+            from document_parser import DocumentParser
+            parser = DocumentParser()
+            parsed = await asyncio.to_thread(parser.parse, tmp_path)
+            document_text = parsed.text
+        except Exception as exc:
+            logger.error("File parsing failed for %s: %s", safe_name, exc)
+            raise HTTPException(400, f"파일 파싱 실패: {str(exc)}")
+
+        if len(document_text.strip()) < 50:
+            raise HTTPException(400, "파일에서 추출된 텍스트가 너무 짧습니다 (50자 미만)")
+
+        # Run same analysis pipeline as text-based analyze
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        if not api_key:
+            raise HTTPException(500, "OPENAI_API_KEY가 설정되지 않았습니다")
+
+        from rfx_analyzer import RFxAnalyzer
+        from services.web_app.api.analysis_serializer import serialize_analysis_for_db
+
+        analyzer = RFxAnalyzer(
+            api_key=api_key,
+            model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+        )
+
+        analysis = await asyncio.to_thread(analyzer.analyze_text, document_text)
+
+        # Generate summary
+        summary_md = ""
+        try:
+            from rfx_analyzer import generate_rfp_summary
+            summary_md = await asyncio.to_thread(generate_rfp_summary, analysis, api_key)
+        except Exception as exc:
+            logger.warning("RFP summary generation failed (non-fatal): %s", exc)
+
+        # Serialize and store snapshot
+        analysis_json = serialize_analysis_for_db(analysis)
+
+        # Deactivate existing active snapshots
+        existing = await db.execute(
+            select(AnalysisSnapshot).where(
+                AnalysisSnapshot.project_id == project_id,
+                AnalysisSnapshot.is_active == True,
+            )
+        )
+        for old_snap in existing.scalars().all():
+            old_snap.is_active = False
+
+        # Compute next version
+        ver_result = await db.execute(
+            select(AnalysisSnapshot.version)
+            .where(AnalysisSnapshot.project_id == project_id)
+            .order_by(AnalysisSnapshot.version.desc())
+            .limit(1)
+        )
+        prev_version = ver_result.scalar_one_or_none() or 0
+
+        snapshot = AnalysisSnapshot(
+            id=new_cuid(),
+            org_id=user.org_id,
+            project_id=project_id,
+            version=prev_version + 1,
+            analysis_json=analysis_json,
+            analysis_schema="rfx_analysis_v1",
+            summary_md=summary_md,
+            is_active=True,
+            created_by=user.username,
+        )
+        db.add(snapshot)
+        await db.flush()
+
+        project.active_analysis_snapshot_id = snapshot.id
+        project.status = "ready_for_generation"
+        project.rfp_source_type = "upload"
+
+        if analysis.title and project.title.startswith("새 입찰 프로젝트"):
+            project.title = analysis.title
+
+        db.add(AuditLog(
+            org_id=user.org_id,
+            user_id=user.username,
+            project_id=project_id,
+            action="studio_rfp_file_uploaded",
+            target_type="analysis_snapshot",
+            target_id=snapshot.id,
+        ))
+
+        await db.commit()
+        await db.refresh(project)
+
+        return {
+            "snapshot_id": snapshot.id,
+            "version": snapshot.version,
+            "title": analysis.title,
+            "summary_md": summary_md,
+            "filename": safe_name,
+            "project": _project_to_response(project),
+        }
+    finally:
+        # Clean up uploaded file
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 @router.post("/projects/{project_id}/classify", response_model=ClassifyResponse)
@@ -536,6 +741,154 @@ async def classify_project_package(
             for i in db_items
         ],
     )
+
+
+# --- Package manual override ---
+
+class OverrideClassificationRequest(BaseModel):
+    procurement_domain: str | None = None  # override domain
+    contract_method: str | None = None     # override method
+    include_presentation: bool | None = None  # force include/exclude PPT
+    add_items: list[dict[str, Any]] | None = None  # [{document_label, package_category?, required?}]
+    remove_item_ids: list[str] | None = None  # item IDs to remove
+
+
+@router.patch("/projects/{project_id}/package-override")
+async def override_package_classification(
+    project_id: str,
+    req: OverrideClassificationRequest,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Manual override of classifier results. Logs to AuditLog for corpus improvement."""
+    await require_project_access(project_id, "editor", user, db)
+
+    result = await db.execute(
+        select(BidProject).where(BidProject.id == project_id, BidProject.project_type == "studio")
+    )
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(404, "프로젝트를 찾을 수 없습니다")
+
+    changes: dict[str, Any] = {}
+
+    # Remove items
+    if req.remove_item_ids:
+        for item_id in req.remove_item_ids:
+            item_result = await db.execute(
+                select(ProjectPackageItem).where(
+                    ProjectPackageItem.id == item_id,
+                    ProjectPackageItem.project_id == project_id,
+                )
+            )
+            item = item_result.scalar_one_or_none()
+            if item:
+                await db.delete(item)
+                changes[f"removed_{item_id}"] = item.document_label
+
+    # Add items
+    if req.add_items:
+        for spec in req.add_items:
+            label = spec.get("document_label")
+            if not label or not isinstance(label, str) or len(label.strip()) == 0:
+                raise HTTPException(400, "document_label은 필수입니다")
+            category = spec.get("package_category", "evidence")
+            if category not in ("generated_document", "evidence", "administrative", "price"):
+                raise HTTPException(400, f"유효하지 않은 패키지 카테고리: {category}")
+            new_item = ProjectPackageItem(
+                project_id=project_id,
+                org_id=user.org_id,
+                package_category=category,
+                document_code=spec.get("document_code", f"manual_{new_cuid()[:8]}"),
+                document_label=label.strip(),
+                required=bool(spec.get("required", True)),
+                status="missing",
+                sort_order=99,
+            )
+            db.add(new_item)
+            changes[f"added_{new_item.document_code}"] = label.strip()
+
+    # Override domain/method — stored in audit for corpus improvement
+    if req.procurement_domain:
+        changes["domain_override"] = {"from": "auto", "to": req.procurement_domain}
+    if req.contract_method:
+        changes["method_override"] = {"from": "auto", "to": req.contract_method}
+
+    # Include/exclude presentation
+    if req.include_presentation is not None:
+        if req.include_presentation:
+            existing_ppt = await db.execute(
+                select(ProjectPackageItem).where(
+                    ProjectPackageItem.project_id == project_id,
+                    ProjectPackageItem.generation_target == "presentation",
+                )
+            )
+            if not existing_ppt.scalar_one_or_none():
+                ppt_item = ProjectPackageItem(
+                    project_id=project_id,
+                    org_id=user.org_id,
+                    package_category="generated_document",
+                    document_code="ppt_presentation",
+                    document_label="발표자료 (PPT)",
+                    required=True,
+                    status="ready_to_generate",
+                    generation_target="presentation",
+                    sort_order=4,
+                )
+                db.add(ppt_item)
+                changes["presentation_added"] = True
+        else:
+            ppt_result = await db.execute(
+                select(ProjectPackageItem).where(
+                    ProjectPackageItem.project_id == project_id,
+                    ProjectPackageItem.generation_target == "presentation",
+                )
+            )
+            ppt_item = ppt_result.scalar_one_or_none()
+            if ppt_item:
+                await db.delete(ppt_item)
+                changes["presentation_removed"] = True
+
+    if not changes:
+        raise HTTPException(400, "변경사항이 없습니다")
+
+    # Audit log
+    db.add(AuditLog(
+        org_id=user.org_id,
+        user_id=user.username,
+        project_id=project_id,
+        action="package_manual_override",
+        target_type="bid_project",
+        target_id=project_id,
+        detail_json=changes,
+    ))
+
+    await db.commit()
+
+    # Return updated items
+    items_result = await db.execute(
+        select(ProjectPackageItem).where(
+            ProjectPackageItem.project_id == project_id,
+        ).order_by(ProjectPackageItem.sort_order)
+    )
+    updated_items = items_result.scalars().all()
+
+    return {
+        "changes": changes,
+        "package_items": [
+            PackageItemResponse(
+                id=i.id,
+                package_category=i.package_category,
+                document_code=i.document_code,
+                document_label=i.document_label,
+                required=i.required,
+                status=i.status,
+                generation_target=i.generation_target,
+                sort_order=i.sort_order,
+            ).model_dump()
+            for i in updated_items
+        ],
+    }
 
 
 @router.get("/projects/{project_id}/package-items", response_model=list[PackageItemResponse])
@@ -1473,6 +1826,9 @@ async def generate_proposal(
             quality_issues = [str(i) for i in (gen_result.quality_issues or [])]
             generation_time_sec = getattr(gen_result, 'generation_time_sec', None)
 
+        # Extract quality gate report if available (proposal orchestrator provides it)
+        quality_gate_report = getattr(gen_result, 'quality_report', None) or {}
+
         # --- Create DocumentRevision ---
         # Compute revision number
         rev_count_result = await db.execute(
@@ -1513,6 +1869,7 @@ async def generate_proposal(
             }.get(req.doc_type, "unknown_v1"),
             quality_report_json={
                 "issues": quality_issues,
+                **quality_gate_report,
             },
             created_by=user.username,
         )
@@ -2450,3 +2807,33 @@ def _project_to_response(project: BidProject) -> StudioProjectResponse:
         created_at=project.created_at.isoformat(),
         updated_at=project.updated_at.isoformat(),
     )
+
+
+# --- Account deletion ---
+
+@router.delete("/account")
+async def request_account_deletion(
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Request account deletion. Deactivates membership and logs the request."""
+    from services.web_app.db.models.org import Membership
+
+    result = await db.execute(
+        select(Membership).where(
+            Membership.user_id == user.username,
+            Membership.is_active == True,  # noqa: E712
+        )
+    )
+    for m in result.scalars().all():
+        m.is_active = False
+
+    db.add(AuditLog(
+        org_id=user.org_id,
+        user_id=user.username,
+        action="account_deletion_requested",
+        target_type="user",
+        target_id=user.username,
+    ))
+    await db.commit()
+    return {"status": "deleted", "message": "계정이 비활성화되었습니다"}

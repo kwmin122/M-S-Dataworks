@@ -14,10 +14,21 @@ from knowledge_models import KnowledgeUnit, ProposalSection, StrategyMemo
 from llm_utils import call_with_retry, LLM_DEFAULT_TIMEOUT
 from pack_models import PackSection as PackSectionModel, BoilerplateEntry
 
-SYSTEM_PROMPT = """당신은 대한민국 공공조달 기술제안서 작성 전문가입니다.
+_SYSTEM_PROMPT_V1 = """당신은 대한민국 공공조달 기술제안서 작성 전문가입니다.
 평가위원이 높은 점수를 줄 수 있도록, 구체적이고 전문적인 제안서 섹션을 작성합니다.
 모든 주장에는 근거를 제시하고, 추상적 표현을 피합니다.
 마크다운 형식으로 작성하되, 제안서 특성에 맞게 표, 목록, 강조를 활용합니다."""
+
+# V2: 구조화된 전문 지식 임베드 프롬프트
+try:
+    from prompts.proposal_system_v2 import SYSTEM_PROMPT_V2
+    SYSTEM_PROMPT = SYSTEM_PROMPT_V2
+except ImportError:
+    SYSTEM_PROMPT = _SYSTEM_PROMPT_V1
+
+# 생성 모델 설정 — 환경변수로 오버라이드 가능
+_SECTION_MODEL = os.environ.get("PROPOSAL_LLM_MODEL", "gpt-4o-mini")
+_SECTION_MAX_TOKENS = int(os.environ.get("PROPOSAL_MAX_TOKENS", "8000"))
 
 
 def _build_customization_checklist(section: ProposalSection, knowledge: list[KnowledgeUnit]) -> str:
@@ -120,13 +131,13 @@ def _call_llm_for_section(prompt: str, api_key: Optional[str] = None, middleware
 
     def _do_call():
         return client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=_SECTION_MODEL,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.4,
-            max_tokens=4000,
+            temperature=0.35,
+            max_tokens=_SECTION_MAX_TOKENS,
         )
 
     # call_with_retry INSIDE middleware — retry must see raw OpenAI errors,
@@ -300,13 +311,13 @@ def call_llm_for_pack_section(
 
     def _do_call():
         return client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=_SECTION_MODEL,
             messages=[
                 {"role": "system", "content": sys_prompt},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.4,
-            max_tokens=4000,
+            temperature=0.35,
+            max_tokens=_SECTION_MAX_TOKENS,
         )
 
     retried = lambda: call_with_retry(_do_call)

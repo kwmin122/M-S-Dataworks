@@ -18,6 +18,7 @@ from phase2_models import build_rfp_context
 from proposal_planner import build_proposal_outline
 from section_writer import write_section, rewrite_section
 from quality_checker import check_quality, QualityIssue
+from quality_gate import run_quality_gate, quality_report_to_dict
 from document_assembler import assemble_docx
 
 
@@ -30,6 +31,7 @@ class ProposalResult:
     quality_issues: list[QualityIssue] = field(default_factory=list)
     residual_issues: list[QualityIssue] = field(default_factory=list)
     generation_time_sec: float = 0.0
+    quality_report: dict = field(default_factory=dict)
 
 
 def _find_hwpx_template(company_skills_dir: str) -> str:
@@ -173,6 +175,23 @@ def _write_and_check_section(
     return section.name, text, residuals
 
 
+def _extract_eval_keywords(rfx_result: dict[str, Any]) -> list[str]:
+    """Extract evaluation item keywords from RFP analysis for quality gate."""
+    keywords: list[str] = []
+    for item in rfx_result.get("evaluation_criteria", []) or []:
+        if isinstance(item, dict):
+            name = item.get("category") or item.get("name", "")
+        elif hasattr(item, "name"):
+            name = item.name
+        elif hasattr(item, "category"):
+            name = item.category
+        else:
+            name = ""
+        if name:
+            keywords.append(name)
+    return keywords
+
+
 def generate_proposal(
     rfx_result: dict[str, Any],
     output_dir: str = "./data/proposals",
@@ -292,9 +311,19 @@ def generate_proposal(
     for s in outline.sections:
         sections.append((s.name, results_map.get(s.name, "")))
 
-    # 5. Quality check
+    # 5. Quality check (legacy anti-pattern gate)
     all_text = "\n\n".join(text for _, text in sections)
     quality_issues = check_quality(all_text, company_name=company_name)
+
+    # 5b. Quality Gate — multi-dimensional scoring
+    qg_report = run_quality_gate(
+        all_text,
+        doc_type="proposal",
+        rfp_keywords=_extract_eval_keywords(rfx_result),
+        target_chars=total_pages * 500,
+        company_name=company_name,
+    )
+    qg_report_dict = quality_report_to_dict(qg_report)
 
     # 6. Assemble output
     ts = int(time.time())
@@ -346,4 +375,5 @@ def generate_proposal(
         quality_issues=quality_issues,
         residual_issues=all_residuals,
         generation_time_sec=elapsed,
+        quality_report=qg_report_dict,
     )

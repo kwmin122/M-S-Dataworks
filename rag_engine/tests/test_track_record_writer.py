@@ -62,7 +62,14 @@ def test_select_track_records_returns_sorted_by_relevance():
     result = select_track_records(_rfx_result(), db, max_records=5)
     assert len(result) == 2
     assert result[0].relevance_score >= result[1].relevance_score
-    assert result[0].project_name == "관제시스템"
+    # Both records should have multi-signal relevance scores > 0
+    assert all(r.relevance_score > 0 for r in result)
+    # Both records should have match_reason explaining selection
+    assert all(r.match_reason for r in result)
+    # Project names should be present
+    names = {r.project_name for r in result}
+    assert "관제시스템" in names
+    assert "IoT플랫폼" in names
 
 
 def test_select_track_records_respects_max():
@@ -77,6 +84,9 @@ def test_select_personnel_returns_entries():
     assert len(result) == 1
     assert result[0].name == "홍길동"
     assert result[0].role == "PM"
+    # Multi-signal scoring should populate relevance_score and match_reason
+    assert result[0].relevance_score > 0
+    assert result[0].match_reason  # non-empty explanation
 
 
 def _mock_llm_resp(content: str) -> MagicMock:

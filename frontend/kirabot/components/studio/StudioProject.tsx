@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { RefreshCw } from 'lucide-react';
 import StudioLayout from './StudioLayout';
 import RfpStage from './stages/RfpStage';
 import PackageStage from './stages/PackageStage';
@@ -8,6 +9,7 @@ import StyleStage from './stages/StyleStage';
 import GenerateStage from './stages/GenerateStage';
 import ChecklistStage from './stages/ChecklistStage';
 import ReviewStage from './stages/ReviewStage';
+import ErrorToast, { makeToastId, type ToastMessage } from './ErrorToast';
 import {
   getStudioProject,
   updateStudioStage,
@@ -28,10 +30,20 @@ export default function StudioProject() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [classifyResult, setClassifyResult] = useState<ClassifyResult | null>(null);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  useEffect(() => {
+  const addToast = useCallback((text: string) => {
+    setToasts((prev) => [...prev, { id: makeToastId(), text }]);
+  }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const loadProject = useCallback(() => {
     if (!projectId) return;
     setLoading(true);
+    setError('');
     getStudioProject(projectId)
       .then(setProject)
       .catch((err) => {
@@ -40,19 +52,27 @@ export default function StudioProject() {
       .finally(() => setLoading(false));
   }, [projectId]);
 
+  useEffect(() => {
+    loadProject();
+  }, [loadProject]);
+
   const handleStageChange = useCallback(
     async (stage: StudioStage) => {
-      if (!projectId) return;
+      if (!projectId || !project) return;
+      const previousStage = project.studio_stage;
       try {
+        // Optimistically update stage for immediate UI feedback
+        setProject((prev) => prev ? { ...prev, studio_stage: stage } : prev);
         const updated = await updateStudioStage(projectId, stage);
         setProject(updated);
-        setError('');
       } catch (err: unknown) {
+        // Revert to previous stage on failure
+        setProject((prev) => prev ? { ...prev, studio_stage: previousStage } : prev);
         const msg = err instanceof Error ? err.message : '단계 변경 실패';
-        setError(msg);
+        addToast(msg);
       }
     },
-    [projectId],
+    [projectId, project, addToast],
   );
 
   const handleAnalyze = useCallback(async (text: string) => {
@@ -83,12 +103,21 @@ export default function StudioProject() {
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
           <p className="text-red-600 mb-4">{error || '프로젝트를 찾을 수 없습니다'}</p>
-          <button
-            onClick={() => navigate('/studio')}
-            className="text-sm text-slate-500 hover:text-slate-700"
-          >
-            목록으로 돌아가기
-          </button>
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={loadProject}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-kira-600 rounded-lg hover:bg-kira-700 transition-colors"
+            >
+              <RefreshCw size={14} />
+              다시 시도
+            </button>
+            <button
+              onClick={() => navigate('/studio')}
+              className="text-sm text-slate-500 hover:text-slate-700"
+            >
+              목록으로 돌아가기
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -98,20 +127,23 @@ export default function StudioProject() {
   const currentStage: StudioStage = VALID_STAGES.has(rawStage) ? (rawStage as StudioStage) : 'rfp';
 
   return (
-    <StudioLayout
-      project={project}
-      currentStage={currentStage}
-      onStageChange={handleStageChange}
-    >
-      <StageContent
-        stage={currentStage}
+    <>
+      <StudioLayout
         project={project}
-        onAnalyze={handleAnalyze}
-        onClassify={handleClassify}
-        classifyResult={classifyResult}
-        onProjectUpdate={() => projectId && getStudioProject(projectId).then(setProject)}
-      />
-    </StudioLayout>
+        currentStage={currentStage}
+        onStageChange={handleStageChange}
+      >
+        <StageContent
+          stage={currentStage}
+          project={project}
+          onAnalyze={handleAnalyze}
+          onClassify={handleClassify}
+          classifyResult={classifyResult}
+          onProjectUpdate={() => projectId && getStudioProject(projectId).then(setProject)}
+        />
+      </StudioLayout>
+      <ErrorToast messages={toasts} onDismiss={dismissToast} />
+    </>
   );
 }
 
@@ -132,14 +164,16 @@ function StageContent({
 }) {
   switch (stage) {
     case 'rfp':
-      return <RfpStage project={project} onAnalyze={onAnalyze} onClassify={onClassify} />;
+      return <RfpStage project={project} onAnalyze={onAnalyze} onClassify={onClassify} onProjectUpdate={onProjectUpdate} />;
     case 'package':
       return (
         <PackageStage
           projectId={project.id}
           procurementDomain={classifyResult?.procurement_domain}
           contractMethod={classifyResult?.contract_method}
+          confidence={classifyResult?.confidence}
           reviewRequired={classifyResult?.review_required}
+          matchedSignals={classifyResult?.matched_signals}
           classifierWarnings={classifyResult?.warnings}
         />
       );
