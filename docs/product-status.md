@@ -107,9 +107,9 @@ These features are committed to `main` but not yet deployed to Railway productio
 | # | Issue | Severity | Detail |
 |---|-------|----------|--------|
 | 1 | **계정 삭제 후 재로그인 시 org 재생성** | ~~P1~~ **Fixed** | Commit `36c3736` — `is_active=False` deactivation guard 추가됨 |
-| 2 | ~~**upload-rfp에 rate limit 없음**~~ | ~~P1~~ **Fixed** | `@limiter.limit("5/minute")` 적용됨 |
+| 2 | ~~**upload-rfp에 rate limit 없음**~~ | ~~P1~~ **Fixed** | AuditLog 기반 사용자별 5/min rate limit 구현 (`studio.py:464`). `@limiter` 데코레이터는 UploadFile과 비호환이므로 함수 내부에서 직접 체크. |
 | 3 | ~~**신규 3개 엔드포인트 테스트 없음**~~ | ~~P1~~ **Fixed** | Commit `b956272` — endpoint tests 추가됨 |
-| 4 | **HWP/TXT magic bytes 미검증** | P1 | `studio.py:503-514` — PDF/DOCX/XLSX/PPTX만 magic bytes 검증. HWP/TXT는 구조상 magic bytes 없음. |
+| 4 | ~~**HWP/TXT 파일 타입 미검증**~~ | ~~P1~~ **Fixed** | HWP: OLE2 magic bytes(`\xd0\xcf\x11\xe0`), HWPX: ZIP magic bytes, TXT: UTF-8 텍스트 휴리스틱 (바이너리 차단). `studio.py:508-524` |
 | 5 | **Vite chunk 크기 경고** | P2 | `index.js` 1235KB, `MarkdownEditor` 568KB — code-splitting 미적용 |
 | 6 | **검색 경쟁 조건** | P2 | RfpStage 검색 중 키워드 변경 시 이전 결과 덮어쓰기. AbortController 필요. |
 | 7 | **미인증 /studio redirect 미작동** | P2 | `ProtectedRoute`가 `redirect` param 추가하지만 소비 코드 없음 |
@@ -364,7 +364,7 @@ NOT deployed:
 ### Open Issues (P1)
 | # | 이슈 | 파일 | 상태 |
 |---|------|------|------|
-| ~~P1-1~~ | ~~upload-rfp rate limit 미적용~~ | ~~studio.py~~ | Fixed — `@limiter.limit("5/minute")` |
+| ~~P1-1~~ | ~~upload-rfp rate limit 미적용~~ | ~~studio.py~~ | Fixed — AuditLog 기반 사용자별 5/min (`studio.py:464`) |
 | ~~P1-2~~ | ~~계정 삭제 후 재로그인 시 org 재생성~~ | ~~deps.py~~ | Fixed in `36c3736` |
 | ~~P1-5~~ | ~~신규 3개 엔드포인트 테스트 미작성~~ | ~~services/web_app/tests/~~ | Fixed in `b956272` |
 

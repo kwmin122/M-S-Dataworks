@@ -1,3 +1,4 @@
+"""Hermetic tests for company_data_builder — no network/OpenAI dependency."""
 import sys
 import os
 
@@ -11,9 +12,16 @@ if current_dir not in sys.path:
 
 from company_data_builder import load_company_to_db
 from company_db import CompanyDB
+import chromadb.utils.embedding_functions as ef
+
+
+def _mock_embedding_fn():
+    """Deterministic embedding function — no network calls."""
+    return ef.DefaultEmbeddingFunction()
+
 
 def test_load_company_basic(tmp_path):
-    """CompanyDB 기본 적재 테스트"""
+    """CompanyDB 기본 적재 테스트 (hermetic — no OpenAI API)."""
     db_dir = str(tmp_path / "company_db")
     company_id = "test_company_001"
     profile = {
@@ -45,18 +53,20 @@ def test_load_company_basic(tmp_path):
         }
     ]
 
-    load_company_to_db(company_id, profile, projects, personnel, persist_directory=db_dir)
+    emb_fn = _mock_embedding_fn()
+    load_company_to_db(company_id, profile, projects, personnel,
+                       persist_directory=db_dir, embedding_function=emb_fn)
 
-    # 검증 — semantic search로 확인
-    db = CompanyDB(persist_directory=db_dir)
+    # 검증 — semantic search로 확인 (local embedding, no API)
+    db = CompanyDB(persist_directory=db_dir, embedding_function=emb_fn)
     results = db.search_similar_projects("클라우드 전환", top_k=3)
     assert len(results) >= 1
-    # 메타데이터에서 프로젝트명 확인
     project_names = [r['metadata'].get('project_name') for r in results]
     assert "테스트 프로젝트 1" in project_names
 
+
 def test_load_company_personnel(tmp_path):
-    """인력 정보 적재 테스트"""
+    """인력 정보 적재 테스트 (hermetic — no OpenAI API)."""
     db_dir = str(tmp_path / "company_db")
     company_id = "test_company_002"
     profile = {"name": "인력테스트회사", "employees": 50}
@@ -72,10 +82,12 @@ def test_load_company_personnel(tmp_path):
         }
     ]
 
-    load_company_to_db(company_id, profile, projects, personnel, persist_directory=db_dir)
+    emb_fn = _mock_embedding_fn()
+    load_company_to_db(company_id, profile, projects, personnel,
+                       persist_directory=db_dir, embedding_function=emb_fn)
 
     # 검증
-    db = CompanyDB(persist_directory=db_dir)
+    db = CompanyDB(persist_directory=db_dir, embedding_function=emb_fn)
     results = db.find_matching_personnel("프로젝트 관리 경험자", top_k=3)
     assert len(results) >= 1
     personnel_names = [r['metadata'].get('name') for r in results]

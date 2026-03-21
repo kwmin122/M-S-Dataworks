@@ -625,3 +625,40 @@ async def test_account_deletion_creates_audit_log(db_session):
     audit = audit_result.scalar_one()
     assert audit.target_type == "user"
     assert audit.target_id == "audit_user"
+
+
+# ===========================================================================
+# 5. upload-rfp rate limit regression test
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_upload_rfp_rate_limit_blocks_after_5(db_session, tmp_path):
+    """6th upload within 1 minute → 429 Too Many Requests."""
+    from services.web_app.api.studio import upload_and_analyze_rfp
+    from datetime import datetime, timezone
+
+    org, project, user = await _setup_full(db_session)
+
+    # Simulate 5 recent uploads by inserting AuditLog entries
+    for i in range(5):
+        db_session.add(AuditLog(
+            org_id=org.id,
+            user_id=user.username,
+            action="studio_rfp_file_analyzed",
+            target_type="analysis_snapshot",
+            target_id=f"snap_{i}",
+            project_id=project.id,
+        ))
+    await db_session.commit()
+
+    # 6th upload should be blocked
+    pdf_content = b'%PDF-1.4 rate limit test' + b' ' * 100
+    upload = UploadFile(filename="test.pdf", file=io.BytesIO(pdf_content))
+
+    with pytest.raises(HTTPException) as exc_info:
+        await upload_and_analyze_rfp(
+            project_id=project.id, file=upload, user=user, db=db_session,
+        )
+    assert exc_info.value.status_code == 429
+    assert "5회" in exc_info.value.detail
+

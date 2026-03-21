@@ -9,7 +9,7 @@ if rag_engine_path not in sys.path:
 
 from company_db import CompanyDB, TrackRecord, Personnel, CompanyCapabilityProfile
 
-def load_company_to_db(company_id: str, profile: dict, projects: list, personnel: list, persist_directory: str = "./data/company_db"):
+def load_company_to_db(company_id: str, profile: dict, projects: list, personnel: list, persist_directory: str = "./data/company_db", embedding_function=None):
     """
     CompanyDB ChromaDB에 회사 데이터 적재
 
@@ -19,8 +19,9 @@ def load_company_to_db(company_id: str, profile: dict, projects: list, personnel
         projects: 프로젝트 실적 list
         personnel: 인력 정보 list
         persist_directory: ChromaDB 저장 경로
+        embedding_function: 임베딩 함수 (테스트 시 mock 주입용, None이면 기본값)
     """
-    db = CompanyDB(persist_directory=persist_directory)
+    db = CompanyDB(persist_directory=persist_directory, embedding_function=embedding_function)
 
     # TrackRecord 객체로 변환 및 등록
     track_records = []
