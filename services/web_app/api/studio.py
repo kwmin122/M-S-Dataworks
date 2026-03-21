@@ -2292,6 +2292,17 @@ async def relearn_document_style(
     }
 
 
+# Backward-compatible wrappers (default doc_type="proposal")
+async def save_edited_proposal(project_id, req, user, db):
+    return await save_edited_document(project_id, "proposal", req, user=user, db=db)
+
+async def get_proposal_diff(project_id, user, db):
+    return await get_document_diff(project_id, "proposal", user=user, db=db)
+
+async def relearn_proposal_style(project_id, user, db, doc_type="proposal"):
+    return await relearn_document_style(project_id, user=user, db=db, doc_type=doc_type)
+
+
 async def _get_document_diff_pair(
     db: AsyncSession, project_id: str, doc_type: str = "proposal",
 ) -> tuple[DocumentRevision, DocumentRevision, dict[str, str], dict[str, str], list[str]]:
