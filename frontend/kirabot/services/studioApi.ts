@@ -38,6 +38,7 @@ export interface StudioProject {
   active_analysis_snapshot_id: string | null;
   rfp_source_type: string | null;
   rfp_source_ref: string | null;
+  settings_json: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }

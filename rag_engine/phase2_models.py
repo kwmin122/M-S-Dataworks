@@ -75,6 +75,7 @@ class WbsResult:
     personnel: list[PersonnelAllocation] = field(default_factory=list)
     total_months: int = 0
     generation_time_sec: float = 0.0
+    quality_report: dict = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +125,7 @@ class PptResult:
     total_duration_min: float = 0.0
     generation_time_sec: float = 0.0
     slides_metadata: list[dict] = field(default_factory=list)  # Contract adapter metadata
+    quality_report: dict = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------

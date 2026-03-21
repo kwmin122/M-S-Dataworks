@@ -141,6 +141,24 @@ def generate_wbs(
         gantt_path=gantt_path if gantt_path else None,
     )
 
+    # 5. Quality gate — multi-dimensional scoring
+    quality_report_dict: dict = {}
+    try:
+        from quality_gate import run_quality_gate, quality_report_to_dict
+
+        combined_text = "\n\n".join(
+            f"## {t.phase}: {t.task_name}\n산출물: {', '.join(t.deliverables)}\n담당: {t.responsible_role}"
+            for t in tasks
+        )
+        qg_report = run_quality_gate(
+            combined_text,
+            doc_type="execution_plan",
+            target_chars=len(combined_text),
+        )
+        quality_report_dict = quality_report_to_dict(qg_report)
+    except Exception as exc:
+        logger.warning("WBS quality gate failed, skipping: %s", exc)
+
     elapsed = round(time.time() - start, 1)
     return WbsResult(
         xlsx_path=xlsx_path,
@@ -150,4 +168,5 @@ def generate_wbs(
         personnel=personnel,
         total_months=total_months,
         generation_time_sec=elapsed,
+        quality_report=quality_report_dict,
     )

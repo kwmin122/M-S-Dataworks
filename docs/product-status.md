@@ -47,26 +47,32 @@ These features are committed to `main`, built into the Docker image, and serving
 | **Layer 2** — auto_learner 영속성 (lifespan load/save) | `rag_engine/main.py` lifespan |
 | **RAG Engine** — 별도 프로세스 port 8001, web_app이 proxy | `start.sh:40-83`, `Dockerfile:48` |
 
-### Implemented Locally (NOT Committed, NOT Deployed)
+### Committed, Not Yet Deployed
 
-These changes exist only in the working tree (`git status` shows Modified/Untracked). They were built in the 2026-03-21 session but never committed.
+These features are committed to `main` but not yet deployed to Railway production.
 
-| Feature | Files (Modified) | Lines Changed |
-|---------|-------------------|---------------|
-| **나라장터 검색 (Studio RFP Stage)** | `RfpStage.tsx` (+226), `studio.py` (+237), `studioApi.ts` (+74) | Search panel with keyword + category + pagination |
-| **RFP 파일 업로드 (Studio)** | `studio.py:453-619`, `studioApi.ts:141-164`, `RfpStage.tsx` | Upload PDF/DOCX via Studio UI, parse + analyze |
-| **계정 삭제** | `SettingsAccount.tsx` (+92), `studio.py:2810` — `DELETE /api/studio/account` | Email confirmation modal + membership deactivation |
-| **보안 핫픽스 P0 (4건)** | `studio.py:489-514` | 8KB streaming size check, try/finally cleanup, path traversal, magic bytes |
-| **Rate Limit: search-bids** | `studio.py:319` — `@limiter.limit("10/minute")` | Only on this one new endpoint |
-| **입력 검증: NaraSearchRequest** | `studio.py:306-315` | `Literal` category, `ge/le` page bounds |
-| **Studio 레이아웃 수정** | `AppShell.tsx` (+6), `StudioLayout.tsx` (+45), `StudioHome.tsx` (+26), `StudioProject.tsx` (+4) | Chat sidebar hidden in /studio/*, top nav bar added |
-| **제안서 V2 프롬프트** | `section_writer.py` (+25) | 3,017-char structured prompt, max_tokens 8000, temp 0.35, env-based model |
-| **품질 검사기 25개 금지패턴** | `quality_checker.py` (+21) | Expanded from 7 to 25 patterns + domain-dynamic load |
-| **rate_limit.py 모듈화** | `services/web_app/rate_limit.py` (NEW), `main.py` (+10) | Shared Limiter instance extracted |
+| Feature | Commit | Notes |
+|---------|--------|-------|
+| **나라장터 검색 (Studio RFP Stage)** | `98dac35` | Search panel with keyword + category + pagination |
+| **RFP 파일 업로드 (Studio)** | `98dac35` | Upload PDF/DOCX via Studio UI, parse + analyze |
+| **계정 삭제** | `98dac35`, `36c3736` | Email confirmation modal + deactivation guard |
+| **보안 핫픽스 P0 (4건)** | `98dac35` | 8KB streaming size check, try/finally cleanup, path traversal, magic bytes |
+| **Rate Limit: search-bids** | `98dac35` | `@limiter.limit("10/minute")` on search endpoint |
+| **입력 검증: NaraSearchRequest** | `98dac35` | `Literal` category, `ge/le` page bounds |
+| **Studio 레이아웃 수정** | `98dac35` | Chat sidebar hidden in /studio/*, top nav bar added |
+| **제안서 V2 프롬프트** | `98dac35` | 3,017-char structured prompt, max_tokens 8000, temp 0.35, env-based model |
+| **품질 검사기 25개 금지패턴** | `98dac35` | Expanded from 7 to 25 patterns + domain-dynamic load |
+| **rate_limit.py 모듈화** | `98dac35` | Shared Limiter instance extracted |
+| **계정 삭제 후 재로그인 가드** | `36c3736` | `is_active=False` 체크 추가 (deps.py) |
+| **Quality Gate UI** | `36c3736` | 품질 점수 사용자 표시 |
+| **파일 타입 검증 강화** | `b956272` | File type validation + endpoint tests |
+| **WBS Quality (Phase 3A-1)** | `c19cd9d` | Domain-aware WBS + quality gate + font fix |
+| **Presentation Quality (Phase 3A-2)** | `f1e72e5` | Presentation evidence gate + domain slides + quality checks |
 
-| Feature | Files (Untracked) | Notes |
-|---------|-------------------|-------|
-| **V2 프롬프트 파일** | `rag_engine/prompts/__init__.py`, `rag_engine/prompts/proposal_system_v2.py` | NEW directory |
+#### Untracked Files (NOT committed, NOT deployed)
+
+| Feature | Files | Notes |
+|---------|-------|-------|
 | **A/B 테스트 스크립트** | `scripts/ab_test_proposal_quality.py` | V1 vs V2 comparison automation |
 | **A/B 테스트 결과** | `docs/ab_test_result.md` | V1: 69/80, V2: 75/80 (+6점) |
 | **PDF 브로셔** | `docs/kirabot_brochure.pdf`, `scripts/generate_brochure_pdf.py` | 12-page marketing PDF |
@@ -100,9 +106,9 @@ These changes exist only in the working tree (`git status` shows Modified/Untrac
 
 | # | Issue | Severity | Detail |
 |---|-------|----------|--------|
-| 1 | **계정 삭제 후 재로그인 시 org 재생성** | P1 | `deps.py:81-98` — `resolve_org_membership`에 `is_active=False` 체크 없이 자동 프로비저닝하여 삭제가 무효화됨. (Local-only code, uncommitted) |
-| 2 | **upload-rfp에 rate limit 없음** | P1 | `studio.py:453` — LLM 호출 포함 고비용 엔드포인트에 rate limit 미적용. (Local-only code) |
-| 3 | **신규 3개 엔드포인트 테스트 없음** | P1 | `search-bids`, `upload-rfp`, `DELETE /account` — 테스트 미작성. (Local-only code) |
+| 1 | **계정 삭제 후 재로그인 시 org 재생성** | ~~P1~~ **Fixed** | Commit `36c3736` — `is_active=False` deactivation guard 추가됨 |
+| 2 | **upload-rfp에 rate limit 없음** | P1 | `studio.py:453` — LLM 호출 포함 고비용 엔드포인트에 rate limit 미적용. (Committed, not deployed) |
+| 3 | ~~**신규 3개 엔드포인트 테스트 없음**~~ | ~~P1~~ **Fixed** | Commit `b956272` — endpoint tests 추가됨 |
 | 4 | **HWP/TXT magic bytes 미검증** | P1 | `studio.py:503-514` — PDF/DOCX/XLSX/PPTX만 magic bytes 검증. HWP/TXT는 구조상 magic bytes 없음. |
 | 5 | **Vite chunk 크기 경고** | P2 | `index.js` 1235KB, `MarkdownEditor` 568KB — code-splitting 미적용 |
 | 6 | **검색 경쟁 조건** | P2 | RfpStage 검색 중 키워드 변경 시 이전 결과 덮어쓰기. AbortController 필요. |
@@ -192,9 +198,9 @@ These changes exist only in the working tree (`git status` shows Modified/Untrac
 | `/api/studio/projects/{id}/documents/proposal/diff` | GET | **LIVE** | `studio.py:2075` |
 | `/api/studio/projects/{id}/documents/presentation/download` | GET | **LIVE** | `studio.py:2467` |
 | `/api/studio/projects/{id}/relearn` | POST | **LIVE** | `studio.py:2116` |
-| `/api/studio/search-bids` | POST | **LOCAL ONLY** | `studio.py:318` — uncommitted |
-| `/api/studio/projects/{id}/upload-rfp` | POST | **LOCAL ONLY** | `studio.py:453` — uncommitted |
-| `/api/studio/account` | DELETE | **LOCAL ONLY** | `studio.py:2810` — uncommitted |
+| `/api/studio/search-bids` | POST | **COMMITTED** | `studio.py:318` — commit `98dac35`, not yet deployed |
+| `/api/studio/projects/{id}/upload-rfp` | POST | **COMMITTED** | `studio.py:453` — commit `98dac35`, not yet deployed |
+| `/api/studio/account` | DELETE | **COMMITTED** | `studio.py:2810` — commit `98dac35`, not yet deployed |
 
 ### rag_engine (port 8001) — AI Generation Engine
 
@@ -238,7 +244,7 @@ These changes exist only in the working tree (`git status` shows Modified/Untrac
 | `/settings/company` | SettingsCompany | **LIVE** | `App.tsx:265` — CompanyDB 온보딩 |
 | `/settings/usage` | DashboardPage | **LIVE** | `App.tsx:266` |
 | `/settings/subscription` | SubscriptionPage | **LIVE** | `App.tsx:267` |
-| `/settings/account` | SettingsAccount | **LIVE** (UI), **LOCAL** (delete feature) | `App.tsx:268` — 삭제 UI는 uncommitted |
+| `/settings/account` | SettingsAccount | **COMMITTED** (not deployed) | `App.tsx:268` — 삭제 기능 포함, commit `98dac35`+`36c3736` |
 | `/settings/documents` | DocumentWorkspace | **LIVE** | `App.tsx:269` — WYSIWYG 편집 |
 | `/dashboard` | Redirect to `/settings/usage` | **LIVE** | `App.tsx:273` — legacy redirect |
 
@@ -267,7 +273,7 @@ These changes exist only in the working tree (`git status` shows Modified/Untrac
 | Root pytest | ~202 | `pytest -q` | Legacy tests |
 | Package classifier regression | 18 cases | Parametrized in `services/web_app/tests/` | Commit `b593498` |
 
-### A/B Test Results (Proposal Quality — Local Only, Uncommitted)
+### A/B Test Results (Proposal Quality)
 
 Source: `docs/ab_test_result.md` (untracked file)
 
@@ -279,7 +285,7 @@ Source: `docs/ab_test_result.md` (untracked file)
 | 모델 | gpt-4o-mini | gpt-4o-mini |
 | 섹션 | 사업이해도 (배점 20) | 사업이해도 (배점 20) |
 
-NOTE: This A/B test is local-only code (`section_writer.py` changes + `rag_engine/prompts/` are uncommitted).
+NOTE: The V2 prompt changes (`section_writer.py` + `rag_engine/prompts/`) are committed (commit `98dac35`) but not yet deployed. The A/B test script and results doc remain untracked.
 
 ---
 
@@ -328,25 +334,27 @@ NOT deployed:
 
 ## 이번 배치 완료 범위 (2026-03-21)
 
-### 완료 (10/17)
+### 완료 (12/17)
 | # | 요구사항 | 구현 내용 | 검증 상태 |
 |---|---------|----------|----------|
-| 1 | Single Source of Truth | product-status.md 생성 | ✅ |
-| 2 | No Dead Ends | 나라장터 검색 + 파일 업로드 + 계정 삭제 | E2E 미검증 |
-| 3 | Manual Override | 도메인/계약방식/PPT/항목 CRUD + AuditLog | E2E 미검증 |
-| 4 | Package Completeness | 면제/삭제/추가 + 진행률 | E2E 미검증 |
-| 5 | Generation Quality Gate | 7차원 품질 스코어링 (quality_gate.py) | 단위 테스트 통과 |
-| 6 | Proposal Quality | V2 프롬프트 + A/B 69→75점 | A/B 테스트 검증 |
-| 8 | Track Record Quality | 5-signal 의미 매칭 + 37 테스트 | 단위 테스트 통과 |
-| 11 | User Trust | matched_signals + confidence UI | E2E 미검증 |
-| 12 | Recovery & Reliability | 재시도/이전버전/에러토스트/파일검증 | TypeScript 통과 |
-| 15 | Security | P0 보안 4건 + rate limit + magic bytes | 단위 테스트 통과 |
+| 1 | Single Source of Truth | product-status.md 생성 | ✅ Committed |
+| 2 | No Dead Ends | 나라장터 검색 + 파일 업로드 + 계정 삭제 | ✅ Committed (`98dac35`, `36c3736`) |
+| 3 | Manual Override | 도메인/계약방식/PPT/항목 CRUD + AuditLog | ✅ Committed (`98dac35`) |
+| 4 | Package Completeness | 면제/삭제/추가 + 진행률 | ✅ Committed (`98dac35`) |
+| 5 | Generation Quality Gate | 7차원 품질 스코어링 (quality_gate.py) | ✅ Committed (`98dac35`) + UI (`36c3736`) |
+| 6 | Proposal Quality | V2 프롬프트 + A/B 69→75점 | ✅ Committed (`98dac35`) |
+| 7 | WBS Quality | Domain-aware WBS + quality gate + font fix | ✅ Committed (`c19cd9d`) |
+| 8 | Track Record Quality | 5-signal 의미 매칭 + 37 테스트 | ✅ Committed (`98dac35`) |
+| 9 | Presentation Quality | Evidence gate + domain slides + quality checks | ✅ Committed (`f1e72e5`) |
+| 11 | User Trust | matched_signals + confidence UI | ✅ Committed (`98dac35`) |
+| 12 | Recovery & Reliability | 재시도/이전버전/에러토스트/파일검증 | ✅ Committed (`98dac35`, `b956272`) |
+| 15 | Security | P0 보안 4건 + rate limit + magic bytes + file type validation | ✅ Committed (`98dac35`, `b956272`) |
 
-### 미완료 (7/17 → Phase 3)
+> **Note**: All 12 items are committed to `main` but NOT yet deployed to Railway production.
+
+### 미완료 (5/17 → Phase 3)
 | # | 요구사항 | Phase |
 |---|---------|-------|
-| 7 | WBS Quality | 3A |
-| 9 | Presentation Quality | 3A |
 | 10 | Multi-Doc Relearn | 3A |
 | 13 | Enterprise Collaboration | 3B |
 | 14 | Operational Observability | 3B |
@@ -354,21 +362,22 @@ NOT deployed:
 | 17 | Commercial Readiness | 3C |
 
 ### Open Issues (P1)
-| # | 이슈 | 파일 |
-|---|------|------|
-| P1-1 | upload-rfp rate limit 미적용 | studio.py |
-| P1-2 | 계정 삭제 후 재로그인 시 org 재생성 | deps.py |
-| P1-5 | 신규 3개 엔드포인트 테스트 미작성 | services/web_app/tests/ |
+| # | 이슈 | 파일 | 상태 |
+|---|------|------|------|
+| P1-1 | upload-rfp rate limit 미적용 | studio.py | Open |
+| ~~P1-2~~ | ~~계정 삭제 후 재로그인 시 org 재생성~~ | ~~deps.py~~ | Fixed in `36c3736` |
+| ~~P1-5~~ | ~~신규 3개 엔드포인트 테스트 미작성~~ | ~~services/web_app/tests/~~ | Fixed in `b956272` |
 
 ### Phase 3 진입 조건
 - [ ] RFP Stage 3개 신규 흐름 E2E 검증 (검색/업로드/분석→분류)
 - [ ] Manual Override 실제 사용 검증
 - [ ] Quality Gate 결과 사용자 이해 가능 확인
 - [ ] 삭제/면제/복구/재시도 흐름 검증
-- [ ] P0/P1 이슈 0건 확인
-- [ ] 현재 배치 커밋 완료
+- [ ] P0/P1 이슈 0건 확인 (P1-1 remaining)
+- [x] 현재 배치 커밋 완료 (`98dac35`..`f1e72e5`, 5 commits on main)
 
 ### Rollback 포인트
-- 커밋 직전 상태: `git stash` 가능
+- 배포 전 마지막 안정 커밋: `f0ef2a7` (refactor docs, 현재 프로덕션 상태)
+- 신규 커밋 범위: `98dac35`..`f1e72e5` (5 commits, 아직 미배포)
 - 프로덕션: Railway 자동 배포 — 이전 커밋으로 롤백 가능
 - DB: 스키마 변경 없음 (안전)

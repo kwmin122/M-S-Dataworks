@@ -214,6 +214,24 @@ def generate_ppt(
         for s in slides
     ]
 
+    # 6. Quality gate — multi-dimensional scoring
+    quality_report_dict: dict = {}
+    try:
+        from quality_gate import run_quality_gate, quality_report_to_dict
+
+        slide_text = "\n\n".join(
+            f"## {s.title}\n{s.body}\n{chr(10).join(s.bullets)}"
+            for s in slides
+        )
+        qg_report = run_quality_gate(
+            slide_text,
+            doc_type="presentation",
+            target_chars=len(slide_text),
+        )
+        quality_report_dict = quality_report_to_dict(qg_report)
+    except Exception as exc:
+        logger.warning("PPT quality gate failed, skipping: %s", exc)
+
     elapsed = round(time.time() - start, 1)
     return PptResult(
         pptx_path=pptx_path,
@@ -222,4 +240,5 @@ def generate_ppt(
         total_duration_min=round(total_duration, 1),
         generation_time_sec=elapsed,
         slides_metadata=slides_metadata,
+        quality_report=quality_report_dict,
     )

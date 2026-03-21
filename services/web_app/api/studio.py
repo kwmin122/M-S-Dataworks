@@ -47,6 +47,7 @@ class StudioProjectResponse(BaseModel):
     active_analysis_snapshot_id: str | None
     rfp_source_type: str | None
     rfp_source_ref: str | None
+    settings_json: dict | None = None
     created_at: str
     updated_at: str
 
@@ -818,11 +819,16 @@ async def override_package_classification(
             db.add(new_item)
             changes[f"added_{new_item.document_code}"] = label.strip()
 
-    # Override domain/method — stored in audit for corpus improvement
-    if req.procurement_domain:
-        changes["domain_override"] = {"from": "auto", "to": req.procurement_domain}
-    if req.contract_method:
-        changes["method_override"] = {"from": "auto", "to": req.contract_method}
+    # Override domain/method — persist to project settings_json + audit
+    if req.procurement_domain or req.contract_method:
+        current_settings = project.settings_json or {}
+        if req.procurement_domain:
+            current_settings["override_domain"] = req.procurement_domain
+            changes["domain_override"] = {"from": "auto", "to": req.procurement_domain}
+        if req.contract_method:
+            current_settings["override_method"] = req.contract_method
+            changes["method_override"] = {"from": "auto", "to": req.contract_method}
+        project.settings_json = current_settings
 
     # Include/exclude presentation
     if req.include_presentation is not None:
@@ -2828,6 +2834,7 @@ def _project_to_response(project: BidProject) -> StudioProjectResponse:
         active_analysis_snapshot_id=project.active_analysis_snapshot_id,
         rfp_source_type=project.rfp_source_type,
         rfp_source_ref=project.rfp_source_ref,
+        settings_json=project.settings_json,
         created_at=project.created_at.isoformat(),
         updated_at=project.updated_at.isoformat(),
     )

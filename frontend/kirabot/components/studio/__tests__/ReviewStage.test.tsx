@@ -33,7 +33,7 @@ const PROJECT: StudioProject = {
   id: 'proj1', title: '테스트', status: 'draft', project_type: 'studio',
   studio_stage: 'review', pinned_style_skill_id: 'sk1',
   active_analysis_snapshot_id: 'snap1',
-  rfp_source_type: null, rfp_source_ref: null,
+  rfp_source_type: null, rfp_source_ref: null, settings_json: null,
   created_at: '2026-03-19T10:00:00Z', updated_at: '2026-03-19T10:00:00Z',
 };
 

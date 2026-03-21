@@ -45,7 +45,23 @@ export default function StudioProject() {
     setLoading(true);
     setError('');
     getStudioProject(projectId)
-      .then(setProject)
+      .then((proj) => {
+        setProject(proj);
+        // Restore override values from persisted settings_json
+        const settings = proj.settings_json;
+        if (settings && (settings.override_domain || settings.override_method)) {
+          setClassifyResult((prev) => ({
+            procurement_domain: (settings.override_domain as string) ?? prev?.procurement_domain ?? '',
+            contract_method: (settings.override_method as string) ?? prev?.contract_method ?? '',
+            confidence: prev?.confidence ?? 1.0,
+            detection_method: prev?.detection_method ?? 'manual_override',
+            review_required: prev?.review_required ?? false,
+            matched_signals: prev?.matched_signals ?? [],
+            warnings: prev?.warnings ?? [],
+            package_items: prev?.package_items ?? [],
+          }));
+        }
+      })
       .catch((err) => {
         setError(err.message || '프로젝트를 불러올 수 없습니다');
       })

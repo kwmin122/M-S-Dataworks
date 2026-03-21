@@ -27,6 +27,7 @@ const PROJECT_WITH_SNAPSHOT: StudioProject = {
   active_analysis_snapshot_id: 'snap-1',
   rfp_source_type: null,
   rfp_source_ref: null,
+  settings_json: null,
   created_at: '2026-03-18T10:00:00Z',
   updated_at: '2026-03-18T10:00:00Z',
 };
