@@ -68,7 +68,8 @@ const SettingsAccount: React.FC<SettingsAccountProps> = ({ user, onLogout }) => 
           ) : showDeleteConfirm ? (
             <>
               <p className="text-sm text-slate-600">
-                계정을 삭제하면 모든 프로젝트와 데이터가 영구적으로 삭제됩니다.
+                계정을 비활성화하면 더 이상 로그인할 수 없습니다.
+                데이터는 30일간 보관 후 영구 삭제됩니다.
                 확인을 위해 이메일 주소를 입력해주세요.
               </p>
               <input
@@ -86,7 +87,7 @@ const SettingsAccount: React.FC<SettingsAccountProps> = ({ user, onLogout }) => 
                   disabled={confirmEmail !== user?.email || deleting}
                   className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
                 >
-                  {deleting ? '처리 중...' : '계정 영구 삭제'}
+                  {deleting ? '처리 중...' : '계정 비활성화'}
                 </button>
                 <button
                   type="button"

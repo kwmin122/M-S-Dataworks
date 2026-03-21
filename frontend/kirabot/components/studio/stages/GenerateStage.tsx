@@ -233,9 +233,85 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
         </div>
       )}
 
+      {/* Quality Report */}
+      {revision?.quality_report && (
+        <QualityReportView report={revision.quality_report as QualityReportData} />
+      )}
+
       {/* Revision preview */}
       {showPreview && revision && (
         <RevisionPreview revision={revision} />
+      )}
+    </div>
+  );
+}
+
+
+interface QualityDimensionData {
+  name: string;
+  label: string;
+  score: number;
+  status: 'pass' | 'warn' | 'fail';
+  details: string[];
+}
+
+interface QualityReportData {
+  overall_score?: number;
+  grade?: string;
+  recommendation?: string;
+  pass_count?: number;
+  warn_count?: number;
+  fail_count?: number;
+  dimensions?: QualityDimensionData[];
+}
+
+function QualityReportView({ report }: { report: QualityReportData }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!report.overall_score && !report.dimensions) return null;
+
+  const gradeColor = {
+    '수': 'text-green-700 bg-green-50 border-green-200',
+    '우': 'text-blue-700 bg-blue-50 border-blue-200',
+    '미': 'text-amber-700 bg-amber-50 border-amber-200',
+    '양': 'text-orange-700 bg-orange-50 border-orange-200',
+    '가': 'text-red-700 bg-red-50 border-red-200',
+  }[report.grade || '미'] || 'text-slate-700 bg-slate-50 border-slate-200';
+
+  const statusIcon = (s: string) => s === 'pass' ? '✓' : s === 'warn' ? '!' : '✗';
+  const statusColor = (s: string) => s === 'pass' ? 'text-green-600' : s === 'warn' ? 'text-amber-600' : 'text-red-600';
+
+  return (
+    <div className={`rounded-xl border p-4 mb-4 ${gradeColor}`}>
+      <button onClick={() => setExpanded(!expanded)} className="w-full flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span className="text-lg font-bold">{report.grade || '-'}</span>
+          <span className="text-sm font-medium">{report.overall_score?.toFixed(1)}점</span>
+          <span className="text-xs opacity-70">
+            {report.pass_count || 0}통과 / {report.warn_count || 0}주의 / {report.fail_count || 0}미달
+          </span>
+        </div>
+        {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+      </button>
+
+      {expanded && report.dimensions && (
+        <div className="mt-3 space-y-2">
+          {report.dimensions.map((d) => (
+            <div key={d.name} className="flex items-center gap-2 text-xs">
+              <span className={`font-bold ${statusColor(d.status)}`}>{statusIcon(d.status)}</span>
+              <span className="font-medium w-24">{d.label}</span>
+              <div className="flex-1 h-1.5 rounded-full bg-white/50 overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${d.status === 'pass' ? 'bg-green-500' : d.status === 'warn' ? 'bg-amber-500' : 'bg-red-500'}`}
+                  style={{ width: `${d.score * 100}%` }}
+                />
+              </div>
+              <span className="w-10 text-right">{(d.score * 100).toFixed(0)}%</span>
+            </div>
+          ))}
+          {report.recommendation && (
+            <p className="text-xs mt-2 pt-2 border-t border-current/10">{report.recommendation}</p>
+          )}
+        </div>
       )}
     </div>
   );

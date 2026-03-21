@@ -79,9 +79,28 @@ async def resolve_org_membership(
     membership = memberships[0] if memberships else None
 
     if membership is None:
+        # Check if user previously had membership that was deactivated (account deletion).
+        # If so, block re-provisioning — deleted accounts must not auto-resurrect.
+        deactivated = await db.execute(
+            select(Membership).where(
+                Membership.user_id == user.username,
+                Membership.is_active == False,
+            )
+        )
+        if deactivated.scalars().first() is not None:
+            logger.warning(
+                "Blocked auto-provision for deactivated user=%s. "
+                "Account was previously deleted.",
+                user.username,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="비활성화된 계정입니다. 복구가 필요하시면 고객지원으로 문의해주세요.",
+            )
+
         # Auto-provision: first-time user gets their own org + owner membership.
-        # This runs exactly once per user (only when no active membership exists).
-        # Safe in production: membership uniqueness prevents duplicate orgs.
+        # This runs exactly once per user (only when no active membership exists
+        # AND no deactivated membership exists).
         logger.info("Auto-provisioning org for new user=%s", user.username)
         from services.web_app.db.models.org import Organization
         org = Organization(name=f"{user.username}의 조직")
