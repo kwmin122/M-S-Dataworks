@@ -14,6 +14,7 @@ interface GenerateStageProps {
   projectId: string;
   project: StudioProject;
   onProjectUpdate: () => void;
+  onDocTypeChange?: (dt: GenerateDocType) => void;
 }
 
 type GenerationPhase = 'idle' | 'assembling_contract' | 'generating_sections' | 'saving_revision' | 'done' | 'error';
@@ -25,8 +26,12 @@ const PHASE_LABELS_BY_DOC: Record<GenerateDocType, Record<GenerationPhase, strin
   presentation: { idle: '', assembling_contract: '입력 계약 조립 중...', generating_sections: '슬라이드 생성 중... (1~2분 소요)', saving_revision: '리비전 저장 중...', done: '완료', error: '오류 발생' },
 };
 
-export default function GenerateStage({ projectId, project, onProjectUpdate }: GenerateStageProps) {
-  const [docType, setDocType] = useState<GenerateDocType>('proposal');
+export default function GenerateStage({ projectId, project, onProjectUpdate, onDocTypeChange }: GenerateStageProps) {
+  const [docType, setDocTypeInternal] = useState<GenerateDocType>('proposal');
+  const setDocType = useCallback((dt: GenerateDocType) => {
+    setDocTypeInternal(dt);
+    onDocTypeChange?.(dt);
+  }, [onDocTypeChange]);
   const [phase, setPhase] = useState<GenerationPhase>('idle');
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [error, setError] = useState('');

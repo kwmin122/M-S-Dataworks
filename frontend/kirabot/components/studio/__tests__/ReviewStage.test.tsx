@@ -9,23 +9,24 @@ vi.mock('../../../services/studioApi', async () => {
   return {
     ...actual,
     getCurrentRevision: vi.fn(),
-    saveEditedProposal: vi.fn(),
-    getProposalDiff: vi.fn(),
-    relearnProposalStyle: vi.fn(),
+    saveEditedDocument: vi.fn(),
+    getDocumentDiff: vi.fn(),
+    relearnDocumentStyle: vi.fn(),
     pinStyleSkill: vi.fn(),
     generateProposal: vi.fn(),
+    // backward-compat aliases still exist in the module, no need to mock separately
   };
 });
 
 import {
-  getCurrentRevision, saveEditedProposal, getProposalDiff,
-  relearnProposalStyle, pinStyleSkill, generateProposal,
+  getCurrentRevision, saveEditedDocument, getDocumentDiff,
+  relearnDocumentStyle, pinStyleSkill, generateProposal,
 } from '../../../services/studioApi';
 
 const mockGetRevision = vi.mocked(getCurrentRevision);
-const mockSaveEdited = vi.mocked(saveEditedProposal);
-const mockGetDiff = vi.mocked(getProposalDiff);
-const mockRelearn = vi.mocked(relearnProposalStyle);
+const mockSaveEdited = vi.mocked(saveEditedDocument);
+const mockGetDiff = vi.mocked(getDocumentDiff);
+const mockRelearn = vi.mocked(relearnDocumentStyle);
 const mockPin = vi.mocked(pinStyleSkill);
 const mockGenerate = vi.mocked(generateProposal);
 
@@ -47,6 +48,16 @@ const REVISION: CurrentRevisionData = {
   quality_report: null, created_at: '2026-03-19T10:00:00Z',
 };
 
+const WBS_REVISION: CurrentRevisionData = {
+  revision_id: 'rev-wbs1', revision_number: 1, doc_type: 'execution_plan',
+  source: 'ai_generated', status: 'draft', title: '테스트 수행계획서',
+  sections: [
+    { name: '1단계', text: '분석 및 설계' },
+    { name: '2단계', text: '개발 및 테스트' },
+  ],
+  quality_report: null, created_at: '2026-03-19T10:00:00Z',
+};
+
 const DIFF: ProposalDiffResult = {
   sections: [
     { name: '개요', original: '원본 개요 텍스트', edited: '수정된 개요', changed: true },
@@ -55,6 +66,16 @@ const DIFF: ProposalDiffResult = {
   changed_sections_count: 1,
   total_sections: 2,
   edit_rate: 0.3,
+};
+
+const WBS_DIFF: ProposalDiffResult = {
+  sections: [
+    { name: '1단계', original: '분석 및 설계', edited: '분석·설계·PoC', changed: true },
+    { name: '2단계', original: '개발 및 테스트', edited: '개발 및 테스트', changed: false },
+  ],
+  changed_sections_count: 1,
+  total_sections: 2,
+  edit_rate: 0.25,
 };
 
 const RELEARN: RelearnResult = {
@@ -98,7 +119,7 @@ describe('ReviewStage', () => {
     fireEvent.click(screen.getByText('수정 저장 및 비교'));
 
     await waitFor(() => {
-      expect(mockSaveEdited).toHaveBeenCalledWith('proj1', expect.any(Array));
+      expect(mockSaveEdited).toHaveBeenCalledWith('proj1', 'proposal', expect.any(Array));
     });
 
     // Diff view should appear
@@ -119,7 +140,7 @@ describe('ReviewStage', () => {
     expect(screen.getByText('1/2 섹션 변경 · 편집률 30%')).toBeInTheDocument();
   });
 
-  it('calls relearnProposalStyle on relearn button click', async () => {
+  it('calls relearnDocumentStyle on relearn button click', async () => {
     mockSaveEdited.mockResolvedValue({ revision_id: 'rev2', revision_number: 2, source: 'user_edited' });
     mockGetDiff.mockResolvedValue(DIFF);
     mockRelearn.mockResolvedValue(RELEARN);
@@ -133,7 +154,7 @@ describe('ReviewStage', () => {
     fireEvent.click(screen.getByText('수정 패턴 학습'));
 
     await waitFor(() => {
-      expect(mockRelearn).toHaveBeenCalledWith('proj1');
+      expect(mockRelearn).toHaveBeenCalledWith('proj1', 'proposal');
     });
 
     // Relearn result
@@ -184,5 +205,88 @@ describe('ReviewStage', () => {
     render(<ReviewStage projectId="proj1" project={PROJECT} onProjectUpdate={noop} />);
 
     expect(await screen.findByText(/먼저 제안서를 생성해주세요/)).toBeInTheDocument();
+  });
+
+  // --- Multi-Doc Relearn: WBS (execution_plan) ---
+
+  it('loads execution_plan revision when docType="execution_plan"', async () => {
+    mockGetRevision.mockResolvedValue(WBS_REVISION);
+    render(<ReviewStage projectId="proj1" project={PROJECT} onProjectUpdate={noop} docType="execution_plan" />);
+
+    expect(await screen.findByText('테스트 수행계획서 — 리비전 #1')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('분석 및 설계')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('개발 및 테스트')).toBeInTheDocument();
+    // Check doc label in description
+    expect(screen.getByText(/수행계획서를 수정하고/)).toBeInTheDocument();
+  });
+
+  it('calls doc-type-aware APIs for execution_plan save+diff+relearn', async () => {
+    mockGetRevision.mockResolvedValue(WBS_REVISION);
+    mockSaveEdited.mockResolvedValue({ revision_id: 'rev-wbs2', revision_number: 2, source: 'user_edited' });
+    mockGetDiff.mockResolvedValue(WBS_DIFF);
+    mockRelearn.mockResolvedValue(RELEARN);
+
+    render(<ReviewStage projectId="proj1" project={PROJECT} onProjectUpdate={noop} docType="execution_plan" />);
+    await screen.findByDisplayValue('분석 및 설계');
+
+    // Save
+    fireEvent.click(screen.getByText('수정 저장 및 비교'));
+    await waitFor(() => {
+      expect(mockSaveEdited).toHaveBeenCalledWith('proj1', 'execution_plan', expect.any(Array));
+    });
+
+    // Diff loaded
+    await screen.findByText('변경 비교');
+    await waitFor(() => {
+      expect(mockGetDiff).toHaveBeenCalledWith('proj1', 'execution_plan');
+    });
+
+    // Relearn
+    fireEvent.click(screen.getByText('수정 패턴 학습'));
+    await waitFor(() => {
+      expect(mockRelearn).toHaveBeenCalledWith('proj1', 'execution_plan');
+    });
+  });
+
+  it('regenerates with correct doc_type for execution_plan', async () => {
+    mockGetRevision.mockResolvedValue(WBS_REVISION);
+    mockSaveEdited.mockResolvedValue({ revision_id: 'rev-wbs2', revision_number: 2, source: 'user_edited' });
+    mockGetDiff.mockResolvedValue(WBS_DIFF);
+    mockRelearn.mockResolvedValue(RELEARN);
+    mockPin.mockResolvedValue({ pinned_style_skill_id: 'sk-new' });
+    mockGenerate.mockResolvedValue({
+      run_id: 'run-wbs2', revision_id: 'rev-wbs3', status: 'completed',
+      generation_contract: {
+        snapshot_id: 'snap1', snapshot_version: 1, company_assets_count: 0,
+        company_context_length: 0, pinned_style_skill_id: 'sk-new',
+        pinned_style_name: '학습 v2', pinned_style_version: 2,
+        doc_type: 'execution_plan', total_pages: 30,
+      },
+      sections_count: 2, generation_time_sec: 1.0,
+    });
+    mockGetRevision
+      .mockResolvedValueOnce(WBS_REVISION) // initial load
+      .mockResolvedValueOnce({ ...WBS_REVISION, revision_number: 3 });
+
+    const onUpdate = vi.fn();
+    render(<ReviewStage projectId="proj1" project={PROJECT} onProjectUpdate={onUpdate} docType="execution_plan" />);
+
+    await screen.findByDisplayValue('분석 및 설계');
+    fireEvent.click(screen.getByText('수정 저장 및 비교'));
+    await screen.findByText('수정 패턴 학습');
+    fireEvent.click(screen.getByText('수정 패턴 학습'));
+    await screen.findByText('새 스타일 적용 및 재생성');
+    fireEvent.click(screen.getByText('새 스타일 적용 및 재생성'));
+
+    await waitFor(() => {
+      expect(mockGenerate).toHaveBeenCalledWith('proj1', { doc_type: 'execution_plan' });
+    });
+  });
+
+  it('shows WBS error when no execution_plan revision exists', async () => {
+    mockGetRevision.mockRejectedValue(new Error('not found'));
+    render(<ReviewStage projectId="proj1" project={PROJECT} onProjectUpdate={noop} docType="execution_plan" />);
+
+    expect(await screen.findByText(/먼저 수행계획서를 생성해주세요/)).toBeInTheDocument();
   });
 });

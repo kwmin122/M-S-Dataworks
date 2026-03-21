@@ -19,6 +19,7 @@ import {
   type StudioProject as StudioProjectType,
   type StudioStage,
   type ClassifyResult,
+  type GenerateDocType,
 } from '../../services/studioApi';
 
 const VALID_STAGES = new Set<string>(STUDIO_STAGES.map(s => s.key));
@@ -30,6 +31,7 @@ export default function StudioProject() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [classifyResult, setClassifyResult] = useState<ClassifyResult | null>(null);
+  const [lastDocType, setLastDocType] = useState<GenerateDocType>('proposal');
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const addToast = useCallback((text: string) => {
@@ -156,6 +158,8 @@ export default function StudioProject() {
           onClassify={handleClassify}
           classifyResult={classifyResult}
           onProjectUpdate={() => projectId && getStudioProject(projectId).then(setProject)}
+          lastDocType={lastDocType}
+          onDocTypeChange={setLastDocType}
         />
       </StudioLayout>
       <ErrorToast messages={toasts} onDismiss={dismissToast} />
@@ -170,6 +174,8 @@ function StageContent({
   onClassify,
   classifyResult,
   onProjectUpdate,
+  lastDocType,
+  onDocTypeChange,
 }: {
   stage: StudioStage;
   project: StudioProjectType;
@@ -177,6 +183,8 @@ function StageContent({
   onClassify: () => Promise<void>;
   classifyResult: ClassifyResult | null;
   onProjectUpdate: () => void;
+  lastDocType: GenerateDocType;
+  onDocTypeChange: (dt: GenerateDocType) => void;
 }) {
   switch (stage) {
     case 'rfp':
@@ -209,6 +217,7 @@ function StageContent({
           projectId={project.id}
           project={project}
           onProjectUpdate={onProjectUpdate}
+          onDocTypeChange={onDocTypeChange}
         />
       );
     case 'review':
@@ -217,6 +226,7 @@ function StageContent({
           projectId={project.id}
           project={project}
           onProjectUpdate={onProjectUpdate}
+          docType={lastDocType}
         />
       );
     case 'relearn':

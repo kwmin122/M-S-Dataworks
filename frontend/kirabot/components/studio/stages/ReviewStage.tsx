@@ -5,21 +5,32 @@ import {
 } from 'lucide-react';
 import type {
   CurrentRevisionData, RevisionSection, ProposalDiffResult, DiffSection, RelearnResult, StudioProject,
+  GenerateDocType,
 } from '../../../services/studioApi';
 import {
-  getCurrentRevision, saveEditedProposal, getProposalDiff,
-  relearnProposalStyle, pinStyleSkill, generateProposal,
+  getCurrentRevision, saveEditedDocument, getDocumentDiff,
+  relearnDocumentStyle, pinStyleSkill, generateProposal,
 } from '../../../services/studioApi';
+
+const DOC_TYPE_LABELS: Record<string, string> = {
+  proposal: '제안서',
+  execution_plan: '수행계획서',
+  track_record: '실적기술서',
+  presentation: '발표자료',
+};
 
 interface ReviewStageProps {
   projectId: string;
   project: StudioProject;
   onProjectUpdate: () => void;
+  docType?: GenerateDocType;
 }
 
 type ReviewPhase = 'edit' | 'diff' | 'relearn' | 'regenerate';
 
-export default function ReviewStage({ projectId, project, onProjectUpdate }: ReviewStageProps) {
+export default function ReviewStage({ projectId, project, onProjectUpdate, docType = 'proposal' }: ReviewStageProps) {
+  const docLabel = DOC_TYPE_LABELS[docType] || '문서';
+
   const [revision, setRevision] = useState<CurrentRevisionData | null>(null);
   const [editedSections, setEditedSections] = useState<RevisionSection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,15 +45,15 @@ export default function ReviewStage({ projectId, project, onProjectUpdate }: Rev
     setLoading(true);
     setError('');
     try {
-      const rev = await getCurrentRevision(projectId, 'proposal');
+      const rev = await getCurrentRevision(projectId, docType);
       setRevision(rev);
       setEditedSections(rev.sections.map(s => ({ ...s })));
     } catch {
-      setError('제안서 리비전을 불러올 수 없습니다. 먼저 제안서를 생성해주세요.');
+      setError(`${docLabel} 리비전을 불러올 수 없습니다. 먼저 ${docLabel}를 생성해주세요.`);
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, docType, docLabel]);
 
   useEffect(() => { loadRevision(); }, [loadRevision]);
 
@@ -50,23 +61,23 @@ export default function ReviewStage({ projectId, project, onProjectUpdate }: Rev
     setSaving(true);
     setError('');
     try {
-      await saveEditedProposal(projectId, editedSections);
+      await saveEditedDocument(projectId, docType, editedSections);
       setPhase('diff');
       // Load diff
-      const d = await getProposalDiff(projectId);
+      const d = await getDocumentDiff(projectId, docType);
       setDiff(d);
     } catch (err) {
       setError(err instanceof Error ? err.message : '저장 실패');
     } finally {
       setSaving(false);
     }
-  }, [projectId, editedSections]);
+  }, [projectId, docType, editedSections]);
 
   const handleRelearn = useCallback(async () => {
     setActionLoading(true);
     setError('');
     try {
-      const result = await relearnProposalStyle(projectId);
+      const result = await relearnDocumentStyle(projectId, docType);
       setRelearnResult(result);
       setPhase('relearn');
     } catch (err) {
@@ -74,7 +85,7 @@ export default function ReviewStage({ projectId, project, onProjectUpdate }: Rev
     } finally {
       setActionLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, docType]);
 
   const handlePinAndRegenerate = useCallback(async () => {
     if (!relearnResult) return;
@@ -83,7 +94,7 @@ export default function ReviewStage({ projectId, project, onProjectUpdate }: Rev
     try {
       await pinStyleSkill(projectId, relearnResult.new_skill_id);
       setPhase('regenerate');
-      await generateProposal(projectId, { doc_type: 'proposal' });
+      await generateProposal(projectId, { doc_type: docType });
       onProjectUpdate();
       await loadRevision();
       setPhase('edit');
@@ -95,7 +106,7 @@ export default function ReviewStage({ projectId, project, onProjectUpdate }: Rev
     } finally {
       setActionLoading(false);
     }
-  }, [projectId, relearnResult, onProjectUpdate, loadRevision]);
+  }, [projectId, docType, relearnResult, onProjectUpdate, loadRevision]);
 
   if (loading) {
     return (
@@ -120,7 +131,7 @@ export default function ReviewStage({ projectId, project, onProjectUpdate }: Rev
         <div>
           <h2 className="text-lg font-bold text-slate-900">검토/보완</h2>
           <p className="text-sm text-slate-500 mt-0.5">
-            제안서를 수정하고, 수정 패턴을 학습시켜 다음 생성에 반영합니다
+            {docLabel}를 수정하고, 수정 패턴을 학습시켜 다음 생성에 반영합니다
           </p>
         </div>
         <button onClick={loadRevision} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">

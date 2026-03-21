@@ -7,7 +7,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -2055,27 +2055,45 @@ class SaveEditedProposalRequest(BaseModel):
 
 # --- Proposal review/relearn endpoints ---
 
-@router.post("/projects/{project_id}/documents/proposal/edited")
-async def save_edited_proposal(
+_RELEARN_DOC_TYPES = {"proposal", "execution_plan"}
+
+_DOC_TYPE_SCHEMA_MAP: dict[str, str] = {
+    "proposal": "proposal_sections_v1",
+    "execution_plan": "execution_plan_sections_v1",
+}
+
+_DOC_TYPE_LABEL_MAP: dict[str, str] = {
+    "proposal": "제안서",
+    "execution_plan": "수행계획서",
+}
+
+
+@router.post("/projects/{project_id}/documents/{doc_type}/edited")
+async def save_edited_document(
     project_id: str,
+    doc_type: str,
     req: SaveEditedProposalRequest,
     user: CurrentUser = Depends(resolve_org_membership),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """Save user-edited proposal as a new revision (source=user_edited)."""
+    """Save user-edited document as a new revision (source=user_edited)."""
+    if doc_type not in _RELEARN_DOC_TYPES:
+        raise HTTPException(400, f"지원되지 않는 문서 타입: {doc_type}")
     await _require_studio_project_access(project_id, "editor", user, db)
 
     from services.web_app.db.models.document import ProjectCurrentDocument
+
+    doc_label = _DOC_TYPE_LABEL_MAP.get(doc_type, "문서")
 
     # Get current AI-generated revision to determine next version
     current = (await db.execute(
         select(ProjectCurrentDocument).where(
             ProjectCurrentDocument.project_id == project_id,
-            ProjectCurrentDocument.doc_type == "proposal",
+            ProjectCurrentDocument.doc_type == doc_type,
         )
     )).scalar_one_or_none()
     if current is None:
-        raise HTTPException(400, "먼저 제안서를 생성해주세요.")
+        raise HTTPException(400, f"먼저 {doc_label}를 생성해주세요.")
 
     prev_rev = (await db.execute(
         select(DocumentRevision).where(DocumentRevision.id == current.current_revision_id)
@@ -2084,16 +2102,18 @@ async def save_edited_proposal(
     # Compute next revision number
     ver_result = await db.execute(
         select(DocumentRevision.revision_number)
-        .where(DocumentRevision.project_id == project_id, DocumentRevision.doc_type == "proposal")
+        .where(DocumentRevision.project_id == project_id, DocumentRevision.doc_type == doc_type)
         .order_by(DocumentRevision.revision_number.desc())
         .limit(1)
     )
     prev_num = ver_result.scalar_one_or_none() or 0
 
+    content_schema = _DOC_TYPE_SCHEMA_MAP.get(doc_type, f"{doc_type}_sections_v1")
+
     revision = DocumentRevision(
         org_id=user.org_id,
         project_id=project_id,
-        doc_type="proposal",
+        doc_type=doc_type,
         run_id=None,
         derived_from_revision_id=prev_rev.id,
         revision_number=prev_num + 1,
@@ -2101,7 +2121,7 @@ async def save_edited_proposal(
         status="draft",
         title=prev_rev.title,
         content_json={"sections": [{"name": s.name, "text": s.text} for s in req.sections]},
-        content_schema="proposal_sections_v1",
+        content_schema=content_schema,
         created_by=user.username,
     )
     db.add(revision)
@@ -2119,16 +2139,19 @@ async def save_edited_proposal(
     }
 
 
-@router.get("/projects/{project_id}/documents/proposal/diff")
-async def get_proposal_diff(
+@router.get("/projects/{project_id}/documents/{doc_type}/diff")
+async def get_document_diff(
     project_id: str,
+    doc_type: str,
     user: CurrentUser = Depends(resolve_org_membership),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Get section-level diff between latest AI-generated and user-edited revisions."""
+    if doc_type not in _RELEARN_DOC_TYPES:
+        raise HTTPException(400, f"지원되지 않는 문서 타입: {doc_type}")
     await _require_studio_project_access(project_id, "viewer", user, db)
 
-    ai_rev, edited_rev, original_sections, edited_sections, all_names = await _get_proposal_diff_pair(db, project_id)
+    ai_rev, edited_rev, original_sections, edited_sections, all_names = await _get_document_diff_pair(db, project_id, doc_type)
 
     diff_sections = []
     changed_count = 0
@@ -2161,18 +2184,23 @@ async def get_proposal_diff(
 
 
 @router.post("/projects/{project_id}/relearn")
-async def relearn_proposal_style(
+async def relearn_document_style(
     project_id: str,
+    doc_type: str = Query("proposal"),
     user: CurrentUser = Depends(resolve_org_membership),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """Derive a new project-scoped style skill from edited proposal diff.
+    """Derive a new project-scoped style skill from edited document diff.
 
-    Takes the diff between AI-generated and user-edited proposal,
+    Takes the diff between AI-generated and user-edited document,
     appends edit patterns to the pinned style's profile_md_content,
     and creates a new derived ProjectStyleSkill.
     """
+    if doc_type not in _RELEARN_DOC_TYPES:
+        raise HTTPException(400, f"지원되지 않는 문서 타입: {doc_type}")
     await _require_studio_project_access(project_id, "editor", user, db)
+
+    doc_label = _DOC_TYPE_LABEL_MAP.get(doc_type, "문서")
 
     # Load project
     project = (await db.execute(
@@ -2190,7 +2218,7 @@ async def relearn_proposal_style(
         raise HTTPException(404, "핀 설정된 스타일을 찾을 수 없습니다.")
 
     # Get diff pair (shared helper)
-    _, _, original_sections, edited_sections, all_names = await _get_proposal_diff_pair(db, project_id)
+    _, _, original_sections, edited_sections, all_names = await _get_document_diff_pair(db, project_id, doc_type)
 
     # Build edit summary for profile augmentation — iterate union of keys
     edit_notes: list[str] = []
@@ -2213,9 +2241,9 @@ async def relearn_proposal_style(
     base_profile = pinned.profile_md_content or ""
     augmented_profile = (
         base_profile + "\n\n"
-        "## 사용자 수정 패턴 (자동 학습)\n"
+        f"## 사용자 수정 패턴 — {doc_label} (자동 학습)\n"
         + "\n".join(edit_notes) + "\n"
-        "위 수정 패턴을 향후 제안서 생성 시 반영하세요."
+        f"위 수정 패턴을 향후 {doc_label} 생성 시 반영하세요."
     )
 
     # Compute next version
@@ -2250,6 +2278,7 @@ async def relearn_proposal_style(
         detail_json={
             "derived_from_id": pinned.id,
             "edit_notes_count": len(edit_notes),
+            "doc_type": doc_type,
         },
     ))
 
@@ -2263,10 +2292,10 @@ async def relearn_proposal_style(
     }
 
 
-async def _get_proposal_diff_pair(
-    db: AsyncSession, project_id: str,
+async def _get_document_diff_pair(
+    db: AsyncSession, project_id: str, doc_type: str = "proposal",
 ) -> tuple[DocumentRevision, DocumentRevision, dict[str, str], dict[str, str], list[str]]:
-    """Fetch latest AI-generated and user-edited proposal revisions.
+    """Fetch latest AI-generated and user-edited revisions for the given doc_type.
 
     Returns: (ai_rev, edited_rev, original_sections, edited_sections, all_section_names)
     """
@@ -2274,7 +2303,7 @@ async def _get_proposal_diff_pair(
         select(DocumentRevision)
         .where(
             DocumentRevision.project_id == project_id,
-            DocumentRevision.doc_type == "proposal",
+            DocumentRevision.doc_type == doc_type,
             DocumentRevision.source == "ai_generated",
         )
         .order_by(DocumentRevision.revision_number.desc())
@@ -2285,7 +2314,7 @@ async def _get_proposal_diff_pair(
         select(DocumentRevision)
         .where(
             DocumentRevision.project_id == project_id,
-            DocumentRevision.doc_type == "proposal",
+            DocumentRevision.doc_type == doc_type,
             DocumentRevision.source == "user_edited",
         )
         .order_by(DocumentRevision.revision_number.desc())

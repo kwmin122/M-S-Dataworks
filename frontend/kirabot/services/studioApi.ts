@@ -550,22 +550,37 @@ export interface RelearnResult {
   edit_notes_count: number;
 }
 
-export async function saveEditedProposal(
+export async function saveEditedDocument(
   projectId: string,
+  docType: GenerateDocType,
   sections: Array<{ name: string; text: string }>,
 ): Promise<{ revision_id: string; revision_number: number; source: string }> {
-  return studioFetch(`/api/studio/projects/${projectId}/documents/proposal/edited`, {
+  return studioFetch(`/api/studio/projects/${projectId}/documents/${docType}/edited`, {
     method: 'POST',
     body: JSON.stringify({ sections }),
   });
 }
 
-export async function getProposalDiff(projectId: string): Promise<ProposalDiffResult> {
-  return studioFetch(`/api/studio/projects/${projectId}/documents/proposal/diff`);
+export async function getDocumentDiff(
+  projectId: string,
+  docType: GenerateDocType,
+): Promise<ProposalDiffResult> {
+  return studioFetch(`/api/studio/projects/${projectId}/documents/${docType}/diff`);
 }
 
-export async function relearnProposalStyle(projectId: string): Promise<RelearnResult> {
-  return studioFetch(`/api/studio/projects/${projectId}/relearn`, {
+export async function relearnDocumentStyle(
+  projectId: string,
+  docType: GenerateDocType = 'proposal',
+): Promise<RelearnResult> {
+  return studioFetch(`/api/studio/projects/${projectId}/relearn?doc_type=${docType}`, {
     method: 'POST',
   });
 }
+
+// Backward compatibility — keep existing function names
+export const saveEditedProposal = (projectId: string, sections: Array<{ name: string; text: string }>) =>
+  saveEditedDocument(projectId, 'proposal', sections);
+export const getProposalDiff = (projectId: string) =>
+  getDocumentDiff(projectId, 'proposal');
+export const relearnProposalStyle = (projectId: string) =>
+  relearnDocumentStyle(projectId, 'proposal');
