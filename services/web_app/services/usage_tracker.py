@@ -163,7 +163,11 @@ async def enforce_quota(
 
     Designed for use in API endpoints — wraps check_quota with org lookup.
     Gracefully does nothing if the Organization row cannot be loaded (e.g. dev mode).
+    Set BID_QUOTA_DISABLED=1 to skip quota enforcement (testing/development).
     """
+    import os
+    if os.environ.get("BID_QUOTA_DISABLED"):
+        return
     from services.web_app.db.models.org import Organization
 
     result = await db.execute(

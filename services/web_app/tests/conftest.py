@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import os
+
+# Disable quota enforcement during tests — tests use "free" plan orgs
+# and shouldn't be blocked by quota limits
+os.environ.setdefault("BID_QUOTA_DISABLED", "1")
+
 import pytest
 import pytest_asyncio
 from sqlalchemy import event, text
