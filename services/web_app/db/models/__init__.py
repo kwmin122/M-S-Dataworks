@@ -5,6 +5,7 @@ from .document import DocumentRun, DocumentRevision, DocumentAsset, ProjectCurre
 from .company import CompanyProfile, CompanyTrackRecord, CompanyPersonnel
 from .studio import ProjectCompanyAsset, ProjectStyleSkill, ProjectPackageItem
 from .audit import AuditLog
+from .usage import UsageEvent
 
 __all__ = [
     "Base", "CuidPkMixin", "TimestampMixin", "CreatedAtMixin", "new_cuid",
@@ -15,4 +16,5 @@ __all__ = [
     "CompanyProfile", "CompanyTrackRecord", "CompanyPersonnel",
     "ProjectCompanyAsset", "ProjectStyleSkill", "ProjectPackageItem",
     "AuditLog",
+    "UsageEvent",
 ]
