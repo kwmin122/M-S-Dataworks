@@ -499,19 +499,29 @@ async def upload_and_analyze_rfp(
                 os.unlink(tmp_path)
                 raise HTTPException(400, "파일 크기가 50MB를 초과합니다")
             f.write(chunk)
-    # Validate file magic bytes
+    # Validate file type (magic bytes + content heuristic)
     MAGIC_BYTES = {
         '.pdf': [b'%PDF'],
         '.docx': [b'PK\x03\x04'],
         '.xlsx': [b'PK\x03\x04'],
         '.pptx': [b'PK\x03\x04'],
+        '.hwp': [b'\xd0\xcf\x11\xe0'],  # OLE2 compound document
+        '.hwpx': [b'PK\x03\x04'],       # ZIP-based (like OOXML)
     }
     with open(tmp_path, "rb") as check_f:
-        header = check_f.read(8)
+        header = check_f.read(512)
     expected_magic = MAGIC_BYTES.get(ext, [])
-    if expected_magic and not any(header.startswith(m) for m in expected_magic):
+    if expected_magic and not any(header[:len(m)] == m for m in expected_magic):
         os.unlink(tmp_path)
         raise HTTPException(400, "파일 내용이 확장자와 일치하지 않습니다")
+
+    # TXT: no magic bytes — reject binary content
+    if ext == '.txt':
+        try:
+            header.decode('utf-8')
+        except UnicodeDecodeError:
+            os.unlink(tmp_path)
+            raise HTTPException(400, "텍스트 파일이 아닙니다 (바이너리 콘텐츠 감지)")
 
     try:
         # Parse document to extract text

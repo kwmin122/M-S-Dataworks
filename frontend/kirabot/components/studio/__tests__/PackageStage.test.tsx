@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import PackageStage from '../stages/PackageStage';
 import type { PackageItem } from '../../../services/studioApi';
@@ -10,11 +10,15 @@ vi.mock('../../../services/studioApi', async () => {
   return {
     ...actual,
     listPackageItems: vi.fn(),
+    overridePackageClassification: vi.fn(),
+    updatePackageItemStatus: vi.fn(),
   };
 });
 
-import { listPackageItems } from '../../../services/studioApi';
+import { listPackageItems, overridePackageClassification, updatePackageItemStatus } from '../../../services/studioApi';
 const mockListPackageItems = vi.mocked(listPackageItems);
+const mockOverride = vi.mocked(overridePackageClassification);
+const mockUpdateStatus = vi.mocked(updatePackageItemStatus);
 
 const SAMPLE_ITEMS: PackageItem[] = [
   { id: '1', package_category: 'generated_document', document_code: 'proposal', document_label: '기술 제안서', required: true, status: 'ready_to_generate', generation_target: 'proposal', sort_order: 1 },
@@ -89,5 +93,143 @@ describe('PackageStage', () => {
 
     await screen.findByText('기술 제안서');
     expect(screen.getByText('용역 / 협상에 의한 계약')).toBeInTheDocument();
+  });
+
+  // --- Override tests ---
+
+  it('override panel visible when reviewRequired=true', async () => {
+    mockListPackageItems.mockResolvedValue(SAMPLE_ITEMS);
+    render(
+      <PackageStage
+        projectId="test-proj"
+        reviewRequired={true}
+        procurementDomain="service"
+        contractMethod="negotiated"
+      />,
+    );
+
+    await screen.findByText('기술 제안서');
+
+    // Review warning visible
+    expect(screen.getByText('자동 분류 확신 낮음 — 검토가 필요합니다')).toBeInTheDocument();
+
+    // Override button visible
+    expect(screen.getByText('분류 수정')).toBeInTheDocument();
+  });
+
+  it('domain dropdown shows options', async () => {
+    mockListPackageItems.mockResolvedValue(SAMPLE_ITEMS);
+    render(
+      <PackageStage
+        projectId="test-proj"
+        reviewRequired={true}
+        procurementDomain="service"
+        contractMethod="negotiated"
+      />,
+    );
+
+    await screen.findByText('기술 제안서');
+
+    // Open override panel
+    fireEvent.click(screen.getByText('분류 수정'));
+
+    // Domain dropdown should show options
+    expect(screen.getByText('조달 유형')).toBeInTheDocument();
+    expect(screen.getByText('용역')).toBeInTheDocument();
+    expect(screen.getByText('물품')).toBeInTheDocument();
+    expect(screen.getByText('공사')).toBeInTheDocument();
+  });
+
+  it('"분류 수정 적용" calls overridePackageClassification', async () => {
+    mockListPackageItems.mockResolvedValue(SAMPLE_ITEMS);
+    const updatedItems = SAMPLE_ITEMS.map((item) => ({ ...item }));
+    mockOverride.mockResolvedValue({ changes: { procurement_domain: 'goods' }, package_items: updatedItems });
+
+    render(
+      <PackageStage
+        projectId="test-proj"
+        reviewRequired={true}
+        procurementDomain="service"
+        contractMethod="negotiated"
+      />,
+    );
+
+    await screen.findByText('기술 제안서');
+
+    // Open override panel
+    fireEvent.click(screen.getByText('분류 수정'));
+
+    // Change domain — the label uses a block layout without htmlFor, so query by role
+    const domainSelect = screen.getAllByRole('combobox')[0] as HTMLSelectElement;
+    fireEvent.change(domainSelect, { target: { value: 'goods' } });
+
+    // Click apply
+    fireEvent.click(screen.getByText('분류 수정 적용'));
+
+    await waitFor(() => {
+      expect(mockOverride).toHaveBeenCalledWith('test-proj', expect.objectContaining({
+        procurement_domain: 'goods',
+      }));
+    });
+  });
+
+  it('item removal calls overridePackageClassification with remove_item_ids', async () => {
+    mockListPackageItems.mockResolvedValue(SAMPLE_ITEMS);
+    const remainingItems = SAMPLE_ITEMS.filter((i) => i.id !== '3');
+    mockOverride.mockResolvedValue({ changes: {}, package_items: remainingItems });
+
+    render(<PackageStage projectId="test-proj" />);
+
+    await screen.findByText('용역수행실적확인서');
+
+    // Find the remove button (Trash2 icon) for a missing item — hover to reveal
+    // The remove button is inside the group-hover area; fireEvent still works
+    const removeButtons = document.querySelectorAll('button[title="항목 삭제"]');
+    expect(removeButtons.length).toBeGreaterThanOrEqual(1);
+
+    fireEvent.click(removeButtons[0]);
+
+    await waitFor(() => {
+      expect(mockOverride).toHaveBeenCalledWith('test-proj', {
+        remove_item_ids: ['3'],
+      });
+    });
+  });
+
+  it('item waive calls updatePackageItemStatus with waived', async () => {
+    mockListPackageItems.mockResolvedValue(SAMPLE_ITEMS);
+    mockUpdateStatus.mockResolvedValue({ id: '3', status: 'waived', document_code: 'experience_cert' });
+
+    render(<PackageStage projectId="test-proj" />);
+
+    await screen.findByText('용역수행실적확인서');
+
+    // Find the waive button
+    const waiveButtons = screen.getAllByText('면제');
+    expect(waiveButtons.length).toBeGreaterThanOrEqual(1);
+
+    fireEvent.click(waiveButtons[0]);
+
+    await waitFor(() => {
+      expect(mockUpdateStatus).toHaveBeenCalledWith('test-proj', '3', 'waived');
+    });
+  });
+
+  it('add item form appears on "항목 추가" click', async () => {
+    mockListPackageItems.mockResolvedValue(SAMPLE_ITEMS);
+
+    render(<PackageStage projectId="test-proj" />);
+
+    await screen.findByText('기술 제안서');
+
+    // Find "항목 추가" buttons — one per rendered category
+    const addButtons = screen.getAllByText('항목 추가');
+    expect(addButtons.length).toBeGreaterThanOrEqual(1);
+
+    fireEvent.click(addButtons[0]);
+
+    // Input field and submit button should appear
+    expect(screen.getByPlaceholderText('항목명 입력')).toBeInTheDocument();
+    expect(screen.getByText('추가')).toBeInTheDocument();
   });
 });
