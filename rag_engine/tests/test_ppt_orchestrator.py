@@ -57,6 +57,30 @@ def test_generate_ppt_creates_file(mock_llm, mock_kb):
 
 
 @patch("ppt_orchestrator.KnowledgeDB")
+@patch("ppt_slide_planner.call_with_retry")
+def test_generate_ppt_quality_report_populated(mock_llm, mock_kb):
+    """PptResult.quality_report should be populated with expected keys after generation."""
+    mock_kb.return_value.search.return_value = []
+    mock_llm.return_value = _mock_qna_response()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = generate_ppt(
+            rfx_result=_rfx_result(),
+            output_dir=tmpdir,
+            duration_min=20,
+            qna_count=3,
+            api_key="test-key",
+            max_workers=1,
+        )
+        assert isinstance(result.quality_report, dict)
+        assert result.quality_report, "quality_report should not be empty"
+        assert "overall_score" in result.quality_report
+        assert "grade" in result.quality_report
+        assert "dimensions" in result.quality_report
+        assert isinstance(result.quality_report["dimensions"], list)
+        assert len(result.quality_report["dimensions"]) > 0
+
+
+@patch("ppt_orchestrator.KnowledgeDB")
 @patch("ppt_slide_planner.call_with_retry", side_effect=Exception("LLM down"))
 def test_generate_ppt_without_qna(mock_llm, mock_kb):
     mock_kb.return_value.search.return_value = []

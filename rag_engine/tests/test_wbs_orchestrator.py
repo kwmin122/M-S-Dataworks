@@ -59,6 +59,32 @@ def test_generate_wbs_creates_files(mock_llm, MockKB):
 
 
 @patch("wbs_orchestrator.KnowledgeDB")
+@patch("wbs_planner.call_with_retry")
+def test_generate_wbs_quality_report_populated(mock_llm, MockKB):
+    """WbsResult.quality_report should be populated with expected keys after generation."""
+    mock_llm.return_value = _mock_llm_response()
+    mock_kb = MagicMock()
+    mock_kb.search.return_value = []
+    MockKB.return_value = mock_kb
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = generate_wbs(
+            rfx_result=_rfx_result(),
+            output_dir=tmpdir,
+            methodology=MethodologyType.WATERFALL,
+            api_key="test-key",
+            knowledge_db_path=tmpdir,
+        )
+        assert isinstance(result.quality_report, dict)
+        assert result.quality_report, "quality_report should not be empty"
+        assert "overall_score" in result.quality_report
+        assert "grade" in result.quality_report
+        assert "dimensions" in result.quality_report
+        assert isinstance(result.quality_report["dimensions"], list)
+        assert len(result.quality_report["dimensions"]) > 0
+
+
+@patch("wbs_orchestrator.KnowledgeDB")
 @patch("wbs_planner.call_with_retry", side_effect=Exception("LLM down"))
 def test_generate_wbs_fallback_on_llm_failure(mock_llm, MockKB):
     mock_kb = MagicMock()

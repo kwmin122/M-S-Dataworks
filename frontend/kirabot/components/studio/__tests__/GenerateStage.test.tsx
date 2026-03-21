@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import GenerateStage from '../stages/GenerateStage';
 import type { StudioProject, GenerateResult } from '../../../services/studioApi';
@@ -10,12 +10,14 @@ vi.mock('../../../services/studioApi', async () => {
     ...actual,
     generateProposal: vi.fn(),
     getCurrentRevision: vi.fn(),
+    listPackageItems: vi.fn(),
   };
 });
 
-import { generateProposal, getCurrentRevision } from '../../../services/studioApi';
+import { generateProposal, getCurrentRevision, listPackageItems } from '../../../services/studioApi';
 const mockGenerate = vi.mocked(generateProposal);
 const mockGetRevision = vi.mocked(getCurrentRevision);
+const mockListPackageItems = vi.mocked(listPackageItems);
 
 const PROJECT_WITH_SNAPSHOT: StudioProject = {
   id: 'proj1',
@@ -62,12 +64,19 @@ const noop = () => {};
 describe('GenerateStage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: no existing revision
+    // Default: no existing revision, empty package items
     mockGetRevision.mockRejectedValue(new Error('not found'));
+    mockListPackageItems.mockResolvedValue([]);
   });
 
-  it('renders generate conditions and button', () => {
-    render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={noop} />);
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('renders generate conditions and button', async () => {
+    await act(async () => {
+      render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={noop} />);
+    });
 
     expect(screen.getByText('문서 생성')).toBeInTheDocument();
     expect(screen.getByText('공고 분석 완료')).toBeInTheDocument();
@@ -75,15 +84,19 @@ describe('GenerateStage', () => {
     expect(screen.getByText('제안서 생성')).toBeInTheDocument();
   });
 
-  it('disables generate button without snapshot', () => {
-    render(<GenerateStage projectId="proj1" project={PROJECT_NO_SNAPSHOT} onProjectUpdate={noop} />);
+  it('disables generate button without snapshot', async () => {
+    await act(async () => {
+      render(<GenerateStage projectId="proj1" project={PROJECT_NO_SNAPSHOT} onProjectUpdate={noop} />);
+    });
 
     const button = screen.getByText('제안서 생성').closest('button');
     expect(button).toBeDisabled();
   });
 
-  it('shows contract view on toggle', () => {
-    render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={noop} />);
+  it('shows contract view on toggle', async () => {
+    await act(async () => {
+      render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={noop} />);
+    });
 
     fireEvent.click(screen.getByText('입력 계약 보기'));
     expect(screen.getByText('생성 입력 계약 (예상)')).toBeInTheDocument();
@@ -107,9 +120,13 @@ describe('GenerateStage', () => {
       });
     const onUpdate = vi.fn();
 
-    render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={onUpdate} />);
+    await act(async () => {
+      render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={onUpdate} />);
+    });
 
-    fireEvent.click(screen.getByText('제안서 생성'));
+    await act(async () => {
+      fireEvent.click(screen.getByText('제안서 생성'));
+    });
 
     await waitFor(() => {
       expect(mockGenerate).toHaveBeenCalledWith('proj1', { doc_type: 'proposal' });
@@ -127,9 +144,13 @@ describe('GenerateStage', () => {
   it('shows error state on generation failure', async () => {
     mockGenerate.mockRejectedValue(new Error('생성 실패'));
 
-    render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={noop} />);
+    await act(async () => {
+      render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={noop} />);
+    });
 
-    fireEvent.click(screen.getByText('제안서 생성'));
+    await act(async () => {
+      fireEvent.click(screen.getByText('제안서 생성'));
+    });
 
     expect(await screen.findByText('생성 실패')).toBeInTheDocument();
   });
@@ -137,9 +158,13 @@ describe('GenerateStage', () => {
   it('shows actual generation contract fields after successful generation', async () => {
     mockGenerate.mockResolvedValue(SAMPLE_RESULT);
 
-    render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={noop} />);
+    await act(async () => {
+      render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={noop} />);
+    });
 
-    fireEvent.click(screen.getByText('제안서 생성'));
+    await act(async () => {
+      fireEvent.click(screen.getByText('제안서 생성'));
+    });
 
     // Wait for result — contract auto-shows after generation
     await screen.findByText('생성 완료');
@@ -157,8 +182,10 @@ describe('GenerateStage', () => {
     expect(screen.getByText('50p')).toBeInTheDocument(); // total_pages
   });
 
-  it('shows pre-generation contract when toggled before generating', () => {
-    render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={noop} />);
+  it('shows pre-generation contract when toggled before generating', async () => {
+    await act(async () => {
+      render(<GenerateStage projectId="proj1" project={PROJECT_WITH_SNAPSHOT} onProjectUpdate={noop} />);
+    });
 
     fireEvent.click(screen.getByText('입력 계약 보기'));
 

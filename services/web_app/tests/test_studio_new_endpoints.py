@@ -476,6 +476,48 @@ async def test_package_override_presentation_toggle(db_session):
 
 
 @pytest.mark.asyncio
+async def test_package_override_persists_domain_to_settings_json(db_session):
+    """Override domain/method should be saved to project.settings_json."""
+    # This test verifies the root fix for the persistence gap
+    # (previously overrides were only in AuditLog, not persisted)
+    from services.web_app.api.studio import override_package_classification, OverrideClassificationRequest
+
+    org, project, user = await _setup_full(db_session, stage="package")
+    await _add_package_items(db_session, org.id, project.id)
+    await db_session.commit()
+
+    # 1. Call package_override with procurement_domain="construction"
+    req = OverrideClassificationRequest(procurement_domain="construction")
+    result = await override_package_classification(
+        project_id=project.id, req=req, user=user, db=db_session,
+    )
+
+    # 2. Verify settings_json was written
+    assert result["changes"]["domain_override"]["to"] == "construction"
+
+    # 3. Re-query the project from DB to simulate a reload
+    reloaded = await db_session.execute(
+        select(BidProject).where(BidProject.id == project.id)
+    )
+    reloaded_project = reloaded.scalar_one()
+    assert reloaded_project.settings_json is not None
+    assert reloaded_project.settings_json["override_domain"] == "construction"
+
+    # 4. Apply a second override (method) — verify both persist together
+    req2 = OverrideClassificationRequest(contract_method="negotiated")
+    await override_package_classification(
+        project_id=project.id, req=req2, user=user, db=db_session,
+    )
+
+    reloaded2 = await db_session.execute(
+        select(BidProject).where(BidProject.id == project.id)
+    )
+    reloaded_project2 = reloaded2.scalar_one()
+    assert reloaded_project2.settings_json["override_domain"] == "construction"
+    assert reloaded_project2.settings_json["override_method"] == "negotiated"
+
+
+@pytest.mark.asyncio
 async def test_package_override_empty_request(db_session):
     """Empty override (no changes) → 400."""
     from services.web_app.api.studio import override_package_classification, OverrideClassificationRequest

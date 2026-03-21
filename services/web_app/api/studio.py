@@ -458,11 +458,21 @@ async def upload_and_analyze_rfp(
     user: CurrentUser = Depends(resolve_org_membership),
     db: AsyncSession = Depends(get_async_session),
 ):
-    # Rate limit: 전역 SlowAPIMiddleware (60/min) 적용됨.
-    # 파일 업로드 엔드포인트는 UploadFile + @limiter.limit 호환 문제로
-    # per-endpoint 데코레이터 대신 전역 미들웨어에 의존합니다.
     """Upload an RFP file (PDF/DOCX/HWP/HWPX/TXT), parse it, and analyze."""
     await require_project_access(project_id, "editor", user, db)
+
+    # Per-user rate limit: max 5 uploads per minute (no @limiter — incompatible with UploadFile)
+    from sqlalchemy import func as sa_func
+    cutoff = datetime.now(timezone.utc).replace(microsecond=0) - __import__('datetime').timedelta(minutes=1)
+    recent_count = await db.execute(
+        select(sa_func.count()).where(
+            AuditLog.user_id == user.username,
+            AuditLog.action == "studio_rfp_file_analyzed",
+            AuditLog.created_at >= cutoff,
+        )
+    )
+    if (recent_count.scalar() or 0) >= 5:
+        raise HTTPException(429, "파일 업로드는 1분에 5회까지 가능합니다. 잠시 후 다시 시도해주세요.")
 
     result = await db.execute(
         select(BidProject).where(
