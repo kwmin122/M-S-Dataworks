@@ -235,6 +235,76 @@ def check_length_adequacy(text: str, target_chars: int) -> QualityDimension:
     )
 
 
+def check_schedule_realism(text: str, target_months: int = 0) -> QualityDimension:
+    """Check if WBS schedule is realistic."""
+    # Count task mentions
+    task_pattern = r'(?:^|\|)\s*\d+\s*(?:\||\.)'
+    task_count = len(re.findall(task_pattern, text, re.MULTILINE))
+
+    # Check for unrealistic compression (30+ tasks in <3 months)
+    if target_months > 0 and task_count > 0:
+        tasks_per_month = task_count / max(target_months, 1)
+        if tasks_per_month > 10:
+            score = 0.3
+            details = [f"월평균 {tasks_per_month:.1f}개 태스크 — 과밀 일정"]
+        elif tasks_per_month > 5:
+            score = 0.6
+            details = [f"월평균 {tasks_per_month:.1f}개 태스크 — 다소 촉박"]
+        else:
+            score = 1.0
+            details = [f"월평균 {tasks_per_month:.1f}개 태스크 — 적정"]
+    else:
+        score = 0.7
+        details = ["일정 기간 정보 부족"]
+
+    return QualityDimension(
+        name="schedule_realism", label="일정 현실성",
+        score=score, details=details,
+    )
+
+
+def check_role_task_mapping(text: str) -> QualityDimension:
+    """Check if roles are mapped to tasks."""
+    has_role_column = bool(re.search(r'담당|역할|책임', text))
+    has_person_names = bool(re.search(r'[가-힣]{2,4}\s*(?:책임|담당|수행)', text))
+
+    if has_role_column and has_person_names:
+        score = 1.0
+        details = ["역할-태스크 매핑 있음"]
+    elif has_role_column:
+        score = 0.7
+        details = ["역할 컬럼은 있으나 구체적 인력 배정 불명확"]
+    else:
+        score = 0.3
+        details = ["역할-태스크 매핑 없음"]
+
+    return QualityDimension(
+        name="role_task_mapping", label="역할-태스크 매핑",
+        score=score, details=details,
+    )
+
+
+def check_deliverables(text: str) -> QualityDimension:
+    """Check if deliverables/산출물 are specified."""
+    deliverable_keywords = ["산출물", "납품물", "보고서", "결과물", "인도물"]
+    found = sum(1 for kw in deliverable_keywords if kw in text)
+
+    if found >= 3:
+        score = 1.0
+        details = [f"산출물 관련 키워드 {found}건"]
+    elif found >= 1:
+        score = 0.6
+        details = [f"산출물 관련 키워드 {found}건 — 보강 필요"]
+    else:
+        score = 0.2
+        details = ["산출물 명시 없음"]
+
+    return QualityDimension(
+        name="deliverables", label="산출물 명시",
+        score=score, details=details,
+    )
+
+
 def run_quality_gate(
     text: str,
     doc_type: str = "proposal",
@@ -244,39 +314,71 @@ def run_quality_gate(
 ) -> QualityReport:
     """Run full quality gate on generated text. Returns structured report.
 
-    Dimensions checked:
+    Dimensions checked (common):
     - evidence_density: quantitative evidence per 1000 chars
-    - rfp_alignment: RFP evaluation keyword coverage
     - vague_expressions: unsubstantiated abstract claims
     - format_completeness: markdown structural elements
     - style_consistency: Korean formal style (격식체)
     - length: text length vs target
-    - blind_violation: company name leakage
+
+    Doc-type specific:
+    - proposal: rfp_alignment + blind_violation
+    - execution_plan: schedule_realism + role_task_mapping + deliverables
+    - presentation: rfp_alignment
+    - track_record: rfp_alignment + blind_violation
     """
+    # Common dimensions (for all doc types)
     dimensions = [
         check_evidence_density(text),
-        check_rfp_alignment(text, rfp_keywords or []),
         check_vague_expressions(text),
         check_format_completeness(text),
         check_style_consistency(text),
         check_length_adequacy(text, target_chars),
     ]
 
-    # Blind check
-    if company_name and company_name in text:
-        dimensions.append(QualityDimension(
-            name="blind_violation",
-            label="블라인드 준수",
-            score=0.0,
-            details=[f"회사명 '{company_name}' 노출"],
-        ))
+    # Doc-type specific dimensions
+    if doc_type == "execution_plan":
+        dimensions.append(check_schedule_realism(text))
+        dimensions.append(check_role_task_mapping(text))
+        dimensions.append(check_deliverables(text))
+
+    elif doc_type == "presentation":
+        dimensions.append(check_rfp_alignment(text, rfp_keywords or []))
+
+    elif doc_type == "track_record":
+        dimensions.append(check_rfp_alignment(text, rfp_keywords or []))
+        if company_name and company_name in text:
+            dimensions.append(QualityDimension(
+                name="blind_violation",
+                label="블라인드 준수",
+                score=0.0,
+                details=[f"회사명 '{company_name}' 노출"],
+            ))
+        else:
+            dimensions.append(QualityDimension(
+                name="blind_violation",
+                label="블라인드 준수",
+                score=1.0,
+                details=["위반 없음"],
+            ))
+
     else:
-        dimensions.append(QualityDimension(
-            name="blind_violation",
-            label="블라인드 준수",
-            score=1.0,
-            details=["위반 없음"],
-        ))
+        # Default: proposal (and any unknown type)
+        dimensions.append(check_rfp_alignment(text, rfp_keywords or []))
+        if company_name and company_name in text:
+            dimensions.append(QualityDimension(
+                name="blind_violation",
+                label="블라인드 준수",
+                score=0.0,
+                details=[f"회사명 '{company_name}' 노출"],
+            ))
+        else:
+            dimensions.append(QualityDimension(
+                name="blind_violation",
+                label="블라인드 준수",
+                score=1.0,
+                details=["위반 없음"],
+            ))
 
     # Overall score (weighted average)
     weights = {
@@ -287,6 +389,9 @@ def run_quality_gate(
         "style_consistency": 1.0,
         "length": 1.0,
         "blind_violation": 1.5,
+        "schedule_realism": 1.5,
+        "role_task_mapping": 1.5,
+        "deliverables": 1.0,
     }
     total_weight = sum(weights.get(d.name, 1.0) for d in dimensions)
     weighted_sum = sum(d.score * weights.get(d.name, 1.0) for d in dimensions)

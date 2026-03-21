@@ -188,15 +188,17 @@ def generate_wbs_xlsx(
 # ---------------------------------------------------------------------------
 
 def _find_korean_font() -> Optional[str]:
-    """한글 폰트 경로 자동 탐색."""
+    """Find Korean font with robust fallback for all platforms."""
     candidates = [
         # macOS
         "/System/Library/Fonts/AppleSDGothicNeo.ttc",
-        "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
         "/Library/Fonts/NanumGothic.ttf",
-        # Linux
+        # Linux (Docker/Railway)
         "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
         "/usr/share/fonts/nanum/NanumGothic.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
         # Windows
         "C:/Windows/Fonts/malgun.ttf",
         "C:/Windows/Fonts/NanumGothic.ttf",
@@ -204,6 +206,18 @@ def _find_korean_font() -> Optional[str]:
     for path in candidates:
         if os.path.isfile(path):
             return path
+
+    # Last resort: search common font directories
+    import glob
+    for pattern in [
+        "/usr/share/fonts/**/Nanum*.ttf",
+        "/usr/share/fonts/**/NotoSans*CJK*.ttc",
+        "/usr/share/fonts/**/NotoSans*CJK*.otf",
+    ]:
+        matches = glob.glob(pattern, recursive=True)
+        if matches:
+            return matches[0]
+
     return None
 
 
@@ -225,6 +239,7 @@ def generate_gantt_chart(
         font_prop = fm.FontProperties(fname=ko_font_path, size=8)
         title_font = fm.FontProperties(fname=ko_font_path, size=12, weight="bold")
     else:
+        logger.warning("Korean font not found — Gantt labels may render incorrectly")
         font_prop = fm.FontProperties(size=8)
         title_font = fm.FontProperties(size=12, weight="bold")
 

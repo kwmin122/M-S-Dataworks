@@ -51,6 +51,159 @@ _TEMPLATES: dict[MethodologyType, list[dict[str, Any]]] = {
     MethodologyType.HYBRID: HYBRID_TEMPLATE,
 }
 
+# ---------------------------------------------------------------------------
+# 도메인별 WBS 템플릿 (비-IT 사업 지원)
+# ---------------------------------------------------------------------------
+
+DOMAIN_TEMPLATES: dict[str, dict[str, list[dict[str, Any]]]] = {
+    "it_build": {
+        "waterfall": [
+            {"phase": "착수", "ratio": 0.05, "tasks": ["사업착수 회의", "수행계획서 작성", "착수보고"]},
+            {"phase": "분석", "ratio": 0.15, "tasks": ["현황 분석", "요구사항 분석", "요구사항 명세"]},
+            {"phase": "설계", "ratio": 0.20, "tasks": ["아키텍처 설계", "상세 설계", "UI/UX 설계", "DB 설계"]},
+            {"phase": "구현", "ratio": 0.35, "tasks": ["기능 개발", "단위 테스트", "통합 테스트"]},
+            {"phase": "시험", "ratio": 0.15, "tasks": ["성능 테스트", "보안 점검", "사용자 수용 테스트"]},
+            {"phase": "이행/종료", "ratio": 0.10, "tasks": ["데이터 이관", "시스템 전환", "교육", "종료보고"]},
+        ],
+    },
+    "construction": {
+        "waterfall": [
+            {"phase": "착수", "ratio": 0.05, "tasks": ["착수 준비", "시공계획서 작성", "착수보고"]},
+            {"phase": "설계검토", "ratio": 0.10, "tasks": ["설계도서 검토", "시방서 분석", "물량 검증"]},
+            {"phase": "시공", "ratio": 0.50, "tasks": ["가설공사", "토공사", "구조물 공사", "설비 공사", "마감 공사"]},
+            {"phase": "품질/안전", "ratio": 0.15, "tasks": ["품질시험", "안전관리", "환경관리", "자재 검수"]},
+            {"phase": "준공", "ratio": 0.10, "tasks": ["준공검사", "시운전", "하자보수 계획"]},
+            {"phase": "종료", "ratio": 0.10, "tasks": ["준공보고", "인수인계", "유지관리 계획"]},
+        ],
+    },
+    "consulting": {
+        "waterfall": [
+            {"phase": "착수", "ratio": 0.05, "tasks": ["착수보고", "수행계획 수립"]},
+            {"phase": "현황분석", "ratio": 0.20, "tasks": ["현황 조사", "이해관계자 인터뷰", "벤치마킹", "문제점 도출"]},
+            {"phase": "전략수립", "ratio": 0.25, "tasks": ["목표 설정", "전략 대안 도출", "최적안 선정"]},
+            {"phase": "실행계획", "ratio": 0.25, "tasks": ["실행 로드맵", "과제 정의", "추진체계 설계"]},
+            {"phase": "보고/이행", "ratio": 0.15, "tasks": ["최종보고서 작성", "이행 지원", "교육/확산"]},
+            {"phase": "종료", "ratio": 0.10, "tasks": ["종료보고", "산출물 납품"]},
+        ],
+    },
+    "research": {
+        "waterfall": [
+            {"phase": "착수", "ratio": 0.05, "tasks": ["연구착수", "연구계획서 확정"]},
+            {"phase": "문헌조사", "ratio": 0.15, "tasks": ["선행연구 분석", "국내외 사례 조사", "법제도 분석"]},
+            {"phase": "연구수행", "ratio": 0.40, "tasks": ["연구방법론 적용", "데이터 수집", "분석/실험", "결과 도출"]},
+            {"phase": "보고서", "ratio": 0.25, "tasks": ["중간보고", "최종보고서 작성", "정책 제언"]},
+            {"phase": "종료", "ratio": 0.15, "tasks": ["전문가 자문", "성과 발표", "산출물 납품"]},
+        ],
+    },
+    "goods": {
+        "waterfall": [
+            {"phase": "착수", "ratio": 0.05, "tasks": ["계약 확정", "납품계획 수립"]},
+            {"phase": "제작/조달", "ratio": 0.40, "tasks": ["원자재 조달", "제조/생산", "품질검사"]},
+            {"phase": "납품", "ratio": 0.20, "tasks": ["포장/운송", "납품검수", "설치/시운전"]},
+            {"phase": "교육/인수", "ratio": 0.20, "tasks": ["사용자 교육", "운영 매뉴얼", "인수인계"]},
+            {"phase": "하자보증", "ratio": 0.15, "tasks": ["하자보수 체계", "유지관리 지원", "종료보고"]},
+        ],
+    },
+    "supervision": {
+        "waterfall": [
+            {"phase": "착수", "ratio": 0.05, "tasks": ["감리착수", "감리계획서 작성", "착수보고"]},
+            {"phase": "분석단계 감리", "ratio": 0.20, "tasks": ["요구사항 검증", "분석 산출물 검토", "감리조서 작성"]},
+            {"phase": "설계단계 감리", "ratio": 0.25, "tasks": ["설계 적정성 검증", "아키텍처 검토", "감리조서 작성"]},
+            {"phase": "구현단계 감리", "ratio": 0.25, "tasks": ["소스코드 품질검증", "테스트 충분성 검토", "감리조서 작성"]},
+            {"phase": "종료단계 감리", "ratio": 0.15, "tasks": ["산출물 완전성 검증", "이관 적정성 검토"]},
+            {"phase": "종료", "ratio": 0.10, "tasks": ["최종 감리보고서", "감리 종료보고"]},
+        ],
+    },
+}
+
+# ---------------------------------------------------------------------------
+# 도메인 감지 (키워드 기반)
+# ---------------------------------------------------------------------------
+
+DOMAIN_KEYWORDS: dict[str, list[str]] = {
+    "construction": ["공사", "시공", "토목", "건축", "설비", "건설"],
+    "supervision": ["감리", "PMO", "검수", "감리원"],
+    "consulting": ["컨설팅", "ISP", "BPR", "전략수립", "정보화전략"],
+    "research": ["연구", "R&D", "학술", "논문", "실험"],
+    "goods": ["물품", "납품", "제조", "장비", "기자재", "설치"],
+    "it_build": ["정보시스템", "소프트웨어", "SW", "개발", "구축", "홈페이지", "앱", "플랫폼"],
+}
+
+
+def _detect_domain(rfp_text: str) -> str:
+    """RFP 텍스트에서 사업 도메인을 키워드 기반으로 감지.
+
+    Returns one of: it_build, construction, consulting, research, goods, supervision.
+    Falls back to 'it_build' if no clear signal.
+    """
+    text = rfp_text.lower()
+    scores: dict[str, int] = {}
+    for domain, keywords in DOMAIN_KEYWORDS.items():
+        scores[domain] = sum(1 for kw in keywords if kw.lower() in text)
+
+    if not any(scores.values()):
+        return "it_build"
+
+    best = max(scores, key=lambda d: scores[d])
+    if scores[best] == 0:
+        return "it_build"
+    return best
+
+
+def _get_domain_template(domain: str, methodology: MethodologyType) -> list[dict[str, Any]]:
+    """도메인 + 방법론에 맞는 WBS 템플릿 반환.
+
+    비-IT 도메인은 waterfall만 지원. agile/hybrid 요청 시 IT 템플릿 사용.
+    """
+    if domain != "it_build" and methodology != MethodologyType.WATERFALL:
+        # Non-IT domains only have waterfall templates; fall back to IT methodology template
+        logger.info(
+            "Domain '%s' has no %s template, using IT %s template",
+            domain, methodology.value, methodology.value,
+        )
+        return _TEMPLATES[methodology]
+
+    domain_entry = DOMAIN_TEMPLATES.get(domain, DOMAIN_TEMPLATES["it_build"])
+    meth_key = methodology.value  # "waterfall" / "agile" / "hybrid"
+    if meth_key in domain_entry:
+        return domain_entry[meth_key]
+
+    # IT agile/hybrid — use the original _TEMPLATES
+    return _TEMPLATES[methodology]
+
+
+# ---------------------------------------------------------------------------
+# 역할-등급 매핑 (도메인 확장)
+# ---------------------------------------------------------------------------
+
+ROLE_GRADES: dict[str, str] = {
+    # IT
+    "PM": "특급", "PD": "특급", "프로젝트매니저": "특급",
+    "PL": "고급", "아키텍트": "고급", "설계자": "고급",
+    # Construction
+    "현장소장": "특급", "공사감독": "특급",
+    "시공관리자": "고급", "품질관리자": "고급", "안전관리자": "고급",
+    # Supervision
+    "총괄감리원": "특급", "책임감리원": "특급",
+    "수석감리원": "고급", "감리원": "중급",
+    # Research
+    "연구책임자": "특급", "책임연구원": "고급",
+    "선임연구원": "고급", "연구원": "중급",
+    # Consulting
+    "수석컨설턴트": "특급", "선임컨설턴트": "고급",
+    "컨설턴트": "중급",
+}
+
+# Default role per domain (used by _fallback_tasks when no role info)
+_DOMAIN_DEFAULT_ROLE: dict[str, str] = {
+    "it_build": "개발자",
+    "construction": "시공관리자",
+    "consulting": "컨설턴트",
+    "research": "연구원",
+    "goods": "조달담당자",
+    "supervision": "감리원",
+}
+
 
 # ---------------------------------------------------------------------------
 # 사업기간 추출
@@ -249,12 +402,8 @@ def _allocate_personnel(
                 if task.duration_months > 0:
                     monthly[m] += task.man_months / task.duration_months
 
-        # Determine grade based on role
-        grade = "중급"
-        if role in ("PM", "PD", "프로젝트매니저"):
-            grade = "특급"
-        elif role in ("PL", "아키텍트", "설계자"):
-            grade = "고급"
+        # Determine grade based on role (expanded ROLE_GRADES lookup)
+        grade = ROLE_GRADES.get(role, "중급")
 
         allocations.append(PersonnelAllocation(
             role=role,
@@ -274,6 +423,7 @@ def plan_wbs(
     knowledge_texts: Optional[list[str]] = None,
     company_context: str = "",
     profile_md: str = "",
+    domain: Optional[str] = None,
 ) -> tuple[list[WbsTask], list[PersonnelAllocation], int, MethodologyType]:
     """RFP 분석 결과로 WBS 구조 생성.
 
@@ -281,6 +431,8 @@ def plan_wbs(
         knowledge_texts: Layer 1 knowledge rules from KnowledgeDB (optional).
         company_context: Layer 2 회사 역량 컨텍스트 (optional).
         profile_md: 회사 제안서 프로필 (문체/전략/강점 DNA).
+        domain: 사업 도메인 (it_build/construction/consulting/research/goods/supervision).
+                None이면 RFP 텍스트에서 자동 감지.
 
     Returns: (tasks, personnel, total_months, methodology)
     """
@@ -293,7 +445,14 @@ def plan_wbs(
     # Safety clamp: max 60 months (5 years) — prevents LLM hallucination crash
     total_months = max(1, min(total_months, 60))
 
-    template = _TEMPLATES[methodology]
+    # Detect domain from RFP if not explicitly provided
+    if domain is None:
+        rfp_text_for_domain = json.dumps(rfx_result, ensure_ascii=False)
+        domain = _detect_domain(rfp_text_for_domain)
+    logger.info("WBS domain detected: %s", domain)
+
+    # Select domain-aware template
+    template = _get_domain_template(domain, methodology)
 
     # Use LLM to customize tasks based on RFP + Layer 1 + Layer 2 knowledge
     tasks = _generate_wbs_tasks_llm(
@@ -301,6 +460,7 @@ def plan_wbs(
         knowledge_texts=knowledge_texts,
         company_context=company_context,
         profile_md=profile_md,
+        domain=domain,
     )
 
     # Allocate personnel
@@ -348,9 +508,11 @@ def _build_wbs_prompt(
     knowledge_texts: Optional[list[str]] = None,
     company_context: str = "",
     profile_md: str = "",
+    domain: str = "it_build",
 ) -> str:
-    """6계층 프롬프트 조립 (section_writer 패턴).
+    """7계층 프롬프트 조립 (section_writer 패턴).
 
+    Layer 0: 도메인 컨텍스트
     Layer 1: 범용 지식 (KnowledgeDB)
     Layer 1.5: 회사 역량 (CompanyDB)
     Layer 1.7: 회사 프로필 (profile.md — 문체/전략/강점 DNA)
@@ -359,6 +521,23 @@ def _build_wbs_prompt(
     Layer 4: 생성 지시
     """
     parts: list[str] = []
+
+    # Layer 0 — domain context
+    domain_labels = {
+        "it_build": "IT 시스템 구축/개발",
+        "construction": "건설/시공/공사",
+        "consulting": "컨설팅/ISP/BPR",
+        "research": "연구/R&D/학술용역",
+        "goods": "물품/장비 납품",
+        "supervision": "감리/PMO",
+    }
+    domain_label = domain_labels.get(domain, "IT 시스템 구축/개발")
+    parts.append(
+        f"## 사업 도메인: {domain_label}\n"
+        f"이 사업은 '{domain_label}' 유형입니다. "
+        f"태스크명, 산출물, 담당 역할을 이 도메인에 맞게 작성하세요. "
+        f"IT 전용 용어(아키텍처 설계, 단위 테스트 등)를 비-IT 사업에 사용하지 마세요."
+    )
 
     # Layer 1 — retrieved universal knowledge
     if knowledge_texts:
@@ -428,19 +607,22 @@ def _generate_wbs_tasks_llm(
     knowledge_texts: Optional[list[str]] = None,
     company_context: str = "",
     profile_md: str = "",
+    domain: str = "it_build",
 ) -> list[WbsTask]:
-    """LLM으로 RFP 맞춤 WBS 태스크 생성 (Structured Outputs + 6계층 프롬프트)."""
+    """LLM으로 RFP 맞춤 WBS 태스크 생성 (Structured Outputs + 7계층 프롬프트)."""
     import openai
 
     resolved_key = api_key or os.environ.get("OPENAI_API_KEY", "")
     client = openai.OpenAI(api_key=resolved_key, timeout=LLM_DEFAULT_TIMEOUT)
 
-    prompt = _build_wbs_prompt(rfx_result, template, total_months, methodology, knowledge_texts, company_context=company_context, profile_md=profile_md)
+    prompt = _build_wbs_prompt(rfx_result, template, total_months, methodology, knowledge_texts, company_context=company_context, profile_md=profile_md, domain=domain)
 
     system_prompt = (
         "당신은 대한민국 공공조달 프로젝트 WBS 작성 전문가입니다. "
+        "IT 구축, 건설, 컨설팅, 연구, 물품, 감리 등 모든 조달 유형의 WBS를 생성합니다. "
         "RFP 분석 결과와 방법론 프레임워크를 기반으로 구체적이고 실행 가능한 WBS를 생성합니다. "
-        "각 태스크는 이 사업에 특화된 내용이어야 하며, 범용적 템플릿을 그대로 복사하지 마세요."
+        "각 태스크는 이 사업에 특화된 내용이어야 하며, 범용적 템플릿을 그대로 복사하지 마세요. "
+        "사업 도메인에 맞는 용어와 역할을 사용하세요."
     )
 
     def _call():
@@ -470,16 +652,16 @@ def _generate_wbs_tasks_llm(
         # template-based WBS is always a valid output.
         if choice.finish_reason == "length":
             logger.warning("WBS generation truncated (finish_reason=length), using fallback")
-            return _fallback_tasks(template, total_months)
+            return _fallback_tasks(template, total_months, domain=domain)
         raw = choice.message.content or "{}"
         result = json.loads(raw)
         items = result.get("tasks", [])
     except Exception as exc:
         logger.warning("LLM WBS generation failed, using template fallback: %s", exc)
-        return _fallback_tasks(template, total_months)
+        return _fallback_tasks(template, total_months, domain=domain)
 
     if not isinstance(items, list):
-        return _fallback_tasks(template, total_months)
+        return _fallback_tasks(template, total_months, domain=domain)
 
     tasks: list[WbsTask] = []
     for item in items:
@@ -495,14 +677,14 @@ def _generate_wbs_tasks_llm(
                 start_month=start,
                 duration_months=dur,
                 deliverables=item.get("deliverables", []),
-                responsible_role=item.get("responsible_role", "개발자"),
+                responsible_role=item.get("responsible_role", _DOMAIN_DEFAULT_ROLE.get(domain, "개발자")),
                 man_months=max(0.1, float(item.get("man_months", 1.0))),
             ))
         except (ValueError, TypeError):
             continue
 
     if not tasks:
-        return _fallback_tasks(template, total_months)
+        return _fallback_tasks(template, total_months, domain=domain)
 
     return tasks
 
@@ -510,8 +692,10 @@ def _generate_wbs_tasks_llm(
 def _fallback_tasks(
     template: list[dict[str, Any]],
     total_months: int,
+    domain: str = "it_build",
 ) -> list[WbsTask]:
     """LLM 실패 시 템플릿 기반 기본 WBS."""
+    default_role = _DOMAIN_DEFAULT_ROLE.get(domain, "개발자")
     tasks: list[WbsTask] = []
     current_month = 1
     for phase_info in template:
@@ -522,7 +706,7 @@ def _fallback_tasks(
                 task_name=task_name,
                 start_month=current_month,
                 duration_months=duration,
-                responsible_role="개발자",
+                responsible_role=default_role,
                 man_months=round(duration * 0.8, 1),
             ))
         current_month = min(current_month + duration, total_months)

@@ -9,10 +9,16 @@ from wbs_planner import (
     _extract_project_duration,
     _detect_methodology,
     _detect_methodology_keywords,
+    _detect_domain,
+    _get_domain_template,
     _fallback_tasks,
     plan_wbs,
     WATERFALL_TEMPLATE,
     AGILE_TEMPLATE,
+    DOMAIN_TEMPLATES,
+    DOMAIN_KEYWORDS,
+    ROLE_GRADES,
+    _DOMAIN_DEFAULT_ROLE,
 )
 
 
@@ -245,3 +251,323 @@ def test_plan_wbs_no_api_key_uses_fallback():
         )
     assert len(tasks) > 0  # fallback tasks generated
     assert months == 8
+
+
+# ---------------------------------------------------------------------------
+# Domain detection tests
+# ---------------------------------------------------------------------------
+
+def test_detect_domain_construction():
+    """건설/공사 도메인 감지."""
+    assert _detect_domain("도로 건설 공사 시공 관리") == "construction"
+
+
+def test_detect_domain_supervision():
+    """감리 도메인 감지."""
+    assert _detect_domain("정보시스템 감리 용역") == "supervision"
+
+
+def test_detect_domain_consulting():
+    """컨설팅 도메인 감지."""
+    assert _detect_domain("ISP 정보화전략 컨설팅") == "consulting"
+
+
+def test_detect_domain_research():
+    """연구 도메인 감지."""
+    assert _detect_domain("R&D 연구 용역 학술 실험") == "research"
+
+
+def test_detect_domain_goods():
+    """물품 도메인 감지."""
+    assert _detect_domain("장비 기자재 납품 설치") == "goods"
+
+
+def test_detect_domain_it_build():
+    """IT 구축 도메인 감지."""
+    assert _detect_domain("정보시스템 소프트웨어 구축 개발") == "it_build"
+
+
+def test_detect_domain_default_fallback():
+    """키워드 없으면 it_build 기본값."""
+    assert _detect_domain("특별한 키워드 없는 사업") == "it_build"
+
+
+def test_detect_domain_mixed_highest_wins():
+    """여러 도메인 키워드 혼재 시 최다 매칭 도메인."""
+    # construction keywords: 공사, 시공, 건설 = 3 hits
+    # it_build keywords: 개발 = 1 hit
+    text = "건설 공사 시공 관리 시스템 개발"
+    assert _detect_domain(text) == "construction"
+
+
+# ---------------------------------------------------------------------------
+# Domain template selection tests
+# ---------------------------------------------------------------------------
+
+def test_get_domain_template_construction_waterfall():
+    """건설 도메인 + waterfall → 건설 전용 템플릿."""
+    template = _get_domain_template("construction", MethodologyType.WATERFALL)
+    phase_names = [p["phase"] for p in template]
+    assert "시공" in phase_names
+    assert "아키텍처 설계" not in [t for p in template for t in p["tasks"]]
+
+
+def test_get_domain_template_nonit_agile_fallback():
+    """비-IT 도메인 + agile → IT agile 템플릿 fallback."""
+    template = _get_domain_template("construction", MethodologyType.AGILE)
+    # Should fall back to IT agile template
+    phase_names = [p["phase"] for p in template]
+    assert "스프린트 1~N" in phase_names
+
+
+def test_get_domain_template_unknown_domain_fallback():
+    """알 수 없는 도메인 → it_build 기본."""
+    template = _get_domain_template("unknown_domain", MethodologyType.WATERFALL)
+    # Falls back to it_build waterfall
+    phase_names = [p["phase"] for p in template]
+    assert "착수" in phase_names
+
+
+# ---------------------------------------------------------------------------
+# Role grade mapping tests
+# ---------------------------------------------------------------------------
+
+def test_role_grades_it():
+    """IT 역할 등급 매핑."""
+    assert ROLE_GRADES["PM"] == "특급"
+    assert ROLE_GRADES["PL"] == "고급"
+    assert ROLE_GRADES["아키텍트"] == "고급"
+
+
+def test_role_grades_construction():
+    """건설 역할 등급 매핑."""
+    assert ROLE_GRADES["현장소장"] == "특급"
+    assert ROLE_GRADES["시공관리자"] == "고급"
+    assert ROLE_GRADES["안전관리자"] == "고급"
+
+
+def test_role_grades_supervision():
+    """감리 역할 등급 매핑."""
+    assert ROLE_GRADES["총괄감리원"] == "특급"
+    assert ROLE_GRADES["감리원"] == "중급"
+
+
+def test_role_grades_research():
+    """연구 역할 등급 매핑."""
+    assert ROLE_GRADES["연구책임자"] == "특급"
+    assert ROLE_GRADES["연구원"] == "중급"
+
+
+def test_role_grades_consulting():
+    """컨설팅 역할 등급 매핑."""
+    assert ROLE_GRADES["수석컨설턴트"] == "특급"
+    assert ROLE_GRADES["컨설턴트"] == "중급"
+
+
+# ---------------------------------------------------------------------------
+# Fallback tasks with domain
+# ---------------------------------------------------------------------------
+
+def test_fallback_tasks_construction_domain():
+    """건설 도메인 fallback → 시공관리자 기본 역할."""
+    template = DOMAIN_TEMPLATES["construction"]["waterfall"]
+    tasks = _fallback_tasks(template, 12, domain="construction")
+    assert len(tasks) > 0
+    # All tasks should have construction default role
+    for t in tasks:
+        assert t.responsible_role == "시공관리자"
+    # Should have construction phase names
+    phases = {t.phase for t in tasks}
+    assert "시공" in phases
+
+
+def test_fallback_tasks_research_domain():
+    """연구 도메인 fallback → 연구원 기본 역할."""
+    template = DOMAIN_TEMPLATES["research"]["waterfall"]
+    tasks = _fallback_tasks(template, 10, domain="research")
+    assert len(tasks) > 0
+    for t in tasks:
+        assert t.responsible_role == "연구원"
+    phases = {t.phase for t in tasks}
+    assert "연구수행" in phases
+
+
+def test_fallback_tasks_supervision_domain():
+    """감리 도메인 fallback → 감리원 기본 역할."""
+    template = DOMAIN_TEMPLATES["supervision"]["waterfall"]
+    tasks = _fallback_tasks(template, 8, domain="supervision")
+    assert len(tasks) > 0
+    for t in tasks:
+        assert t.responsible_role == "감리원"
+
+
+def test_fallback_tasks_it_build_backward_compat():
+    """기존 IT fallback 동작 유지 (domain 미지정 시 it_build 기본)."""
+    tasks = _fallback_tasks(WATERFALL_TEMPLATE, 8)
+    assert len(tasks) > 0
+    for t in tasks:
+        assert t.responsible_role == "개발자"
+
+
+# ---------------------------------------------------------------------------
+# plan_wbs domain integration tests
+# ---------------------------------------------------------------------------
+
+def _rfx_construction():
+    return {
+        "title": "OO도로 건설 공사",
+        "issuing_org": "국토교통부",
+        "budget": "100억",
+        "project_period": "24개월",
+        "requirements": [
+            {"category": "공사", "description": "토공사 및 구조물 시공"},
+            {"category": "안전", "description": "건설안전관리 계획"},
+        ],
+    }
+
+
+def _rfx_research():
+    return {
+        "title": "차세대 AI 기술 연구 용역",
+        "issuing_org": "과학기술정보통신부",
+        "budget": "5억",
+        "project_period": "12개월",
+        "requirements": [
+            {"category": "연구", "description": "R&D 선행연구 분석"},
+            {"category": "연구", "description": "실험 데이터 수집 및 논문 발표"},
+        ],
+    }
+
+
+def test_plan_wbs_construction_auto_domain():
+    """건설 RFP → 자동 도메인 감지 + 건설 템플릿 fallback."""
+    with patch("wbs_planner.call_with_retry", side_effect=Exception("LLM down")):
+        tasks, personnel, months, methodology = plan_wbs(
+            _rfx_construction(),
+            methodology=MethodologyType.WATERFALL,
+            api_key="test-key",
+        )
+    assert months == 24
+    phases = {t.phase for t in tasks}
+    assert "시공" in phases
+    # Default role should be construction-appropriate
+    roles = {t.responsible_role for t in tasks}
+    assert "시공관리자" in roles
+    assert "개발자" not in roles
+
+
+def test_plan_wbs_research_auto_domain():
+    """연구 RFP → 자동 도메인 감지 + 연구 템플릿 fallback."""
+    with patch("wbs_planner.call_with_retry", side_effect=Exception("LLM down")):
+        tasks, personnel, months, methodology = plan_wbs(
+            _rfx_research(),
+            methodology=MethodologyType.WATERFALL,
+            api_key="test-key",
+        )
+    assert months == 12
+    phases = {t.phase for t in tasks}
+    assert "연구수행" in phases
+    roles = {t.responsible_role for t in tasks}
+    assert "연구원" in roles
+
+
+def test_plan_wbs_explicit_domain_override():
+    """명시적 domain 파라미터가 자동 감지보다 우선."""
+    with patch("wbs_planner.call_with_retry", side_effect=Exception("LLM down")):
+        tasks, _, _, _ = plan_wbs(
+            _rfx_result(),  # IT 키워드 포함
+            methodology=MethodologyType.WATERFALL,
+            api_key="test-key",
+            domain="construction",  # 강제 지정
+        )
+    phases = {t.phase for t in tasks}
+    assert "시공" in phases
+
+
+def test_plan_wbs_it_backward_compat():
+    """기존 IT RFP → 기존 동작 유지 (도메인 자동 감지 it_build)."""
+    mock_items = {
+        "tasks": [
+            {
+                "phase": "착수",
+                "task_name": "사업 착수 보고",
+                "start_month": 1,
+                "duration_months": 1,
+                "deliverables": ["착수보고서"],
+                "responsible_role": "PM",
+                "man_months": 1.0,
+            },
+        ]
+    }
+    mock_response = _mock_llm_resp(json.dumps(mock_items, ensure_ascii=False))
+
+    with patch("wbs_planner.call_with_retry", return_value=mock_response):
+        tasks, personnel, months, methodology = plan_wbs(
+            _rfx_result(),
+            methodology=MethodologyType.WATERFALL,
+            api_key="test-key",
+        )
+    assert len(tasks) == 1
+    assert tasks[0].responsible_role == "PM"
+
+
+def test_plan_wbs_personnel_grade_construction():
+    """건설 역할의 등급이 올바르게 매핑."""
+    mock_items = {
+        "tasks": [
+            {
+                "phase": "착수",
+                "task_name": "착수보고",
+                "start_month": 1,
+                "duration_months": 1,
+                "deliverables": ["착수보고서"],
+                "responsible_role": "현장소장",
+                "man_months": 1.0,
+            },
+            {
+                "phase": "시공",
+                "task_name": "토공사",
+                "start_month": 2,
+                "duration_months": 6,
+                "deliverables": ["시공보고서"],
+                "responsible_role": "시공관리자",
+                "man_months": 5.0,
+            },
+        ]
+    }
+    mock_response = _mock_llm_resp(json.dumps(mock_items, ensure_ascii=False))
+
+    with patch("wbs_planner.call_with_retry", return_value=mock_response):
+        tasks, personnel, months, methodology = plan_wbs(
+            _rfx_construction(),
+            methodology=MethodologyType.WATERFALL,
+            api_key="test-key",
+            domain="construction",
+        )
+    grade_map = {p.role: p.grade for p in personnel}
+    assert grade_map["현장소장"] == "특급"
+    assert grade_map["시공관리자"] == "고급"
+
+
+# ---------------------------------------------------------------------------
+# Domain template completeness
+# ---------------------------------------------------------------------------
+
+def test_all_domain_templates_have_valid_ratios():
+    """모든 도메인 템플릿의 ratio 합이 1.0."""
+    for domain, methods in DOMAIN_TEMPLATES.items():
+        for method, phases in methods.items():
+            total = sum(p["ratio"] for p in phases)
+            assert abs(total - 1.0) < 0.01, (
+                f"DOMAIN_TEMPLATES['{domain}']['{method}'] ratio sum = {total}"
+            )
+
+
+def test_all_domain_templates_have_tasks():
+    """모든 도메인 템플릿의 각 phase에 최소 1개 task."""
+    for domain, methods in DOMAIN_TEMPLATES.items():
+        for method, phases in methods.items():
+            for phase in phases:
+                assert len(phase["tasks"]) >= 1, (
+                    f"DOMAIN_TEMPLATES['{domain}']['{method}'] phase '{phase['phase']}' has no tasks"
+                )
