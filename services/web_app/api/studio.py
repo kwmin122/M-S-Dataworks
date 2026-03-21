@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from typing import Any, Literal
 
@@ -322,19 +323,45 @@ async def studio_search_bids(
     request: Request,
     req: NaraSearchRequest,
     user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
 ):
     """Search 나라장터 bids from Studio context."""
+    _usage_start = time.perf_counter()
     from services.web_app.nara_api import search_bids
-    result = await search_bids(
-        keywords=req.keywords,
-        category=req.category,
-        region=req.region,
-        min_amt=req.min_amt,
-        max_amt=req.max_amt,
-        period=req.period,
-        page=req.page,
-        page_size=req.page_size,
-    )
+    try:
+        result = await search_bids(
+            keywords=req.keywords,
+            category=req.category,
+            region=req.region,
+            min_amt=req.min_amt,
+            max_amt=req.max_amt,
+            period=req.period,
+            page=req.page,
+            page_size=req.page_size,
+        )
+    except Exception as exc:
+        try:
+            from services.web_app.services.usage_tracker import emit_usage_event
+            await emit_usage_event(
+                db, org_id=user.org_id, event_type="search", status="failure",
+                user_id=user.username,
+                duration_ms=int((time.perf_counter() - _usage_start) * 1000),
+                error_message=str(exc)[:500],
+            )
+            await db.commit()
+        except Exception:
+            pass
+        raise
+    try:
+        from services.web_app.services.usage_tracker import emit_usage_event
+        await emit_usage_event(
+            db, org_id=user.org_id, event_type="search", status="success",
+            user_id=user.username,
+            duration_ms=int((time.perf_counter() - _usage_start) * 1000),
+        )
+        await db.commit()
+    except Exception:
+        pass
     return result
 
 
@@ -351,6 +378,7 @@ async def analyze_rfp_text(
     Stores result as active snapshot on the project.
     """
     await require_project_access(project_id, "editor", user, db)
+    _usage_start = time.perf_counter()
 
     result = await db.execute(
         select(BidProject).where(
@@ -375,7 +403,21 @@ async def analyze_rfp_text(
         model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
     )
 
-    analysis = await asyncio.to_thread(analyzer.analyze_text, req.document_text)
+    try:
+        analysis = await asyncio.to_thread(analyzer.analyze_text, req.document_text)
+    except Exception as exc:
+        try:
+            from services.web_app.services.usage_tracker import emit_usage_event
+            await emit_usage_event(
+                db, org_id=user.org_id, event_type="analyze", status="failure",
+                user_id=user.username, project_id=project_id,
+                duration_ms=int((time.perf_counter() - _usage_start) * 1000),
+                error_message=str(exc)[:500],
+            )
+            await db.commit()
+        except Exception:
+            pass
+        raise
 
     # Generate 5-section summary
     summary_md = ""
@@ -439,6 +481,16 @@ async def analyze_rfp_text(
         target_id=snapshot.id,
     ))
 
+    try:
+        from services.web_app.services.usage_tracker import emit_usage_event
+        await emit_usage_event(
+            db, org_id=user.org_id, event_type="analyze", status="success",
+            user_id=user.username, project_id=project_id,
+            duration_ms=int((time.perf_counter() - _usage_start) * 1000),
+        )
+    except Exception:
+        pass
+
     await db.commit()
     await db.refresh(project)
 
@@ -460,6 +512,7 @@ async def upload_and_analyze_rfp(
 ):
     """Upload an RFP file (PDF/DOCX/HWP/HWPX/TXT), parse it, and analyze."""
     await require_project_access(project_id, "editor", user, db)
+    _usage_start = time.perf_counter()
 
     # Per-user rate limit: max 5 uploads per minute (no @limiter — incompatible with UploadFile)
     from sqlalchemy import func as sa_func
@@ -626,6 +679,16 @@ async def upload_and_analyze_rfp(
             target_id=snapshot.id,
         ))
 
+        try:
+            from services.web_app.services.usage_tracker import emit_usage_event
+            await emit_usage_event(
+                db, org_id=user.org_id, event_type="upload", status="success",
+                user_id=user.username, project_id=project_id,
+                duration_ms=int((time.perf_counter() - _usage_start) * 1000),
+            )
+        except Exception:
+            pass
+
         await db.commit()
         await db.refresh(project)
 
@@ -637,6 +700,20 @@ async def upload_and_analyze_rfp(
             "filename": safe_name,
             "project": _project_to_response(project),
         }
+    except Exception as exc:
+        if not isinstance(exc, HTTPException):
+            try:
+                from services.web_app.services.usage_tracker import emit_usage_event
+                await emit_usage_event(
+                    db, org_id=user.org_id, event_type="upload", status="failure",
+                    user_id=user.username, project_id=project_id,
+                    duration_ms=int((time.perf_counter() - _usage_start) * 1000),
+                    error_message=str(exc)[:500],
+                )
+                await db.commit()
+            except Exception:
+                pass
+        raise
     finally:
         # Clean up uploaded file
         if os.path.exists(tmp_path):
@@ -656,6 +733,7 @@ async def classify_project_package(
     Advances studio_stage to 'package'.
     """
     await require_project_access(project_id, "editor", user, db)
+    _usage_start = time.perf_counter()
 
     # Load project + active snapshot
     result = await db.execute(
@@ -740,6 +818,16 @@ async def classify_project_package(
             "item_count": len(db_items),
         },
     ))
+
+    try:
+        from services.web_app.services.usage_tracker import emit_usage_event
+        await emit_usage_event(
+            db, org_id=user.org_id, event_type="classify", status="success",
+            user_id=user.username, project_id=project_id,
+            duration_ms=int((time.perf_counter() - _usage_start) * 1000),
+        )
+    except Exception:
+        pass
 
     await db.commit()
 
@@ -1649,6 +1737,7 @@ async def generate_proposal(
     Returns the generation contract for transparency.
     """
     await _require_studio_project_access(project_id, "editor", user, db)
+    _usage_start = time.perf_counter()
 
     # Concurrent generation guard
     existing_running = (await db.execute(
@@ -1947,6 +2036,17 @@ async def generate_proposal(
             target_id=run.id,
             detail_json={"error": str(exc)[:500], **generation_contract},
         ))
+        try:
+            from services.web_app.services.usage_tracker import emit_usage_event
+            await emit_usage_event(
+                db, org_id=user.org_id, event_type="generate", status="failure",
+                user_id=user.username, project_id=project_id,
+                doc_type=req.doc_type,
+                duration_ms=int((time.perf_counter() - _usage_start) * 1000),
+                error_message=str(exc)[:500],
+            )
+        except Exception:
+            pass
         await db.commit()
         raise HTTPException(500, "문서 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
 
@@ -1978,6 +2078,20 @@ async def generate_proposal(
         target_id=run.id,
         detail_json=generation_contract,
     ))
+
+    _gen_duration_ms = int((time.perf_counter() - _usage_start) * 1000)
+    if generation_time_sec is not None:
+        _gen_duration_ms = int(generation_time_sec * 1000)
+    try:
+        from services.web_app.services.usage_tracker import emit_usage_event
+        await emit_usage_event(
+            db, org_id=user.org_id, event_type="generate", status="success",
+            user_id=user.username, project_id=project_id,
+            doc_type=req.doc_type,
+            duration_ms=_gen_duration_ms,
+        )
+    except Exception:
+        pass
 
     await db.commit()
 
@@ -2199,6 +2313,7 @@ async def relearn_document_style(
     if doc_type not in _RELEARN_DOC_TYPES:
         raise HTTPException(400, f"지원되지 않는 문서 타입: {doc_type}")
     await _require_studio_project_access(project_id, "editor", user, db)
+    _usage_start = time.perf_counter()
 
     doc_label = _DOC_TYPE_LABEL_MAP.get(doc_type, "문서")
 
@@ -2281,6 +2396,17 @@ async def relearn_document_style(
             "doc_type": doc_type,
         },
     ))
+
+    try:
+        from services.web_app.services.usage_tracker import emit_usage_event
+        await emit_usage_event(
+            db, org_id=user.org_id, event_type="relearn", status="success",
+            user_id=user.username, project_id=project_id,
+            doc_type=doc_type,
+            duration_ms=int((time.perf_counter() - _usage_start) * 1000),
+        )
+    except Exception:
+        pass
 
     await db.commit()
 
