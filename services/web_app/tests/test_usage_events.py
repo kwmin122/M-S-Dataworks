@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from services.web_app.db.models.org import Organization
 from services.web_app.db.models.usage import UsageEvent
-from services.web_app.services.usage_tracker import emit_usage_event
+from services.web_app.services.usage_tracker import check_quota, emit_usage_event
 
 
 # ---------------------------------------------------------------------------
@@ -136,3 +136,119 @@ async def test_emit_usage_event_error_truncation(db_session):
 
     assert len(evt.error_message) == 500
     assert evt.error_message == "E" * 500
+
+
+# ---------------------------------------------------------------------------
+# Quota check tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_check_quota_within_limit(db_session):
+    """3/5 analyze events used on free plan → still allowed."""
+    org = await _make_org(db_session, name="쿼터-이내")
+
+    # Emit 3 successful analyze events
+    for _ in range(3):
+        await emit_usage_event(
+            db_session,
+            org_id=org.id,
+            event_type="analyze",
+            status="success",
+        )
+    await db_session.flush()
+
+    allowed, message = await check_quota(db_session, org.id, "analyze", "free")
+    assert allowed is True
+    assert message == ""
+
+
+@pytest.mark.asyncio
+async def test_check_quota_exceeded(db_session):
+    """5/5 analyze events used on free plan → blocked with message."""
+    org = await _make_org(db_session, name="쿼터-초과")
+
+    # Emit 5 successful analyze events (free limit)
+    for _ in range(5):
+        await emit_usage_event(
+            db_session,
+            org_id=org.id,
+            event_type="analyze",
+            status="success",
+        )
+    await db_session.flush()
+
+    allowed, message = await check_quota(db_session, org.id, "analyze", "free")
+    assert allowed is False
+    assert "초과했습니다" in message
+    assert "5회" in message
+    assert "업그레이드" in message
+
+
+@pytest.mark.asyncio
+async def test_check_quota_unlimited(db_session):
+    """Pro plan with -1 (unlimited) analyze → always allowed."""
+    org = await _make_org(db_session, name="쿼터-무제한")
+
+    # Emit many events — should never hit limit
+    for _ in range(50):
+        await emit_usage_event(
+            db_session,
+            org_id=org.id,
+            event_type="analyze",
+            status="success",
+        )
+    await db_session.flush()
+
+    allowed, message = await check_quota(db_session, org.id, "analyze", "pro")
+    assert allowed is True
+    assert message == ""
+
+
+@pytest.mark.asyncio
+async def test_check_quota_free_generate_blocked(db_session):
+    """Free plan, generate → always blocked (limit 0)."""
+    org = await _make_org(db_session, name="쿼터-생성차단")
+
+    # Even with zero events, generate is blocked on free
+    allowed, message = await check_quota(db_session, org.id, "generate", "free")
+    assert allowed is False
+    assert "사용할 수 없습니다" in message
+    assert "업그레이드" in message
+
+
+@pytest.mark.asyncio
+async def test_check_quota_failure_events_not_counted(db_session):
+    """Failed events should not count toward quota."""
+    org = await _make_org(db_session, name="쿼터-실패무시")
+
+    # Emit 5 failures + 2 successes
+    for _ in range(5):
+        await emit_usage_event(
+            db_session,
+            org_id=org.id,
+            event_type="analyze",
+            status="failure",
+        )
+    for _ in range(2):
+        await emit_usage_event(
+            db_session,
+            org_id=org.id,
+            event_type="analyze",
+            status="success",
+        )
+    await db_session.flush()
+
+    # Free limit is 5 — only 2 successes, so should be allowed
+    allowed, message = await check_quota(db_session, org.id, "analyze", "free")
+    assert allowed is True
+
+
+@pytest.mark.asyncio
+async def test_check_quota_unmetered_event(db_session):
+    """Unmetered event types (e.g. upload) are always allowed."""
+    org = await _make_org(db_session, name="쿼터-비측정")
+
+    allowed, message = await check_quota(db_session, org.id, "upload", "free")
+    assert allowed is True
+    assert message == ""

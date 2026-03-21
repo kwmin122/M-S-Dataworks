@@ -1,9 +1,17 @@
 """Usage event tracking — emit telemetry for billing, observability, and performance."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.web_app.db.models.usage import UsageEvent
+from services.web_app.services.quota_config import (
+    get_plan_quotas,
+    get_quota_key,
+    get_quota_label,
+)
 
 _VALID_EVENT_TYPES = frozenset(
     {"analyze", "classify", "generate", "upload", "search", "relearn", "download"}
@@ -70,3 +78,101 @@ async def emit_usage_event(
     )
     db.add(event)
     # Don't commit — caller controls transaction
+
+
+async def check_quota(
+    db: AsyncSession,
+    org_id: str,
+    event_type: str,
+    plan: str = "free",
+) -> tuple[bool, str]:
+    """Check if org is within quota for this event_type.
+
+    Returns (allowed, message). If not allowed, message explains why.
+    Checks against PLAN_QUOTAS for the given plan tier.
+
+    For monthly quotas: counts successful events in the current calendar month.
+    For daily quotas: counts successful events today (UTC).
+
+    Returns (True, "") if:
+      - event_type is not metered
+      - quota limit is -1 (unlimited)
+      - current count < limit
+    """
+    quota_key = get_quota_key(event_type)
+    if quota_key is None:
+        return True, ""
+
+    plan_limits = get_plan_quotas(plan)
+    limit = plan_limits.get(quota_key)
+    if limit is None:
+        return True, ""
+
+    # Unlimited
+    if limit == -1:
+        return True, ""
+
+    # Zero means feature disabled on this plan
+    if limit == 0:
+        label = get_quota_label(quota_key)
+        return False, f"{label} 기능은 현재 플랜에서 사용할 수 없습니다. PRO 플랜으로 업그레이드하세요."
+
+    # Determine period filter
+    now = datetime.now(timezone.utc)
+    if quota_key.endswith("_per_month"):
+        period_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    elif quota_key.endswith("_per_day"):
+        period_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    else:
+        # Unknown period suffix — allow (don't block on misconfiguration)
+        return True, ""
+
+    # For classify, count both analyze + classify events (shared quota)
+    if event_type == "classify":
+        type_filter = UsageEvent.event_type.in_(["analyze", "classify"])
+    else:
+        type_filter = UsageEvent.event_type == event_type
+
+    result = await db.execute(
+        select(func.count(UsageEvent.id)).where(
+            UsageEvent.org_id == org_id,
+            type_filter,
+            UsageEvent.status == "success",
+            UsageEvent.created_at >= period_start,
+        )
+    )
+    count = result.scalar_one()
+
+    if count >= limit:
+        label = get_quota_label(quota_key)
+        period_label = "이번 달" if quota_key.endswith("_per_month") else "오늘"
+        return (
+            False,
+            f"{period_label} {label} 횟수({limit}회)를 초과했습니다. PRO 플랜으로 업그레이드하세요.",
+        )
+
+    return True, ""
+
+
+async def enforce_quota(
+    db: AsyncSession,
+    org_id: str,
+    event_type: str,
+) -> None:
+    """Load org plan_tier from DB and enforce quota. Raises HTTPException(402) if exceeded.
+
+    Designed for use in API endpoints — wraps check_quota with org lookup.
+    Gracefully does nothing if the Organization row cannot be loaded (e.g. dev mode).
+    """
+    from services.web_app.db.models.org import Organization
+
+    result = await db.execute(
+        select(Organization.plan_tier).where(Organization.id == org_id)
+    )
+    plan_tier = result.scalar_one_or_none() or "free"
+
+    allowed, message = await check_quota(db, org_id, event_type, plan_tier)
+    if not allowed:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=402, detail=message)

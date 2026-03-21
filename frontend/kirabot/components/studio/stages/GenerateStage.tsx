@@ -9,6 +9,7 @@ import type {
 } from '../../../services/studioApi';
 import { generateProposal, getCurrentRevision, listPackageItems } from '../../../services/studioApi';
 import GenerateContractView from './GenerateContractView';
+import QuotaGate from '../QuotaGate';
 
 interface GenerateStageProps {
   projectId: string;
@@ -124,6 +125,8 @@ export default function GenerateStage({ projectId, project, onProjectUpdate, onD
           />
         </div>
       </div>
+
+      {error && <QuotaGate error={error} />}
 
       {error && (
         <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-700 mb-4">

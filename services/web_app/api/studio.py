@@ -380,6 +380,15 @@ async def analyze_rfp_text(
     await require_project_access(project_id, "editor", user, db)
     _usage_start = time.perf_counter()
 
+    # --- Quota enforcement ---
+    try:
+        from services.web_app.services.usage_tracker import enforce_quota
+        await enforce_quota(db, user.org_id, "analyze")
+    except HTTPException:
+        raise  # re-raise 402
+    except Exception:
+        pass  # graceful degradation if quota module fails
+
     result = await db.execute(
         select(BidProject).where(
             BidProject.id == project_id,
@@ -734,6 +743,15 @@ async def classify_project_package(
     """
     await require_project_access(project_id, "editor", user, db)
     _usage_start = time.perf_counter()
+
+    # --- Quota enforcement (classify shares analyze quota) ---
+    try:
+        from services.web_app.services.usage_tracker import enforce_quota
+        await enforce_quota(db, user.org_id, "classify")
+    except HTTPException:
+        raise  # re-raise 402
+    except Exception:
+        pass  # graceful degradation if quota module fails
 
     # Load project + active snapshot
     result = await db.execute(
@@ -1738,6 +1756,15 @@ async def generate_proposal(
     """
     await _require_studio_project_access(project_id, "editor", user, db)
     _usage_start = time.perf_counter()
+
+    # --- Quota enforcement ---
+    try:
+        from services.web_app.services.usage_tracker import enforce_quota
+        await enforce_quota(db, user.org_id, "generate")
+    except HTTPException:
+        raise  # re-raise 402
+    except Exception:
+        pass  # graceful degradation if quota module fails
 
     # Concurrent generation guard
     existing_running = (await db.execute(
