@@ -2095,6 +2095,18 @@ async def generate_proposal(
 
     await db.commit()
 
+    # Build performance metadata
+    from services.web_app.services.performance_config import GENERATION_TIME_TARGETS, GENERATION_HARD_TIMEOUT
+    _target_sec = GENERATION_TIME_TARGETS.get(req.doc_type, 180)
+    _actual_sec = generation_time_sec if generation_time_sec is not None else (_gen_duration_ms / 1000)
+    _performance = {
+        "duration_sec": round(_actual_sec, 2),
+        "target_sec": _target_sec,
+        "within_target": _actual_sec <= _target_sec,
+        "timed_out": _actual_sec > GENERATION_HARD_TIMEOUT,
+        "model": None,  # populated when model selection is wired
+    }
+
     return {
         "run_id": run.id,
         "revision_id": revision.id,
@@ -2102,6 +2114,7 @@ async def generate_proposal(
         "generation_contract": generation_contract,
         "sections_count": len(sections),
         "generation_time_sec": generation_time_sec,
+        "performance": _performance,
     }
 
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Activity, CheckCircle2, XCircle, Clock, DollarSign, AlertTriangle } from 'lucide-react';
+import { RefreshCw, Activity, CheckCircle2, XCircle, Clock, DollarSign, AlertTriangle, Timer } from 'lucide-react';
 import {
   getAdminMetrics,
   type AdminMetrics,
@@ -215,6 +215,64 @@ const ObservabilityDashboard: React.FC = () => {
                   ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Performance targets */}
+      {Object.keys(by_doc_type).length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white">
+          <div className="border-b border-slate-100 px-4 py-3 flex items-center gap-2">
+            <Timer size={15} className="text-slate-500" />
+            <span className="text-sm font-semibold text-slate-700">성능 (목표 대비)</span>
+          </div>
+          <div className="p-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {Object.entries(by_doc_type)
+              .sort(([, a], [, b]) => b.count - a.count)
+              .map(([docType, m]) => {
+                const targetMs: Record<string, number> = {
+                  proposal: 180000,
+                  execution_plan: 120000,
+                  track_record: 60000,
+                  presentation: 120000,
+                };
+                const target = targetMs[docType] || 180000;
+                const avgSec = m.avg_duration_ms / 1000;
+                const targetSec = target / 1000;
+                const withinTarget = m.avg_duration_ms <= target;
+                const pct = Math.min((m.avg_duration_ms / target) * 100, 100);
+                return (
+                  <div key={docType} className="rounded-lg border border-slate-100 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-slate-700">
+                        {DOC_TYPE_LABELS[docType] || docType}
+                      </span>
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                        withinTarget
+                          ? 'bg-green-50 text-green-700'
+                          : 'bg-amber-50 text-amber-700'
+                      }`}>
+                        {withinTarget ? '목표 이내' : '목표 초과'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            withinTarget ? 'bg-green-400' : 'bg-amber-400'
+                          }`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-slate-500">
+                      <span>평균 {avgSec.toFixed(1)}초</span>
+                      <span>목표 {targetSec.toFixed(0)}초</span>
+                    </div>
+                    <div className="text-xs text-slate-400 mt-1">{m.count}건 생성</div>
+                  </div>
+                );
+              })}
           </div>
         </div>
       )}

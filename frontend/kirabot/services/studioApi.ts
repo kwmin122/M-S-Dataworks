@@ -400,6 +400,14 @@ export interface GenerationContract {
   available_inputs?: { proposal: boolean; execution_plan: boolean };
 }
 
+export interface GenerationPerformance {
+  duration_sec: number;
+  target_sec: number;
+  within_target: boolean;
+  timed_out: boolean;
+  model: string | null;
+}
+
 export interface GenerateResult {
   run_id: string;
   revision_id: string;
@@ -407,6 +415,7 @@ export interface GenerateResult {
   generation_contract: GenerationContract;
   sections_count: number;
   generation_time_sec: number | null;
+  performance?: GenerationPerformance;
 }
 
 export type GenerateDocType = 'proposal' | 'execution_plan' | 'track_record' | 'presentation';

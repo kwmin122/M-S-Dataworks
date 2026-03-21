@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   FileText, Play, Loader2, AlertCircle, CheckCircle2,
-  FileCheck, Eye, BookOpen, ChevronDown, ChevronUp, RotateCcw, History,
+  FileCheck, Eye, BookOpen, ChevronDown, ChevronUp, RotateCcw, History, Clock, Timer,
 } from 'lucide-react';
 import type {
   GenerateResult, StudioProject, CurrentRevisionData, RevisionSection, GenerateDocType,
-  SlideMetadata, QnaPairData, PackageItem,
+  SlideMetadata, QnaPairData, PackageItem, GenerationPerformance,
 } from '../../../services/studioApi';
 import { generateProposal, getCurrentRevision, listPackageItems } from '../../../services/studioApi';
 import GenerateContractView from './GenerateContractView';
@@ -236,6 +236,9 @@ export default function GenerateStage({ projectId, project, onProjectUpdate, onD
               <div className="text-slate-600">소요 시간: <span className="font-medium">{result.generation_time_sec.toFixed(1)}초</span></div>
             )}
           </div>
+          {result.performance && (
+            <PerformanceBadge performance={result.performance} />
+          )}
           <div className="mt-3 flex items-center gap-2">
             <FileCheck size={14} className="text-green-600" />
             <span className="text-xs text-green-700">
@@ -493,6 +496,50 @@ function PresentationPreview({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+function formatDuration(sec: number): string {
+  const min = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  if (min === 0) return `${s}초`;
+  return `${min}분 ${s}초`;
+}
+
+function PerformanceBadge({ performance }: { performance: GenerationPerformance }) {
+  const { duration_sec, target_sec, within_target, timed_out } = performance;
+  const targetLabel = formatDuration(target_sec);
+
+  if (timed_out) {
+    return (
+      <div className="mt-2 flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-1.5">
+        <Timer size={14} className="text-red-500" />
+        <span className="text-xs font-medium text-red-700">
+          타임아웃 ({formatDuration(duration_sec)}, 제한 5분 초과)
+        </span>
+      </div>
+    );
+  }
+
+  if (within_target) {
+    return (
+      <div className="mt-2 flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-3 py-1.5">
+        <Clock size={14} className="text-green-500" />
+        <span className="text-xs font-medium text-green-700">
+          {formatDuration(duration_sec)} (목표 {targetLabel} 이내)
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-1.5">
+      <Clock size={14} className="text-amber-500" />
+      <span className="text-xs font-medium text-amber-700">
+        {formatDuration(duration_sec)} (목표 {targetLabel} 초과)
+      </span>
     </div>
   );
 }
