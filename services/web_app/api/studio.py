@@ -452,7 +452,9 @@ async def analyze_rfp_text(
 
 
 @router.post("/projects/{project_id}/upload-rfp")
+@limiter.limit("5/minute")
 async def upload_and_analyze_rfp(
+    request: Request,
     project_id: str,
     file: UploadFile = File(...),
     user: CurrentUser = Depends(resolve_org_membership),

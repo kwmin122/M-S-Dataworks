@@ -107,7 +107,7 @@ These features are committed to `main` but not yet deployed to Railway productio
 | # | Issue | Severity | Detail |
 |---|-------|----------|--------|
 | 1 | **계정 삭제 후 재로그인 시 org 재생성** | ~~P1~~ **Fixed** | Commit `36c3736` — `is_active=False` deactivation guard 추가됨 |
-| 2 | **upload-rfp에 rate limit 없음** | P1 | `studio.py:453` — LLM 호출 포함 고비용 엔드포인트에 rate limit 미적용. (Committed, not deployed) |
+| 2 | ~~**upload-rfp에 rate limit 없음**~~ | ~~P1~~ **Fixed** | `@limiter.limit("5/minute")` 적용됨 |
 | 3 | ~~**신규 3개 엔드포인트 테스트 없음**~~ | ~~P1~~ **Fixed** | Commit `b956272` — endpoint tests 추가됨 |
 | 4 | **HWP/TXT magic bytes 미검증** | P1 | `studio.py:503-514` — PDF/DOCX/XLSX/PPTX만 magic bytes 검증. HWP/TXT는 구조상 magic bytes 없음. |
 | 5 | **Vite chunk 크기 경고** | P2 | `index.js` 1235KB, `MarkdownEditor` 568KB — code-splitting 미적용 |
@@ -364,7 +364,7 @@ NOT deployed:
 ### Open Issues (P1)
 | # | 이슈 | 파일 | 상태 |
 |---|------|------|------|
-| P1-1 | upload-rfp rate limit 미적용 | studio.py | Open |
+| ~~P1-1~~ | ~~upload-rfp rate limit 미적용~~ | ~~studio.py~~ | Fixed — `@limiter.limit("5/minute")` |
 | ~~P1-2~~ | ~~계정 삭제 후 재로그인 시 org 재생성~~ | ~~deps.py~~ | Fixed in `36c3736` |
 | ~~P1-5~~ | ~~신규 3개 엔드포인트 테스트 미작성~~ | ~~services/web_app/tests/~~ | Fixed in `b956272` |
 
