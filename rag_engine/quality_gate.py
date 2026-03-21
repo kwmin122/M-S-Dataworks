@@ -235,6 +235,29 @@ def check_length_adequacy(text: str, target_chars: int) -> QualityDimension:
     )
 
 
+def check_slide_coverage(text: str) -> QualityDimension:
+    """Check if key slide types are present in presentation."""
+    required_types = ["표지", "목차", "사업 이해", "기술", "일정", "인력", "실적", "Q&A"]
+    found = sum(1 for t in required_types if t in text)
+    score = found / len(required_types)
+    details = [f"필수 슬라이드 유형 {found}/{len(required_types)} 포함"]
+    missing = [t for t in required_types if t not in text]
+    if missing:
+        details.append(f"누락: {', '.join(missing[:3])}")
+    return QualityDimension(name="slide_coverage", label="슬라이드 구성", score=score, details=details)
+
+
+def check_content_density(text: str) -> QualityDimension:
+    """Check that slides have sufficient content (not empty)."""
+    # Count slide markers and content between them
+    slides = re.split(r'(?:^|\n)(?:##|###)\s', text)
+    empty_count = sum(1 for s in slides if len(s.strip()) < 50)
+    total = max(len(slides), 1)
+    score = 1.0 - (empty_count / total)
+    details = [f"전체 {total}개 슬라이드 중 {empty_count}개 내용 부족"]
+    return QualityDimension(name="content_density", label="콘텐츠 밀도", score=score, details=details)
+
+
 def check_schedule_realism(text: str, target_months: int = 0) -> QualityDimension:
     """Check if WBS schedule is realistic."""
     # Count task mentions
@@ -344,6 +367,8 @@ def run_quality_gate(
 
     elif doc_type == "presentation":
         dimensions.append(check_rfp_alignment(text, rfp_keywords or []))
+        dimensions.append(check_slide_coverage(text))
+        dimensions.append(check_content_density(text))
 
     elif doc_type == "track_record":
         dimensions.append(check_rfp_alignment(text, rfp_keywords or []))
@@ -392,6 +417,8 @@ def run_quality_gate(
         "schedule_realism": 1.5,
         "role_task_mapping": 1.5,
         "deliverables": 1.0,
+        "slide_coverage": 1.5,
+        "content_density": 1.5,
     }
     total_weight = sum(weights.get(d.name, 1.0) for d in dimensions)
     weighted_sum = sum(d.score * weights.get(d.name, 1.0) for d in dimensions)

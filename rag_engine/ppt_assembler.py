@@ -332,15 +332,18 @@ def _add_content_slide(
     if not chunks:
         chunks = [[]]
 
+    total_parts = len(chunks)
+
     for chunk_idx, chunk in enumerate(chunks):
         slide = prs.slides.add_slide(prs.slide_layouts[6])
         sw = KRDS_LAYOUT["slide_width"]
         m = KRDS_LAYOUT["margin"]
         gap = KRDS_LAYOUT["content_gap"]
 
+        # Smart title: "Part N/M" numbering for continuation slides
         title = content.title
-        if chunk_idx > 0:
-            title = f"{content.title} (계속)"
+        if total_parts > 1 and chunk_idx > 0:
+            title = f"{content.title} — Part {chunk_idx + 1}/{total_parts}"
 
         _add_title_bar(slide, title, colors, page_num=page_info)
 
@@ -383,7 +386,13 @@ def _add_content_slide(
             y += Inches(0.5)
 
         _add_footer(slide, company_name, colors)
-        _add_speaker_notes(slide, content.speaker_notes)
+
+        # Speaker notes: include slide count info for multi-part slides
+        notes = content.speaker_notes or ""
+        if total_parts > 1:
+            part_note = f"[슬라이드 {chunk_idx + 1}/{total_parts}] "
+            notes = part_note + notes if notes else part_note.strip()
+        _add_speaker_notes(slide, notes)
 
 
 def _add_bullet_slide(

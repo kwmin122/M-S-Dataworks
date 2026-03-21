@@ -157,3 +157,48 @@ def test_assemble_pptx_krds_colors_applied():
     assert KRDS_COLORS is DEFAULT_COLORS
     # Blue 900 primary 색상 확인
     assert KRDS_COLORS["primary"] == RGBColor(0x00, 0x37, 0x64)
+
+
+def test_assemble_pptx_overflow_part_labeling():
+    """불릿 오버플로우 시 Part N/M 번호 및 speaker notes에 슬라이드 번호 삽입."""
+    from ppt_assembler import _MAX_BULLETS_PER_SLIDE
+    from pptx import Presentation as PptxPres
+
+    # Create a content slide with more bullets than max
+    many_bullets = [f"항목 {i+1}" for i in range(_MAX_BULLETS_PER_SLIDE + 3)]
+    slides = [
+        SlideContent(
+            slide_type=SlideType.CONTENT,
+            title="핵심 전략",
+            body="주요 전략 항목",
+            bullets=many_bullets,
+            speaker_notes="전략을 설명합니다.",
+        ),
+    ]
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = os.path.join(tmpdir, "overflow.pptx")
+        assemble_pptx(
+            title="오버플로우 테스트",
+            slides=slides,
+            qna_pairs=[],
+            output_path=path,
+        )
+        assert os.path.isfile(path)
+
+        # Verify the PPTX has 2 slides (overflow split)
+        prs = PptxPres(path)
+        assert len(prs.slides) == 2
+
+        # First slide: original title (no Part suffix for first)
+        first_texts = [sh.text for sh in prs.slides[0].shapes if hasattr(sh, 'text')]
+        assert any("핵심 전략" in t for t in first_texts)
+        # Should NOT contain "Part" in the first slide title
+        assert not any("Part" in t and "핵심 전략" in t for t in first_texts)
+
+        # Second slide: should have "Part 2/2" in the title
+        second_texts = [sh.text for sh in prs.slides[1].shapes if hasattr(sh, 'text')]
+        assert any("Part 2/2" in t for t in second_texts)
+
+        # Speaker notes on second slide should contain "[슬라이드 2/2]"
+        notes_text = prs.slides[1].notes_slide.notes_text_frame.text
+        assert "[슬라이드 2/2]" in notes_text

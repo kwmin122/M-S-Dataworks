@@ -39,6 +39,82 @@ DEFAULT_SLIDE_STRUCTURE: list[dict[str, Any]] = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# 도메인별 슬라이드 구조 (비-IT 사업 지원)
+# ---------------------------------------------------------------------------
+
+DOMAIN_SLIDE_STRUCTURES: dict[str, list[dict[str, Any]]] = {
+    "it_build": DEFAULT_SLIDE_STRUCTURE,  # keep current as IT default
+    "construction": [
+        {"name": "표지", "type": SlideType.COVER, "fixed": True, "count": 1},
+        {"name": "목차", "type": SlideType.TOC, "fixed": True, "count": 1},
+        {"name": "01 사업 이해", "type": SlideType.DIVIDER, "fixed": True, "count": 1},
+        {"name": "사업 이해", "type": SlideType.CONTENT, "ratio": 0.15},
+        {"name": "02 시공 방안", "type": SlideType.DIVIDER, "fixed": True, "count": 1},
+        {"name": "시공 방안", "type": SlideType.CONTENT, "ratio": 0.25},
+        {"name": "공정 관리", "type": SlideType.CONTENT, "ratio": 0.15},
+        {"name": "공사 일정", "type": SlideType.TIMELINE, "fixed": True, "count": 1},
+        {"name": "03 품질/안전", "type": SlideType.DIVIDER, "fixed": True, "count": 1},
+        {"name": "품질 관리", "type": SlideType.CONTENT, "ratio": 0.10},
+        {"name": "안전 관리", "type": SlideType.CONTENT, "ratio": 0.10},
+        {"name": "투입 인력", "type": SlideType.TEAM, "fixed": True, "count": 1},
+        {"name": "유사 실적", "type": SlideType.TABLE, "fixed": True, "count": 1},
+        {"name": "Q&A", "type": SlideType.QNA, "fixed": True, "count": 1},
+        {"name": "마무리", "type": SlideType.CLOSING, "fixed": True, "count": 1},
+    ],
+    "consulting": [
+        {"name": "표지", "type": SlideType.COVER, "fixed": True, "count": 1},
+        {"name": "목차", "type": SlideType.TOC, "fixed": True, "count": 1},
+        {"name": "01 현황 분석", "type": SlideType.DIVIDER, "fixed": True, "count": 1},
+        {"name": "현황 분석", "type": SlideType.CONTENT, "ratio": 0.20},
+        {"name": "02 추진 전략", "type": SlideType.DIVIDER, "fixed": True, "count": 1},
+        {"name": "추진 전략", "type": SlideType.CONTENT, "ratio": 0.25},
+        {"name": "방법론", "type": SlideType.CONTENT, "ratio": 0.15},
+        {"name": "추진 일정", "type": SlideType.TIMELINE, "fixed": True, "count": 1},
+        {"name": "투입 인력", "type": SlideType.TEAM, "fixed": True, "count": 1},
+        {"name": "수행 실적", "type": SlideType.TABLE, "fixed": True, "count": 1},
+        {"name": "기대 효과", "type": SlideType.CONTENT, "ratio": 0.10},
+        {"name": "Q&A", "type": SlideType.QNA, "fixed": True, "count": 1},
+        {"name": "마무리", "type": SlideType.CLOSING, "fixed": True, "count": 1},
+    ],
+}
+
+
+# ---------------------------------------------------------------------------
+# 도메인 감지 (키워드 기반) — WBS planner와 동일 패턴
+# ---------------------------------------------------------------------------
+
+_PPT_DOMAIN_KEYWORDS: dict[str, list[str]] = {
+    "construction": ["공사", "시공", "토목", "건축", "설비", "건설"],
+    "consulting": ["컨설팅", "ISP", "BPR", "전략수립", "정보화전략", "진단", "PMO"],
+}
+
+
+def _detect_ppt_domain(rfp_text: str) -> str:
+    """RFP 텍스트에서 PPT 도메인 감지.
+
+    Returns one of the keys in DOMAIN_SLIDE_STRUCTURES.
+    Falls back to 'it_build' if no clear signal.
+    """
+    text_lower = rfp_text.lower()
+    scores: dict[str, int] = {}
+    for domain, keywords in _PPT_DOMAIN_KEYWORDS.items():
+        scores[domain] = sum(1 for kw in keywords if kw.lower() in text_lower)
+
+    if not any(scores.values()):
+        return "it_build"
+
+    best = max(scores, key=lambda d: scores[d])
+    if scores[best] == 0:
+        return "it_build"
+    return best
+
+
+def _get_domain_structure(domain: str) -> list[dict[str, Any]]:
+    """Return the slide structure for the given domain."""
+    return DOMAIN_SLIDE_STRUCTURES.get(domain, DEFAULT_SLIDE_STRUCTURE)
+
+
 # LLM 응답에서 최소 이 수 이상의 슬라이드가 와야 유효한 결과로 인정
 MIN_SLIDE_COUNT = 5
 
@@ -85,11 +161,12 @@ def plan_slides(
     company_context: str = "",
     api_key: Optional[str] = None,
     profile_md: str = "",
+    domain: Optional[str] = None,
 ) -> list[SlideContent]:
     """슬라이드 구성 계획.
 
     LLM이 RFP를 분석하여 슬라이드별 콘텐츠를 생성.
-    LLM 실패 시 기존 템플릿 기반 구조 fallback.
+    LLM 실패 시 도메인별 템플릿 기반 구조 fallback.
 
     Args:
         rfx_result: RFP 분석 결과
@@ -101,12 +178,21 @@ def plan_slides(
         company_context: Layer 2 회사 맞춤 컨텍스트 (optional)
         api_key: OpenAI API key (optional)
         profile_md: 회사 제안서 프로필 (문체/전략/강점 DNA).
+        domain: 사업 도메인 (it_build/construction/consulting). None이면 자동 감지.
 
     Returns:
         슬라이드 목록
     """
     target_slide_count = max(15, min(30, target_slide_count))
     total_duration_sec = duration_min * 60
+
+    # Detect domain if not explicitly provided
+    if domain is None:
+        title = rfx_result.get("title", "")
+        full_text = rfx_result.get("full_text", rfx_result.get("raw_text", ""))
+        combined = f"{title}\n{full_text}"
+        domain = _detect_ppt_domain(combined)
+    logger.info("PPT slide planner domain: %s", domain)
 
     # LLM-based slide planning (falls back to template on failure)
     resolved_key = api_key or os.environ.get("OPENAI_API_KEY", "")
@@ -115,6 +201,7 @@ def plan_slides(
         duration_min, knowledge_texts, rfp_context, resolved_key,
         company_context=company_context,
         profile_md=profile_md,
+        domain=domain,
     )
     if llm_slides:
         # Assign duration to LLM-generated slides
@@ -131,8 +218,8 @@ def plan_slides(
                     s.duration_sec += extra_per
         return llm_slides
 
-    # Fallback: template-based slide structure (only on LLM runtime failure)
-    return _plan_slides_template(rfx_result, proposal_sections, target_slide_count, total_duration_sec)
+    # Fallback: domain-aware template-based slide structure (only on LLM runtime failure)
+    return _plan_slides_template(rfx_result, proposal_sections, target_slide_count, total_duration_sec, domain=domain)
 
 
 def _plan_slides_llm(
@@ -145,8 +232,9 @@ def _plan_slides_llm(
     api_key: str,
     company_context: str = "",
     profile_md: str = "",
+    domain: str = "it_build",
 ) -> list[SlideContent]:
-    """LLM으로 슬라이드 콘텐츠 생성 (6계층 프롬프트: Layer1 + Layer2 회사 + Profile + 템플릿 + RFP + 지시)."""
+    """LLM으로 슬라이드 콘텐츠 생성 (6계층 프롬프트: Layer1 + Layer2 회사 + Profile + 도메인 템플릿 + RFP + 지시)."""
     import openai
 
     client = openai.OpenAI(api_key=api_key, timeout=LLM_DEFAULT_TIMEOUT)
@@ -167,18 +255,21 @@ def _plan_slides_llm(
     if profile_md:
         parts.append(f"## 이 회사의 제안서 프로필 (반드시 준수):\n{profile_md}")
 
-    # Layer 2 — slide structure template
+    # Layer 2 — domain-aware slide structure template
+    domain_structure = _get_domain_structure(domain)
+
     def _slide_label(s: dict) -> str:
         if s.get("fixed"):
             return "고정"
         ratio = s.get("ratio", 0)
         return f"비중 {ratio:.0%}"
 
+    domain_label = {"it_build": "IT 구축", "construction": "건설/시공", "consulting": "컨설팅"}.get(domain, "공공조달")
     structure_str = "\n".join(
         f"- {s['name']} ({s['type'].value}): {_slide_label(s)}"
-        for s in DEFAULT_SLIDE_STRUCTURE
+        for s in domain_structure
     )
-    parts.append(f"## 공공조달 PT 표준 구성:\n{structure_str}")
+    parts.append(f"## {domain_label} PT 표준 구성:\n{structure_str}")
 
     # Layer 3 — RFP context (build_rfp_context() or inline fallback)
     context_section = f"## 사업 정보:\n{rfp_context}" if rfp_context else ""
@@ -299,18 +390,21 @@ def _plan_slides_template(
     proposal_sections: Optional[list[dict[str, str]]],
     target_slide_count: int,
     total_duration_sec: int,
+    domain: str = "it_build",
 ) -> list[SlideContent]:
-    """템플릿 기반 슬라이드 구성 (LLM 실패 시 fallback)."""
-    fixed_count = sum(s.get("count", 0) for s in DEFAULT_SLIDE_STRUCTURE if s.get("fixed"))
+    """도메인별 템플릿 기반 슬라이드 구성 (LLM 실패 시 fallback)."""
+    structure = _get_domain_structure(domain)
+
+    fixed_count = sum(s.get("count", 0) for s in structure if s.get("fixed"))
     variable_budget = target_slide_count - fixed_count
 
-    variable_slides = [s for s in DEFAULT_SLIDE_STRUCTURE if not s.get("fixed")]
+    variable_slides = [s for s in structure if not s.get("fixed")]
     total_ratio = sum(s.get("ratio", 0) for s in variable_slides)
 
     slides: list[SlideContent] = []
     avg_sec_per_slide = total_duration_sec // max(1, target_slide_count)
 
-    for slide_def in DEFAULT_SLIDE_STRUCTURE:
+    for slide_def in structure:
         if slide_def.get("fixed"):
             count = slide_def["count"]
         else:

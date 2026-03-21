@@ -1687,10 +1687,24 @@ async def generate_proposal(
         "total_pages": req.total_pages,
     }
 
-    # PPT-specific: load proposal/execution_plan revisions for enriched input
+    # PPT-specific: presentation evidence gate + load revisions
     proposal_rev = None
     exec_plan_rev = None
     if req.doc_type == "presentation":
+        # Gate: require a presentation package item (from classification)
+        ppt_item = (await db.execute(
+            select(ProjectPackageItem).where(
+                ProjectPackageItem.project_id == project_id,
+                ProjectPackageItem.generation_target == "presentation",
+            )
+        )).scalar_one_or_none()
+        if not ppt_item:
+            raise HTTPException(
+                400,
+                "이 공고는 발표평가가 포함되지 않아 PPT를 생성할 수 없습니다. "
+                "패키지 단계에서 발표자료를 추가해주세요.",
+            )
+
         from services.web_app.db.models.document import ProjectCurrentDocument
         for dt, attr in [("proposal", "proposal_rev"), ("execution_plan", "exec_plan_rev")]:
             cur = (await db.execute(

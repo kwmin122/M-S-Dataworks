@@ -5,9 +5,9 @@ import {
 } from 'lucide-react';
 import type {
   GenerateResult, StudioProject, CurrentRevisionData, RevisionSection, GenerateDocType,
-  SlideMetadata, QnaPairData,
+  SlideMetadata, QnaPairData, PackageItem,
 } from '../../../services/studioApi';
-import { generateProposal, getCurrentRevision } from '../../../services/studioApi';
+import { generateProposal, getCurrentRevision, listPackageItems } from '../../../services/studioApi';
 import GenerateContractView from './GenerateContractView';
 
 interface GenerateStageProps {
@@ -34,8 +34,17 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
   const [revision, setRevision] = useState<CurrentRevisionData | null>(null);
   const [showPreview, setShowPreview] = useState(false);
 
+  const [hasPresentationItem, setHasPresentationItem] = useState<boolean | null>(null);
+
   const hasSnapshot = !!project.active_analysis_snapshot_id;
   const generating = phase !== 'idle' && phase !== 'done' && phase !== 'error';
+
+  // Load package items to check for presentation target
+  useEffect(() => {
+    listPackageItems(projectId)
+      .then((items) => setHasPresentationItem(items.some((i) => i.generation_target === 'presentation')))
+      .catch(() => setHasPresentationItem(null));
+  }, [projectId]);
 
   // Load existing revision on mount or doc type change
   useEffect(() => {
@@ -140,21 +149,29 @@ export default function GenerateStage({ projectId, project, onProjectUpdate }: G
       )}
 
       {/* Doc type selector */}
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
         <span className="text-sm text-slate-600">생성 대상:</span>
-        {([['proposal', '기술 제안서'], ['execution_plan', '수행계획서/WBS'], ['track_record', '실적기술서'], ['presentation', '발표자료(PPT)']] as const).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => { setDocType(key); setResult(null); }}
-            className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
-              docType === key
-                ? 'bg-kira-600 text-white border-kira-600'
-                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+        {([['proposal', '기술 제안서'], ['execution_plan', '수행계획서/WBS'], ['track_record', '실적기술서'], ['presentation', '발표자료(PPT)']] as const).map(([key, label]) => {
+          const isPptDisabled = key === 'presentation' && hasPresentationItem === false;
+          return (
+            <button
+              key={key}
+              onClick={() => { if (!isPptDisabled) { setDocType(key); setResult(null); } }}
+              disabled={isPptDisabled}
+              title={isPptDisabled ? '발표평가 미포함 — 패키지 단계에서 발표자료를 추가해주세요' : undefined}
+              className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                isPptDisabled
+                  ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                  : docType === key
+                    ? 'bg-kira-600 text-white border-kira-600'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              {label}
+              {isPptDisabled && <span className="ml-1 text-xs">(미포함)</span>}
+            </button>
+          );
+        })}
       </div>
 
       {/* Generate button + controls */}

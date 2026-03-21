@@ -22,6 +22,38 @@ from ppt_assembler import assemble_pptx
 logger = logging.getLogger(__name__)
 
 
+def _match_section_to_slide(slide_title: str, sections: list[dict]) -> str:
+    """Match slide to best proposal section using keyword scoring.
+
+    Uses character-set overlap ratio with a bonus for exact substring match.
+    Returns the best-matching section's text, or empty string if no match.
+    """
+    slide_words = set(slide_title.replace(" ", ""))
+
+    best_score = 0.0
+    best_text = ""
+
+    for sec in sections:
+        sec_name = sec.get("name", "")
+        sec_words = set(sec_name.replace(" ", ""))
+
+        if not slide_words or not sec_words:
+            continue
+
+        overlap = len(slide_words & sec_words)
+        score = overlap / max(len(slide_words), 1)
+
+        # Bonus: exact substring match
+        if slide_title in sec_name or sec_name in slide_title:
+            score += 0.5
+
+        if score > best_score:
+            best_score = score
+            best_text = sec.get("text", "")
+
+    return best_text
+
+
 def generate_ppt(
     rfx_result: dict[str, Any],
     output_dir: str = "./data/proposals",
@@ -114,12 +146,7 @@ def generate_ppt(
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             futures = {}
             for slide in content_slides:
-                matched_text = ""
-                for sec in proposal_sections:
-                    sec_name = sec.get("name", "")
-                    if slide.title in sec_name or sec_name in slide.title:
-                        matched_text = sec.get("text", "")
-                        break
+                matched_text = _match_section_to_slide(slide.title, proposal_sections)
 
                 if matched_text:
                     future = pool.submit(
