@@ -452,14 +452,15 @@ async def analyze_rfp_text(
 
 
 @router.post("/projects/{project_id}/upload-rfp")
-@limiter.limit("5/minute")
 async def upload_and_analyze_rfp(
-    request: Request,
     project_id: str,
     file: UploadFile = File(...),
     user: CurrentUser = Depends(resolve_org_membership),
     db: AsyncSession = Depends(get_async_session),
 ):
+    # Rate limit: 전역 SlowAPIMiddleware (60/min) 적용됨.
+    # 파일 업로드 엔드포인트는 UploadFile + @limiter.limit 호환 문제로
+    # per-endpoint 데코레이터 대신 전역 미들웨어에 의존합니다.
     """Upload an RFP file (PDF/DOCX/HWP/HWPX/TXT), parse it, and analyze."""
     await require_project_access(project_id, "editor", user, db)
 
