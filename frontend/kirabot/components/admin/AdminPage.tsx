@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { BarChart3, Bell, Trash2, Send, RefreshCw, Users, MessageSquare, FileSearch } from 'lucide-react';
+import { BarChart3, Bell, Trash2, Send, RefreshCw, Users, MessageSquare, FileSearch, Activity } from 'lucide-react';
 import {
   getAdminUsage,
   getAdminAlerts,
@@ -8,8 +8,9 @@ import {
   type AdminUsageResponse,
   type AdminAlertItem,
 } from '../../services/kiraApiService';
+import ObservabilityDashboard from './ObservabilityDashboard';
 
-type Tab = 'usage' | 'alerts';
+type Tab = 'usage' | 'alerts' | 'observability';
 
 const AdminPage: React.FC = () => {
   const [tab, setTab] = useState<Tab>('usage');
@@ -22,6 +23,7 @@ const AdminPage: React.FC = () => {
         <div className="mt-3 flex gap-1">
           {([
             { key: 'usage' as Tab, label: '사용량', icon: BarChart3 },
+            { key: 'observability' as Tab, label: '운영 메트릭', icon: Activity },
             { key: 'alerts' as Tab, label: '알림 관리', icon: Bell },
           ]).map(({ key, label, icon: Icon }) => (
             <button
@@ -41,7 +43,7 @@ const AdminPage: React.FC = () => {
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-6">
-        {tab === 'usage' ? <UsagePanel /> : <AlertsPanel />}
+        {tab === 'usage' ? <UsagePanel /> : tab === 'observability' ? <ObservabilityDashboard /> : <AlertsPanel />}
       </div>
     </div>
   );

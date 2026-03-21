@@ -3019,6 +3019,180 @@ def _project_to_response(project: BidProject) -> StudioProjectResponse:
     )
 
 
+# --- Admin Observability Metrics ---
+
+@router.get("/admin/metrics")
+async def get_admin_metrics(
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+    days: int = Query(default=30, ge=1, le=365),
+):
+    """Admin observability dashboard — aggregated usage, cost, quality metrics.
+
+    Scoped to the user's org_id. Returns summary, event-type breakdown,
+    doc-type breakdown, cost by model, quality signals, and daily trend.
+    """
+    from sqlalchemy import func as sa_func, case, cast, Float, Date, literal_column
+    from services.web_app.db.models.usage import UsageEvent
+
+    cutoff = datetime.now(timezone.utc) - __import__("datetime").timedelta(days=days)
+
+    # --- 1. Summary aggregation ---
+    summary_q = await db.execute(
+        select(
+            sa_func.count().label("total"),
+            sa_func.count().filter(UsageEvent.status == "success").label("success"),
+            sa_func.count().filter(UsageEvent.status == "failure").label("failure"),
+            sa_func.count().filter(UsageEvent.status == "timeout").label("timeout"),
+        ).where(
+            UsageEvent.org_id == user.org_id,
+            UsageEvent.created_at >= cutoff,
+        )
+    )
+    row = summary_q.one()
+    total_events = row.total or 0
+    success_count = row.success or 0
+    failure_count = row.failure or 0
+    timeout_count = row.timeout or 0
+    success_rate = round(success_count / total_events, 3) if total_events > 0 else 0.0
+
+    # --- 2. By event_type ---
+    evt_q = await db.execute(
+        select(
+            UsageEvent.event_type,
+            sa_func.count().label("count"),
+            sa_func.count().filter(UsageEvent.status == "success").label("success"),
+            sa_func.count().filter(UsageEvent.status == "failure").label("failure"),
+            sa_func.coalesce(
+                sa_func.avg(UsageEvent.duration_ms).filter(UsageEvent.duration_ms.isnot(None)),
+                0,
+            ).label("avg_duration_ms"),
+        ).where(
+            UsageEvent.org_id == user.org_id,
+            UsageEvent.created_at >= cutoff,
+        ).group_by(UsageEvent.event_type)
+    )
+    by_event_type: dict[str, Any] = {}
+    for r in evt_q.all():
+        by_event_type[r.event_type] = {
+            "count": r.count,
+            "success": r.success,
+            "failure": r.failure,
+            "avg_duration_ms": int(r.avg_duration_ms) if r.avg_duration_ms else 0,
+        }
+
+    # --- 3. By doc_type ---
+    doc_q = await db.execute(
+        select(
+            UsageEvent.doc_type,
+            sa_func.count().label("count"),
+            sa_func.coalesce(
+                sa_func.avg(UsageEvent.duration_ms).filter(UsageEvent.duration_ms.isnot(None)),
+                0,
+            ).label("avg_duration_ms"),
+        ).where(
+            UsageEvent.org_id == user.org_id,
+            UsageEvent.created_at >= cutoff,
+            UsageEvent.doc_type.isnot(None),
+        ).group_by(UsageEvent.doc_type)
+    )
+    by_doc_type: dict[str, Any] = {}
+    for r in doc_q.all():
+        by_doc_type[r.doc_type] = {
+            "count": r.count,
+            "avg_duration_ms": int(r.avg_duration_ms) if r.avg_duration_ms else 0,
+        }
+
+    # --- 4. Cost by model ---
+    cost_q = await db.execute(
+        select(
+            UsageEvent.model_name,
+            sa_func.coalesce(sa_func.sum(UsageEvent.token_count), 0).label("tokens"),
+            sa_func.coalesce(sa_func.sum(UsageEvent.estimated_cost_usd), 0).label("cost_usd"),
+        ).where(
+            UsageEvent.org_id == user.org_id,
+            UsageEvent.created_at >= cutoff,
+            UsageEvent.model_name.isnot(None),
+        ).group_by(UsageEvent.model_name)
+    )
+    by_model: dict[str, Any] = {}
+    total_usd = 0.0
+    for r in cost_q.all():
+        cost_val = float(r.cost_usd) if r.cost_usd else 0.0
+        by_model[r.model_name] = {
+            "tokens": int(r.tokens) if r.tokens else 0,
+            "cost_usd": round(cost_val, 6),
+        }
+        total_usd += cost_val
+
+    # --- 5. Quality signals from AuditLog ---
+    override_q = await db.execute(
+        select(sa_func.count()).where(
+            AuditLog.org_id == user.org_id,
+            AuditLog.action == "package_manual_override",
+            AuditLog.created_at >= cutoff,
+        )
+    )
+    override_count = override_q.scalar() or 0
+
+    # Low-confidence: classify audits where detail_json->>'review_required' is true
+    low_conf_q = await db.execute(
+        select(sa_func.count()).where(
+            AuditLog.org_id == user.org_id,
+            AuditLog.action == "package_classified",
+            AuditLog.created_at >= cutoff,
+            AuditLog.detail_json["review_required"].as_boolean() == True,  # noqa: E712
+        )
+    )
+    low_confidence_count = low_conf_q.scalar() or 0
+
+    # --- 6. Daily trend ---
+    from sqlalchemy import text as sa_text
+    trend_q = await db.execute(
+        select(
+            sa_func.date_trunc("day", UsageEvent.created_at).label("day"),
+            sa_func.count().label("events"),
+            sa_func.count().filter(UsageEvent.status == "success").label("success"),
+            sa_func.count().filter(UsageEvent.status == "failure").label("failure"),
+        ).where(
+            UsageEvent.org_id == user.org_id,
+            UsageEvent.created_at >= cutoff,
+        ).group_by(sa_text("1")).order_by(sa_text("1"))
+    )
+    daily_trend = [
+        {
+            "date": r.day.strftime("%Y-%m-%d") if r.day else "",
+            "events": r.events,
+            "success": r.success,
+            "failure": r.failure,
+        }
+        for r in trend_q.all()
+    ]
+
+    return {
+        "period_days": days,
+        "summary": {
+            "total_events": total_events,
+            "success_count": success_count,
+            "failure_count": failure_count,
+            "timeout_count": timeout_count,
+            "success_rate": success_rate,
+        },
+        "by_event_type": by_event_type,
+        "by_doc_type": by_doc_type,
+        "cost": {
+            "total_usd": round(total_usd, 6),
+            "by_model": by_model,
+        },
+        "quality": {
+            "override_count": override_count,
+            "low_confidence_count": low_confidence_count,
+            "avg_quality_score": None,
+        },
+        "daily_trend": daily_trend,
+    }
+
+
 # --- Account deletion ---
 
 @router.delete("/account")

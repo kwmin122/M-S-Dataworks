@@ -584,3 +584,44 @@ export const getProposalDiff = (projectId: string) =>
   getDocumentDiff(projectId, 'proposal');
 export const relearnProposalStyle = (projectId: string) =>
   relearnDocumentStyle(projectId, 'proposal');
+
+// --- Admin Observability Metrics ---
+
+export interface AdminMetricsSummary {
+  total_events: number;
+  success_count: number;
+  failure_count: number;
+  timeout_count: number;
+  success_rate: number;
+}
+
+export interface EventTypeMetrics {
+  count: number;
+  success: number;
+  failure: number;
+  avg_duration_ms: number;
+}
+
+export interface DocTypeMetrics {
+  count: number;
+  avg_duration_ms: number;
+}
+
+export interface ModelCost {
+  tokens: number;
+  cost_usd: number;
+}
+
+export interface AdminMetrics {
+  period_days: number;
+  summary: AdminMetricsSummary;
+  by_event_type: Record<string, EventTypeMetrics>;
+  by_doc_type: Record<string, DocTypeMetrics>;
+  cost: { total_usd: number; by_model: Record<string, ModelCost> };
+  quality: { override_count: number; low_confidence_count: number; avg_quality_score: number | null };
+  daily_trend: Array<{ date: string; events: number; success: number; failure: number }>;
+}
+
+export async function getAdminMetrics(days: number = 30): Promise<AdminMetrics> {
+  return studioFetch(`/api/studio/admin/metrics?days=${days}`);
+}
