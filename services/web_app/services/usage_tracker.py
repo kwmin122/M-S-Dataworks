@@ -82,8 +82,10 @@ async def emit_usage_event(
         async with db.begin_nested():
             db.add(event)
             await db.flush()  # Force INSERT inside savepoint so errors are caught here
-    except Exception:
+    except Exception as exc:
         # Table may not exist yet in production; expunge the failed object
+        import logging
+        logging.getLogger(__name__).debug("emit_usage_event savepoint failed (graceful): %s", exc)
         try:
             db.expunge(event)
         except Exception:
@@ -197,7 +199,10 @@ async def enforce_quota(
             raise HTTPException(status_code=402, detail=message)
     except Exception as exc:
         # Re-raise HTTPException (402 quota exceeded) — don't swallow it
-        if hasattr(exc, "status_code"):
+        from fastapi import HTTPException as _HTTPExc
+        if isinstance(exc, _HTTPExc):
             raise
         # Any other error (missing table, DB down) — graceful degradation
+        import logging
+        logging.getLogger(__name__).debug("enforce_quota failed (graceful): %s", exc)
         return

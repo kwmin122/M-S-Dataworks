@@ -21,7 +21,6 @@ from services.web_app.db.models.company import CompanyProfile, CompanyTrackRecor
 from services.web_app.db.models.document import DocumentRun, DocumentRevision, DocumentAsset
 from services.web_app.db.models.audit import AuditLog
 from services.web_app.api.deps import CurrentUser, resolve_org_membership, require_project_access
-from services.web_app.rate_limit import limiter
 from services.web_app.services.package_classifier import classify_and_build
 
 logger = logging.getLogger(__name__)

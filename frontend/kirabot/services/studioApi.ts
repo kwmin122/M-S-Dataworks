@@ -8,6 +8,18 @@ const API_BASE =
     ? 'http://localhost:8000'
     : '');
 
+/** Parse FastAPI error detail — handles string, array, and object forms. */
+function parseErrorDetail(body: string, fallback: string): string {
+  try {
+    const json = JSON.parse(body);
+    if (!json.detail) return fallback;
+    if (Array.isArray(json.detail))
+      return json.detail.map((d: { msg?: string }) => d.msg || String(d)).join(', ');
+    if (typeof json.detail === 'string') return json.detail;
+    return JSON.stringify(json.detail);
+  } catch { return fallback; }
+}
+
 async function studioFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
@@ -16,21 +28,7 @@ async function studioFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.text();
-    let userMessage = `오류 ${res.status}`;
-    try {
-      const json = JSON.parse(body);
-      if (json.detail) {
-        // FastAPI validation errors return detail as array; extract first message
-        if (Array.isArray(json.detail)) {
-          userMessage = json.detail.map((d: { msg?: string }) => d.msg || String(d)).join(', ');
-        } else if (typeof json.detail === 'string') {
-          userMessage = json.detail;
-        } else {
-          userMessage = JSON.stringify(json.detail);
-        }
-      }
-    } catch { /* non-JSON body */ }
-    throw new Error(userMessage);
+    throw new Error(parseErrorDetail(body, `오류 ${res.status}`));
   }
   return res.json();
 }
@@ -167,7 +165,7 @@ export async function uploadAndAnalyzeRfp(
   if (!res.ok) {
     const body = await res.text();
     let msg = `오류 ${res.status}`;
-    try { const j = JSON.parse(body); if (j.detail) msg = j.detail; } catch { /* */ }
+    msg = parseErrorDetail(body, msg);
     throw new Error(msg);
   }
   return res.json();
@@ -539,7 +537,7 @@ export async function attachEvidenceFile(
   if (!res.ok) {
     const body = await res.text();
     let msg = `오류 ${res.status}`;
-    try { const j = JSON.parse(body); if (j.detail) msg = j.detail; } catch { /* */ }
+    msg = parseErrorDetail(body, msg);
     throw new Error(msg);
   }
   return res.json();
