@@ -24,10 +24,10 @@ def real_packs_dir():
     Task 2 creates these files; this fixture reads them directly.
     """
     packs = Path(__file__).resolve().parent.parent.parent / "data" / "company_packs"
-    assert (packs / "_default" / "pack.json").exists(), \
-        "Guide Pack not found -- run Task 2 first"
-    assert (packs / "_default" / "execution_plan" / "research" / "sections.json").exists(), \
-        "Research sections.json not found -- run Task 2 first"
+    if not (packs / "_default" / "pack.json").exists():
+        pytest.skip("Guide Pack not found -- run Task 2 first (data/company_packs/_default/pack.json)")
+    if not (packs / "_default" / "execution_plan" / "research" / "sections.json").exists():
+        pytest.skip("Research sections.json not found -- run Task 2 first")
     return str(packs)
 
 

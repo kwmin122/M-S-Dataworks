@@ -52,8 +52,7 @@ class StudioProjectResponse(BaseModel):
     created_at: str
     updated_at: str
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 class UpdateStudioStageRequest(BaseModel):
@@ -74,8 +73,7 @@ class PackageItemResponse(BaseModel):
     generation_target: str | None
     sort_order: int
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 class ClassifyResponse(BaseModel):
@@ -1098,8 +1096,7 @@ class CompanyAssetResponse(BaseModel):
     promoted_to_id: str | None
     created_at: str
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 # --- Company Asset endpoints ---
@@ -1439,8 +1436,7 @@ class StyleSkillResponse(BaseModel):
     is_shared_default: bool
     created_at: str
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 # --- Style Skill endpoints ---
