@@ -19,7 +19,16 @@ async function studioFetch<T>(path: string, init?: RequestInit): Promise<T> {
     let userMessage = `오류 ${res.status}`;
     try {
       const json = JSON.parse(body);
-      if (json.detail) userMessage = json.detail;
+      if (json.detail) {
+        // FastAPI validation errors return detail as array; extract first message
+        if (Array.isArray(json.detail)) {
+          userMessage = json.detail.map((d: { msg?: string }) => d.msg || String(d)).join(', ');
+        } else if (typeof json.detail === 'string') {
+          userMessage = json.detail;
+        } else {
+          userMessage = JSON.stringify(json.detail);
+        }
+      }
     } catch { /* non-JSON body */ }
     throw new Error(userMessage);
   }
