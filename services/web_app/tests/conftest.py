@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import os
 
 # Disable quota enforcement during tests — tests use "free" plan orgs
@@ -29,20 +28,7 @@ _TEST_DB_URL = os.getenv("BID_TEST_DATABASE_URL", "")
 _DB_AVAILABLE = bool(_TEST_DB_URL and "postgresql" in _TEST_DB_URL)
 
 
-# Custom session-scoped event loop: required because _pg_engine is session-scoped
-# and db_session (function-scoped) shares the same connection.
-# pytest-asyncio 0.24 deprecated this pattern in favor of loop_scope parameter,
-# but loop_scope migration requires all dependent fixtures to share the same
-# loop_scope, which breaks the session/function fixture boundary here.
-# Migrate when pytest-asyncio >= 1.0 stabilizes the API.
-@pytest.fixture(scope="session")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def _pg_engine():
     """Session-scoped engine. Creates schema once with pgvector extension."""
     if not _DB_AVAILABLE:
@@ -60,7 +46,7 @@ async def _pg_engine():
     await engine.dispose()
 
 
-@pytest_asyncio.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function", loop_scope="session")
 async def db_session(_pg_engine):
     """Per-test async session with transactional isolation.
 

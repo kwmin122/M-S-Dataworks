@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { Suspense, useEffect, useState, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Hero from './components/Hero';
@@ -18,20 +18,7 @@ import { ChatProvider } from './context/ChatContext';
 import { UserProvider } from './context/UserContext';
 import ProtectedRoute from './components/layout/ProtectedRoute';
 import AppShell from './components/layout/AppShell';
-import ChatPage from './components/chat/ChatPage';
-import DashboardPage from './components/dashboard/DashboardPage';
-import SettingsPage from './components/settings/SettingsPage';
-import SettingsGeneral from './components/settings/SettingsGeneral';
-import SettingsAccount from './components/settings/SettingsAccount';
-import SettingsCompany from './components/settings/SettingsCompany';
-import DocumentWorkspace from './components/settings/documents/DocumentWorkspace';
-import ForecastPage from './components/forecast/ForecastPage';
-import AdminPage from './components/admin/AdminPage';
-import AlertsPage from './components/alerts/AlertsPage';
-import StudioHome from './pages/StudioHome';
-import StudioProjectPage from './components/studio/StudioProject';
 import PaymentModal from './components/PaymentModal';
-import SubscriptionPage from './components/settings/SubscriptionPage';
 import type { User } from './types';
 import { trackPageView } from './utils/analytics';
 import {
@@ -42,6 +29,29 @@ import {
   signInWithKakao,
   signOutGoogleUser,
 } from './services/authService';
+
+// Lazy-loaded route components — split into separate chunks
+const ChatPage = React.lazy(() => import('./components/chat/ChatPage'));
+const DashboardPage = React.lazy(() => import('./components/dashboard/DashboardPage'));
+const SettingsPage = React.lazy(() => import('./components/settings/SettingsPage'));
+const SettingsGeneral = React.lazy(() => import('./components/settings/SettingsGeneral'));
+const SettingsAccount = React.lazy(() => import('./components/settings/SettingsAccount'));
+const SettingsCompany = React.lazy(() => import('./components/settings/SettingsCompany'));
+const DocumentWorkspace = React.lazy(() => import('./components/settings/documents/DocumentWorkspace'));
+const ForecastPage = React.lazy(() => import('./components/forecast/ForecastPage'));
+const AdminPage = React.lazy(() => import('./components/admin/AdminPage'));
+const AlertsPage = React.lazy(() => import('./components/alerts/AlertsPage'));
+const StudioHome = React.lazy(() => import('./pages/StudioHome'));
+const StudioProjectPage = React.lazy(() => import('./components/studio/StudioProject'));
+const SubscriptionPage = React.lazy(() => import('./components/settings/SubscriptionPage'));
+
+function LazyFallback() {
+  return (
+    <div className="flex items-center justify-center min-h-[200px]">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+    </div>
+  );
+}
 
 function AppRoutes() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -246,7 +256,9 @@ function AppRoutes() {
           <ProtectedRoute user={user} authLoading={authLoading}>
             <UserProvider value={user}>
               <ChatProvider>
-                <AppShell user={user} onLogout={() => void handleLogout()} />
+                <Suspense fallback={<LazyFallback />}>
+                  <AppShell user={user} onLogout={() => void handleLogout()} />
+                </Suspense>
               </ChatProvider>
             </UserProvider>
           </ProtectedRoute>
