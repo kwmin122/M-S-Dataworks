@@ -76,13 +76,18 @@ async def emit_usage_event(
         error_message=error_message[:500] if error_message else None,
         detail_json=detail_json,
     )
-    # Use savepoint to isolate — if usage_events table doesn't exist yet,
-    # the main transaction is not poisoned.
+    # Use savepoint + flush to isolate — if usage_events table doesn't exist,
+    # the savepoint rolls back and the main transaction stays clean.
     try:
         async with db.begin_nested():
             db.add(event)
+            await db.flush()  # Force INSERT inside savepoint so errors are caught here
     except Exception:
-        pass  # Table may not exist yet in production; graceful degradation
+        # Table may not exist yet in production; expunge the failed object
+        try:
+            db.expunge(event)
+        except Exception:
+            pass
     # Don't commit — caller controls transaction
 
 
