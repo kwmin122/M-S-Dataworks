@@ -179,15 +179,25 @@ async def enforce_quota(
     import os
     if os.environ.get("BID_QUOTA_DISABLED"):
         return
-    from services.web_app.db.models.org import Organization
 
-    result = await db.execute(
-        select(Organization.plan_tier).where(Organization.id == org_id)
-    )
-    plan_tier = result.scalar_one_or_none() or "free"
-
-    allowed, message = await check_quota(db, org_id, event_type, plan_tier)
-    if not allowed:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=402, detail=message)
+    # Run quota check in a SEPARATE session to avoid poisoning the caller's
+    # transaction if usage_events table doesn't exist yet.
+    try:
+        from services.web_app.db.engine import get_async_session_factory
+        factory = get_async_session_factory()
+        async with factory() as quota_db:
+            from services.web_app.db.models.org import Organization
+            result = await quota_db.execute(
+                select(Organization.plan_tier).where(Organization.id == org_id)
+            )
+            plan_tier = result.scalar_one_or_none() or "free"
+            allowed, message = await check_quota(quota_db, org_id, event_type, plan_tier)
+        if not allowed:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=402, detail=message)
+    except Exception as exc:
+        # Re-raise HTTPException (402 quota exceeded) — don't swallow it
+        if hasattr(exc, "status_code"):
+            raise
+        # Any other error (missing table, DB down) — graceful degradation
+        return
