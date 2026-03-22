@@ -142,31 +142,8 @@ async def test_search_bids_valid_keywords(db_session):
 
     req = NaraSearchRequest(keywords="정보시스템")
 
-    # The endpoint is decorated with @limiter.limit("10/minute") which requires
-    # a real starlette Request with client info + app state.
-    # Build a minimal ASGI-compliant Request to satisfy slowapi.
-    from starlette.requests import Request as StarletteRequest
-    from services.web_app.rate_limit import limiter as app_limiter
-
-    scope = {
-        "type": "http",
-        "method": "POST",
-        "path": "/api/studio/search-bids",
-        "headers": [],
-        "query_string": b"",
-        "client": ("127.0.0.1", 12345),
-    }
-    starlette_request = StarletteRequest(scope)
-
-    # slowapi checks request.app.state.slow_api_app (the limiter instance)
-    mock_app_state = MagicMock()
-    mock_app_state.slow_api_app = app_limiter
-    mock_app = MagicMock()
-    mock_app.state = mock_app_state
-    scope["app"] = mock_app
-
     with patch("services.web_app.nara_api.search_bids", new_callable=AsyncMock, return_value=mock_result) as mock_sb:
-        result = await studio_search_bids(request=starlette_request, req=req, user=user)
+        result = await studio_search_bids(req=req, user=user, db=db_session)
 
     assert result == mock_result
     mock_sb.assert_awaited_once()

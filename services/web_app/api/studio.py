@@ -316,9 +316,7 @@ class NaraSearchRequest(BaseModel):
 
 
 @router.post("/search-bids")
-@limiter.limit("10/minute")
 async def studio_search_bids(
-    request: Request,
     req: NaraSearchRequest,
     user: CurrentUser = Depends(resolve_org_membership),
     db: AsyncSession = Depends(get_async_session),
