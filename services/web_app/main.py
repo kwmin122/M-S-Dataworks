@@ -173,10 +173,16 @@ class BidSearchPayload(BaseModel):
     keywords: list[str] | str | None = None
     category: str = "all"
     region: str = ""
+    regionCode: str = ""
     minAmt: float | None = None
     maxAmt: float | None = None
     period: str = "1m"
+    startDate: str = ""
+    endDate: str = ""
+    industry: str = ""
+    demandOrg: str = ""
     excludeExpired: bool = True
+    bidCloseExcl: bool = False
     page: int = Field(default=1, ge=1, le=1000)
     pageSize: int = Field(default=20, ge=1, le=100)
 
@@ -2266,10 +2272,16 @@ async def api_bids_search(payload: BidSearchPayload, request: Request) -> dict[s
             keywords=keywords_str,
             category=payload.category,
             region=payload.region,
+            region_code=payload.regionCode,
             min_amt=payload.minAmt,
             max_amt=payload.maxAmt,
             period=payload.period,
+            start_date=payload.startDate,
+            end_date=payload.endDate,
+            industry=payload.industry,
+            demand_org=payload.demandOrg,
             exclude_expired=payload.excludeExpired,
+            bid_close_excl=payload.bidCloseExcl,
             page=payload.page,
             page_size=payload.pageSize,
         )

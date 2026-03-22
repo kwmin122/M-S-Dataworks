@@ -152,12 +152,12 @@ async def test_search_bids_valid_keywords(db_session):
 
 
 @pytest.mark.asyncio
-async def test_search_bids_empty_keywords():
-    """Empty keywords → pydantic validation error."""
+async def test_search_bids_empty_keywords_allowed():
+    """Empty keywords allowed — filter-only search is valid."""
     from services.web_app.api.studio import NaraSearchRequest
 
-    with pytest.raises(ValidationError):
-        NaraSearchRequest(keywords="")
+    req = NaraSearchRequest(keywords="")
+    assert req.keywords == ""
 
 
 @pytest.mark.asyncio

@@ -304,12 +304,19 @@ async def update_studio_stage(
 # --- Nara Search (proxy for Studio) ---
 
 class NaraSearchRequest(BaseModel):
-    keywords: str = Field(min_length=1, max_length=200)
+    keywords: str = Field(default="", max_length=200)
     category: Literal['all', 'service', 'goods', 'construction', 'foreign', 'etc'] = "all"
     region: str = Field(default="", max_length=100)
+    region_code: str = Field(default="", max_length=10)
     min_amt: float | None = Field(default=None, ge=0)
     max_amt: float | None = Field(default=None, ge=0)
     period: Literal['1w', '1m', '3m', '6m', '12m'] = "1m"
+    start_date: str = Field(default="", max_length=10)
+    end_date: str = Field(default="", max_length=10)
+    industry: str = Field(default="", max_length=100)
+    demand_org: str = Field(default="", max_length=100)
+    exclude_expired: bool = True
+    bid_close_excl: bool = False
     page: int = Field(default=1, ge=1, le=100)
     page_size: int = Field(default=10, ge=1, le=50)
 
@@ -328,9 +335,16 @@ async def studio_search_bids(
             keywords=req.keywords,
             category=req.category,
             region=req.region,
+            region_code=req.region_code,
             min_amt=req.min_amt,
             max_amt=req.max_amt,
             period=req.period,
+            start_date=req.start_date,
+            end_date=req.end_date,
+            industry=req.industry,
+            demand_org=req.demand_org,
+            exclude_expired=req.exclude_expired,
+            bid_close_excl=req.bid_close_excl,
             page=req.page,
             page_size=req.page_size,
         )

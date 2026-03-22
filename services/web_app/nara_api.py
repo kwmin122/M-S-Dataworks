@@ -14,8 +14,6 @@ import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
-
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -77,24 +75,28 @@ def _build_date_range(period: str) -> tuple[str, str]:
     return bgn_dt, end_dt
 
 
-def _split_monthly_ranges(period: str) -> list[tuple[str, str]]:
-    """1개월 초과 기간을 최대 30일 단위 청크로 분할.
+_CHUNK_DAYS = 27  # PPSSrch API 최대 조회 기간 ~28일, 안전 마진 확보
 
-    나라장터 API는 조회 기간이 약 1개월(31일)을 초과하면
-    에러를 반환하거나 빈 결과를 줄 수 있어서 분할 쿼리가 필요하다.
+
+def _split_monthly_ranges(period: str) -> list[tuple[str, str]]:
+    """기간을 최대 27일 단위 청크로 분할.
+
+    PPSSrch API는 조회 기간이 약 28일을 초과하면
+    '입력범위값 초과 에러'를 반환하므로 27일 단위로 분할한다.
     """
     now = _kst_now()
     delta_map = {"1w": timedelta(weeks=1), "1m": timedelta(days=30), "3m": timedelta(days=90), "6m": timedelta(days=180), "12m": timedelta(days=365)}
     total_delta = delta_map.get(period, timedelta(days=30))
 
-    # 30일 이하면 분할 불필요
-    if total_delta.days <= 31:
+    chunk = timedelta(days=_CHUNK_DAYS)
+
+    # 청크 이내면 분할 불필요
+    if total_delta <= chunk:
         bgn = now - total_delta
         return [(bgn.strftime("%Y%m%d%H%M"), now.strftime("%Y%m%d%H%M"))]
 
-    # 30일 단위로 분할
+    # 27일 단위로 분할
     ranges: list[tuple[str, str]] = []
-    chunk = timedelta(days=30)
     end = now
     start = now - total_delta
     cursor = start
@@ -107,6 +109,15 @@ def _split_monthly_ranges(period: str) -> list[tuple[str, str]]:
 
 def _parse_items(data: dict[str, Any]) -> list[dict[str, Any]]:
     """나라장터 API JSON 응답에서 item 리스트를 추출한다."""
+    # PPSSrch 에러 응답: nkoneps.com.response.ResponseError
+    error_resp = data.get("nkoneps.com.response.ResponseError")
+    if error_resp:
+        err_header = error_resp.get("header", {})
+        err_code = str(err_header.get("resultCode", ""))
+        err_msg = str(err_header.get("resultMsg", ""))
+        logger.warning("나라장터 API 에러 응답 (nkoneps): code=%s, msg=%s", err_code, err_msg)
+        return []
+
     response = data.get("response", {})
 
     # API 에러 코드 체크
@@ -153,15 +164,17 @@ def _normalize_bid_notice(item: dict[str, Any], category: str = "") -> dict[str,
             except ValueError:
                 pass
 
-    # 추정 가격 (presmptPrc 우선, 없으면 asignBdgtAmt / bsisAmt 대체)
+    # 추정 가격 (presmptPrce 우선, 없으면 asignBdgtAmt / bsisAmt 대체)
     estimated_price = None
-    for price_field in ("presmptPrc", "asignBdgtAmt", "bsisAmt"):
+    estimated_price_raw: float | None = None
+    for price_field in ("presmptPrce", "asignBdgtAmt", "bsisAmt"):
         raw = item.get(price_field, None)
         if raw:
             try:
                 amt = float(str(raw).replace(",", ""))
                 if amt > 0:
                     estimated_price = f"{amt:,.0f}원"
+                    estimated_price_raw = amt
                     break
             except (ValueError, TypeError):
                 pass
@@ -193,9 +206,36 @@ def _normalize_bid_notice(item: dict[str, Any], category: str = "") -> dict[str,
     # 공고 URL
     url = str(item.get("bidNtceUrl", "") or "").strip() or None
 
-    # 지역 제한
-    rgn_lmt_yn = str(item.get("rgnLmtYn", "") or "").strip()
-    rgn_nm = str(item.get("ntceInsttOfclNm", "") or "").strip()
+    # 지역 — 참가제한지역명, 없으면 공고기관 담당자명 대체
+    prtcpt_rgn = str(item.get("prtcptLmtRgnNm", "") or "").strip()
+    rgn_nm = prtcpt_rgn or str(item.get("ntceInsttOfclNm", "") or "").strip()
+
+    # 계약/입찰 방식
+    contract_method = str(item.get("cntrctCnclsMthdNm", "") or "").strip() or None
+    bid_method = str(item.get("bidMethdNm", "") or "").strip() or None
+
+    # 상세 URL
+    detail_url = str(item.get("bidNtceDtlUrl", "") or "").strip() or None
+
+    # 개찰일시
+    openg_raw = str(item.get("opengDt", "") or "").strip()
+    openg_at = None
+    if openg_raw:
+        cleaned_openg = re.sub(r"[^0-9]", "", openg_raw)
+        if len(cleaned_openg) >= 12:
+            try:
+                dt = datetime.strptime(cleaned_openg[:14].ljust(14, "0"), "%Y%m%d%H%M%S")
+                openg_at = dt.strftime("%Y-%m-%dT%H:%M:%S")
+            except ValueError:
+                pass
+
+    # 첨부파일 URL (PPSSrch 응답에 포함, 최대 10개)
+    attachments: list[dict[str, str]] = []
+    for i in range(1, 11):
+        file_nm = str(item.get(f"ntceSpecFileNm{i}", "") or "").strip()
+        file_url = str(item.get(f"ntceSpecDocUrl{i}", "") or "").strip()
+        if file_nm and file_url:
+            attachments.append({"fileNm": file_nm, "fileUrl": file_url})
 
     return {
         "id": bid_ntce_no,
@@ -207,11 +247,17 @@ def _normalize_bid_notice(item: dict[str, Any], category: str = "") -> dict[str,
         "deadlineAt": deadline_at,
         "publishedAt": published_at,
         "submitStartAt": submit_start_at,
+        "opengAt": openg_at,
         "awardMethod": str(item.get("sucsfbidMthdNm", "")).strip() or None,
+        "contractMethod": contract_method,
+        "bidMethod": bid_method,
         "url": url,
+        "detailUrl": detail_url,
         "estimatedPrice": estimated_price,
+        "estimatedPriceRaw": estimated_price_raw,
         "category": CATEGORY_LABEL.get(category, category),
         "bidNtceOrd": bid_ntce_ord or None,
+        "attachments": attachments if attachments else None,
     }
 
 
@@ -265,20 +311,66 @@ async def search_bids(
     keywords: str = "",
     category: str = "all",
     region: str = "",
+    region_code: str = "",
     min_amt: float | None = None,
     max_amt: float | None = None,
     period: str = "1m",
+    start_date: str = "",
+    end_date: str = "",
+    industry: str = "",
+    demand_org: str = "",
     exclude_expired: bool = True,
+    bid_close_excl: bool = False,
     page: int = 1,
     page_size: int = 20,
 ) -> dict[str, Any]:
-    """나라장터 공고 검색.
+    """나라장터 공고 검색 (PPSSrch 엔드포인트).
+
+    Args:
+        keywords: 공고명 키워드 (bidNtceNm)
+        category: all/service/goods/construction/foreign/etc
+        region: 참가제한지역명 (prtcptLmtRgnNm) — 부분매칭
+        region_code: 참가제한지역코드 (prtcptLmtRgnCd) — 11:서울, 26:부산 등
+        min_amt: 추정가격 하한 (원)
+        max_amt: 추정가격 상한 (원)
+        period: 조회기간 ("1w"/"1m"/"3m"/"6m"/"12m")
+        start_date: 직접 지정 시작일 (YYYYMMDD), period보다 우선
+        end_date: 직접 지정 종료일 (YYYYMMDD), period보다 우선
+        industry: 업종명 (indstrytyNm) — 부분매칭
+        demand_org: 수요기관명 (dminsttNm) — 부분매칭
+        exclude_expired: 마감된 공고 클라이언트 필터 (기본 True)
+        bid_close_excl: API 마감 제외 (bidClseExcpYn=Y) — 서버 측 필터
+        page: 페이지 번호
+        page_size: 페이지 크기
 
     Returns:
         {"notices": [...], "total": int, "page": int, "pageSize": int}
     """
     api_key = _get_api_key()
-    date_ranges = _split_monthly_ranges(period)
+
+    # 직접 날짜 지정이 있으면 period 무시
+    if start_date and end_date:
+        # YYYYMMDD → YYYYMMDDHHMM
+        bgn = start_date.replace("-", "")[:8] + "0000"
+        end = end_date.replace("-", "")[:8] + "2359"
+        date_ranges = [(bgn, end)]
+        # 27일 초과 시 분할 (PPSSrch 최대 28일 제한)
+        from datetime import datetime as dt_cls
+        try:
+            d_bgn = dt_cls.strptime(bgn[:8], "%Y%m%d")
+            d_end = dt_cls.strptime(end[:8], "%Y%m%d")
+            if (d_end - d_bgn).days > _CHUNK_DAYS:
+                ranges: list[tuple[str, str]] = []
+                cursor = d_bgn
+                while cursor < d_end:
+                    chunk_end = min(cursor + timedelta(days=_CHUNK_DAYS), d_end)
+                    ranges.append((cursor.strftime("%Y%m%d0000"), chunk_end.strftime("%Y%m%d2359")))
+                    cursor = chunk_end
+                date_ranges = ranges
+        except ValueError:
+            pass
+    else:
+        date_ranges = _split_monthly_ranges(period)
 
     # 각 청크 API 호출에서는 충분히 많은 결과를 가져온다.
     # 페이지네이션은 전체 결과 병합 후 적용.
@@ -295,12 +387,19 @@ async def search_bids(
     if keywords:
         shared_params["bidNtceNm"] = keywords
     if region and region != "전국":
-        # 기관명 부분매칭으로 지역 필터 역할 ("서울"→서울특별시/서울시 등 매칭)
-        shared_params["ntceInsttNm"] = region
+        shared_params["prtcptLmtRgnNm"] = region
+    if region_code:
+        shared_params["prtcptLmtRgnCd"] = region_code
     if min_amt is not None:
-        shared_params["presmptPrcBgn"] = str(int(min_amt))
+        shared_params["presmptPrceBgn"] = str(int(min_amt))
     if max_amt is not None:
-        shared_params["presmptPrcEnd"] = str(int(max_amt))
+        shared_params["presmptPrceEnd"] = str(int(max_amt))
+    if industry:
+        shared_params["indstrytyNm"] = industry
+    if demand_org:
+        shared_params["dminsttNm"] = demand_org
+    if bid_close_excl:
+        shared_params["bidClseExcpYn"] = "Y"
 
     all_notices: list[dict[str, Any]] = []
     seen_ids: set[str] = set()

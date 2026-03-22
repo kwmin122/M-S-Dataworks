@@ -43,12 +43,21 @@ const SEARCH_RESULT: NaraSearchResult = {
       id: 'bid-1',
       title: '정보시스템 구축 사업',
       issuingOrg: '국토교통부',
+      demandOrg: '국토교통부',
       region: '서울',
       deadlineAt: '2026-04-01T18:00:00Z',
+      publishedAt: '2026-03-01T10:00:00Z',
+      opengAt: '2026-04-02T11:00:00Z',
       estimatedPrice: '5억원',
+      estimatedPriceRaw: 500000000,
       category: '용역',
       awardMethod: '협상에 의한 계약',
+      contractMethod: '제한경쟁',
+      bidMethod: '전자입찰',
       url: 'https://nara.go.kr/bid/1',
+      detailUrl: 'https://www.g2b.go.kr/link/PNPE027_01/single/?bidPbancNo=bid-1',
+      bidNtceOrd: '000',
+      attachments: null,
     },
   ],
   total: 1,
@@ -130,18 +139,20 @@ describe('RfpStage', () => {
     fireEvent.click(screen.getByText('나라장터 검색'));
 
     // Type keyword
-    const input = screen.getByPlaceholderText('검색어 입력 (예: 정보시스템, 홈페이지 구축)');
+    const input = screen.getByPlaceholderText('공고명 검색 (예: 정보시스템, 홈페이지 구축)');
     fireEvent.change(input, { target: { value: '정보시스템' } });
 
     // Click search button
     fireEvent.click(screen.getByText('검색'));
 
     await waitFor(() => {
-      expect(mockSearchNaraBids).toHaveBeenCalledWith({
-        keywords: '정보시스템',
-        category: 'all',
-        page: 1,
-      });
+      expect(mockSearchNaraBids).toHaveBeenCalledWith(
+        expect.objectContaining({
+          keywords: '정보시스템',
+          category: 'all',
+          page: 1,
+        }),
+      );
     });
 
     // Result should display
@@ -162,7 +173,7 @@ describe('RfpStage', () => {
 
     // Open search, search, select
     fireEvent.click(screen.getByText('나라장터 검색'));
-    const input = screen.getByPlaceholderText('검색어 입력 (예: 정보시스템, 홈페이지 구축)');
+    const input = screen.getByPlaceholderText('공고명 검색 (예: 정보시스템, 홈페이지 구축)');
     fireEvent.change(input, { target: { value: '정보시스템' } });
     fireEvent.click(screen.getByText('검색'));
 

@@ -173,16 +173,30 @@ export async function uploadAndAnalyzeRfp(
 
 // --- Nara Search ---
 
+export interface NaraBidAttachment {
+  fileNm: string;
+  fileUrl: string;
+}
+
 export interface NaraBidNotice {
   id: string;
   title: string;
   issuingOrg: string;
+  demandOrg: string | null;
   region: string | null;
   deadlineAt: string | null;
+  publishedAt: string | null;
+  opengAt: string | null;
   estimatedPrice: string | null;
+  estimatedPriceRaw: number | null;
   category: string;
   awardMethod: string | null;
+  contractMethod: string | null;
+  bidMethod: string | null;
   url: string | null;
+  detailUrl: string | null;
+  bidNtceOrd: string | null;
+  attachments: NaraBidAttachment[] | null;
 }
 
 export interface NaraSearchResult {
@@ -192,23 +206,46 @@ export interface NaraSearchResult {
   pageSize: number;
 }
 
-export async function searchNaraBids(params: {
-  keywords: string;
+export interface NaraSearchParams {
+  keywords?: string;
   category?: string;
   region?: string;
+  region_code?: string;
+  min_amt?: number | null;
+  max_amt?: number | null;
   period?: string;
+  start_date?: string;
+  end_date?: string;
+  industry?: string;
+  demand_org?: string;
+  exclude_expired?: boolean;
+  bid_close_excl?: boolean;
   page?: number;
-}): Promise<NaraSearchResult> {
+  page_size?: number;
+}
+
+export async function searchNaraBids(params: NaraSearchParams): Promise<NaraSearchResult> {
+  const body: Record<string, unknown> = {
+    keywords: params.keywords || '',
+    category: params.category || 'all',
+    period: params.period || '1m',
+    page: params.page || 1,
+    page_size: params.page_size || 10,
+  };
+  if (params.region) body.region = params.region;
+  if (params.region_code) body.region_code = params.region_code;
+  if (params.min_amt != null) body.min_amt = params.min_amt;
+  if (params.max_amt != null) body.max_amt = params.max_amt;
+  if (params.start_date) body.start_date = params.start_date;
+  if (params.end_date) body.end_date = params.end_date;
+  if (params.industry) body.industry = params.industry;
+  if (params.demand_org) body.demand_org = params.demand_org;
+  if (params.exclude_expired === false) body.exclude_expired = false;
+  if (params.bid_close_excl) body.bid_close_excl = true;
+
   return studioFetch('/api/studio/search-bids', {
     method: 'POST',
-    body: JSON.stringify({
-      keywords: params.keywords,
-      category: params.category || 'all',
-      region: params.region || '',
-      period: params.period || '1m',
-      page: params.page || 1,
-      page_size: 10,
-    }),
+    body: JSON.stringify(body),
   });
 }
 
