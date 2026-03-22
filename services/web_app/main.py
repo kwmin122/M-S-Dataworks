@@ -3691,6 +3691,9 @@ async def preview_alert_matches(request: Request, payload: dict) -> dict[str, An
         raw_categories = rule.get("categories", [])
         cat_codes = [NARA_CATEGORY_CODE.get(c, c) for c in raw_categories] if raw_categories else ["all"]
         region_list = regions if regions else [""]
+        rule_region_code = str(rule.get("regionCode", "")).strip()
+        rule_industry = str(rule.get("industry", "")).strip()
+        rule_bid_close_excl = bool(rule.get("bidCloseExcl", False))
         for kw in rule.get("keywords", [""]):
             for rgn in region_list:
                 for cat in cat_codes:
@@ -3699,8 +3702,11 @@ async def preview_alert_matches(request: Request, payload: dict) -> dict[str, An
                         _max = rule.get("maxAmt")
                         results = await nara_search_bids(
                             keywords=kw, category=cat, region=rgn,
+                            region_code=rule_region_code,
                             min_amt=float(_min) if _min else None,
                             max_amt=float(_max) if _max else None,
+                            industry=rule_industry,
+                            bid_close_excl=rule_bid_close_excl,
                             period="1w", exclude_expired=True, page=1, page_size=20,
                         )
                         all_bids.extend(results.get("notices", []))
@@ -4685,6 +4691,9 @@ async def _execute_alert_send(config: dict, label: str = "alert",
         # 한글→API코드 변환, 빈 목록이면 ["all"]
         cat_codes = [NARA_CATEGORY_CODE.get(c, c) for c in raw_categories] if raw_categories else ["all"]
         region_list = regions if regions else [""]
+        rule_region_code = str(rule.get("regionCode", "")).strip()
+        rule_industry = str(rule.get("industry", "")).strip()
+        rule_bid_close_excl = bool(rule.get("bidCloseExcl", False))
         for kw in rule.get("keywords", [""]):
             for rgn in region_list:
                 for cat in cat_codes:
@@ -4693,8 +4702,11 @@ async def _execute_alert_send(config: dict, label: str = "alert",
                         _max = rule.get("maxAmt")
                         results = await nara_search_bids(
                             keywords=kw, category=cat, region=rgn,
+                            region_code=rule_region_code,
                             min_amt=float(_min) if _min else None,
                             max_amt=float(_max) if _max else None,
+                            industry=rule_industry,
+                            bid_close_excl=rule_bid_close_excl,
                             period="1w", exclude_expired=True, page=1, page_size=50,
                         )
                         all_bids.extend(results.get("notices", []))
