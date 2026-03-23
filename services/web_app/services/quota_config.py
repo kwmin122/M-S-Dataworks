@@ -20,14 +20,14 @@ PLAN_QUOTAS: dict[str, dict[str, Any]] = {
         "features": {"studio_visible", "search", "analyze"},
     },
     "starter": {
-        "analyze_per_month": 20,
-        "generate_per_month": 10,
+        "analyze_per_month": 30,
+        "generate_per_month": 5,
         "chat_per_day": 100,
         "features": {"studio_visible", "search", "analyze", "generate", "download"},
     },
     "pro": {
         "analyze_per_month": -1,   # unlimited
-        "generate_per_month": 30,
+        "generate_per_month": 20,
         "chat_per_day": -1,        # unlimited
         "features": {
             "studio_visible", "search", "analyze", "generate",

@@ -121,7 +121,7 @@ class TestVerifyAmount:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["amount"] == 99_000
+        assert data["amount"] == 149_000
         assert data["currency"] == "KRW"
 
     @patch("services.web_app.main.resolve_user_from_session", return_value=_TEST_USERNAME)
@@ -172,7 +172,7 @@ class TestBillingKey:
         sub = resp.json()["subscription"]
         assert sub["plan"] == "pro"
         assert sub["status"] == "active"
-        assert sub["priceKrw"] == 99_000
+        assert sub["priceKrw"] == 149_000
         # billingKey가 응답에 포함되지 않아야 함 (보안)
         assert "billingKey" not in sub
 

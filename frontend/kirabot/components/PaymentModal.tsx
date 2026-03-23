@@ -2,21 +2,30 @@ import React, { useState, useCallback } from 'react';
 import { X, CreditCard, Shield, Check } from 'lucide-react';
 import { registerBillingKey, verifyPaymentAmount } from '../services/kiraApiService';
 
+type PaidPlan = 'starter' | 'pro';
+
 interface PaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  plan: 'pro';
+  plan: PaidPlan;
   username?: string;
 }
 
 const STORE_ID = import.meta.env.VITE_PORTONE_STORE_ID;
 const CHANNEL_KEY = import.meta.env.VITE_PORTONE_CHANNEL_KEY;
 
+const PLAN_META: Record<PaidPlan, { label: string; priceLabel: string }> = {
+  starter: { label: 'Starter', priceLabel: '49,000원/월' },
+  pro: { label: 'Pro', priceLabel: '149,000원/월' },
+};
+
 const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSuccess, plan, username }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [step, setStep] = useState<'confirm' | 'processing' | 'done'>('confirm');
+
+  const meta = PLAN_META[plan];
 
   const handlePayment = useCallback(async () => {
     setError('');
@@ -38,7 +47,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSuccess,
         channelKey: CHANNEL_KEY,
         billingKeyMethod: 'CARD',
         issueId: `billing_${username || 'anon'}_${Date.now()}`,
-        issueName: `KiraBot ${plan.charAt(0).toUpperCase() + plan.slice(1)} 정기결제`,
+        issueName: `KiraBot ${meta.label} 정기결제`,
         customer: {
           customerId: username || `kira_user_${Date.now()}`,
         },
@@ -71,7 +80,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSuccess,
     } finally {
       setLoading(false);
     }
-  }, [plan, onSuccess, onClose, username]);
+  }, [plan, meta.label, onSuccess, onClose, username]);
 
   if (!isOpen) return null;
 
@@ -89,7 +98,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSuccess,
               <Check size={32} />
             </div>
             <h2 className="text-xl font-bold text-slate-900 mb-2">구독이 시작되었습니다!</h2>
-            <p className="text-slate-600">Pro 플랜의 모든 기능을 이용하실 수 있습니다.</p>
+            <p className="text-slate-600">{meta.label} 플랜의 모든 기능을 이용하실 수 있습니다.</p>
           </div>
         ) : (
           <div className="flex flex-col items-center text-center">
@@ -97,17 +106,17 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSuccess,
               <CreditCard size={28} />
             </div>
 
-            <h2 className="text-2xl font-bold text-slate-900 mb-2">Pro 플랜 구독</h2>
+            <h2 className="text-2xl font-bold text-slate-900 mb-2">{meta.label} 플랜 구독</h2>
             <p className="text-slate-600 mb-6">정기결제 카드를 등록합니다.</p>
 
             <div className="w-full rounded-xl bg-slate-50 p-4 mb-6 text-left">
               <div className="flex justify-between mb-2">
                 <span className="text-sm text-slate-500">플랜</span>
-                <span className="text-sm font-semibold text-slate-900">Pro</span>
+                <span className="text-sm font-semibold text-slate-900">{meta.label}</span>
               </div>
               <div className="flex justify-between mb-2">
                 <span className="text-sm text-slate-500">결제 금액</span>
-                <span className="text-sm font-semibold text-slate-900">99,000원/월</span>
+                <span className="text-sm font-semibold text-slate-900">{meta.priceLabel}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-slate-500">결제 방식</span>

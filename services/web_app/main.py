@@ -2422,13 +2422,13 @@ async def analyze_bid_from_nara(payload: BidAnalyzePayload, request: Request) ->
     if not attachments:
         raise HTTPException(
             status_code=422,
-            detail=json.dumps({
+            detail={
                 "code": "attachment_unavailable",
                 "message": "공고 첨부파일을 자동으로 가져올 수 없습니다. 나라장터에서 직접 다운로드 후 업로드해주세요.",
                 "reason": attachment_error or "첨부파일 정보 없음",
                 "bidNtceNo": payload.bid_ntce_no,
                 "bidNtceOrd": payload.bid_ntce_ord,
-            }, ensure_ascii=False),
+            },
         )
 
     # 2. 최적 첨부파일 선택
@@ -2444,13 +2444,13 @@ async def analyze_bid_from_nara(payload: BidAnalyzePayload, request: Request) ->
         logger.warning("첨부파일 다운로드 실패 (bid=%s): %s", payload.bid_ntce_no, exc)
         raise HTTPException(
             status_code=422,
-            detail=json.dumps({
+            detail={
                 "code": "attachment_unavailable",
                 "message": "공고 첨부파일 서버에서 자동 다운로드하지 못했습니다. 파일을 직접 업로드하면 같은 분석을 계속 진행할 수 있습니다.",
                 "reason": f"다운로드 실패: {exc}",
                 "bidNtceNo": payload.bid_ntce_no,
                 "bidNtceOrd": payload.bid_ntce_ord,
-            }, ensure_ascii=False),
+            },
         ) from exc
 
     # 4. 분석
@@ -4007,7 +4007,7 @@ def _require_username(request: Request) -> str:
 _COMPANY_PROFILES_DIR = ROOT_DIR / "data" / "company_profiles"
 
 # ── 결제 / 구독 상수 ──
-PLAN_PRICES: dict[str, int] = {"free": 0, "pro": 99_000}
+PLAN_PRICES: dict[str, int] = {"free": 0, "starter": 49_000, "pro": 149_000}
 _SUBSCRIPTIONS_DIR = ROOT_DIR / "data" / "subscriptions"
 
 

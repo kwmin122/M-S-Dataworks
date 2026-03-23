@@ -53,9 +53,55 @@ function LazyFallback() {
   );
 }
 
+interface ErrorBoundaryState {
+  hasError: boolean;
+}
+
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  ErrorBoundaryState
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(): ErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo): void {
+    console.error('[ErrorBoundary]', error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 px-4 text-center">
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">
+            문제가 발생했습니다
+          </h1>
+          <p className="text-slate-600 mb-6">
+            페이지를 새로고침해주세요
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+          >
+            새로고침
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function AppRoutes() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<'starter' | 'pro'>('pro');
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState('');
@@ -217,6 +263,15 @@ function AppRoutes() {
         <Pricing
           onSelectPro={() => {
             if (user) {
+              setSelectedPlan('pro');
+              setIsPaymentModalOpen(true);
+            } else {
+              setIsLoginModalOpen(true);
+            }
+          }}
+          onSelectStarter={() => {
+            if (user) {
+              setSelectedPlan('starter');
               setIsPaymentModalOpen(true);
             } else {
               setIsLoginModalOpen(true);
@@ -256,9 +311,11 @@ function AppRoutes() {
           <ProtectedRoute user={user} authLoading={authLoading}>
             <UserProvider value={user}>
               <ChatProvider>
-                <Suspense fallback={<LazyFallback />}>
-                  <AppShell user={user} onLogout={() => void handleLogout()} />
-                </Suspense>
+                <ErrorBoundary>
+                  <Suspense fallback={<LazyFallback />}>
+                    <AppShell user={user} onLogout={() => void handleLogout()} />
+                  </Suspense>
+                </ErrorBoundary>
               </ChatProvider>
             </UserProvider>
           </ProtectedRoute>
@@ -306,7 +363,7 @@ function AppRoutes() {
           setIsPaymentModalOpen(false);
           navigate('/settings/subscription');
         }}
-        plan="pro"
+        plan={selectedPlan}
         username={user?.email}
       />
     </>

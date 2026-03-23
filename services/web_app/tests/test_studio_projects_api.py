@@ -492,16 +492,21 @@ async def test_route_non_admin_list_excludes_unshared_projects(db_session):
     )
 
     # Alice lists — should see only her project (not Bob's)
-    alice_list = await list_studio_projects(user=alice, db=db_session)
-    assert len(alice_list) == 1
-    assert alice_list[0].title == "앨리스 프로젝트"
+    alice_result = await list_studio_projects(user=alice, db=db_session)
+    assert alice_result["total"] == 1
+    assert alice_result["page"] == 1
+    assert alice_result["page_size"] == 20
+    assert len(alice_result["projects"]) == 1
+    assert alice_result["projects"][0].title == "앨리스 프로젝트"
 
     # Bob lists — should see only his project (not Alice's)
-    bob_list = await list_studio_projects(user=bob, db=db_session)
-    assert len(bob_list) == 1
-    assert bob_list[0].title == "밥 프로젝트"
+    bob_result = await list_studio_projects(user=bob, db=db_session)
+    assert bob_result["total"] == 1
+    assert len(bob_result["projects"]) == 1
+    assert bob_result["projects"][0].title == "밥 프로젝트"
 
     # Org admin sees all
     admin = CurrentUser(username="admin_user", org_id=org.id, role="admin")
-    admin_list = await list_studio_projects(user=admin, db=db_session)
-    assert len(admin_list) == 2
+    admin_result = await list_studio_projects(user=admin, db=db_session)
+    assert admin_result["total"] == 2
+    assert len(admin_result["projects"]) == 2

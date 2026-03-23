@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { X } from 'lucide-react';
 import KiraBotLogo from './KiraBotLogo';
 
@@ -12,6 +12,8 @@ interface LoginModalProps {
   onOpenTerms: () => void;
 }
 
+const LOGIN_MODAL_TITLE_ID = 'login-modal-title';
+
 const LoginModal: React.FC<LoginModalProps> = ({
   isOpen,
   onClose,
@@ -21,21 +23,47 @@ const LoginModal: React.FC<LoginModalProps> = ({
   onOpenPrivacy,
   onOpenTerms,
 }) => {
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Escape key handler
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      onClose();
+    }
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    document.addEventListener('keydown', handleKeyDown);
+    // Auto-focus the close button when modal opens
+    closeButtonRef.current?.focus();
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, handleKeyDown]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={LOGIN_MODAL_TITLE_ID}
+    >
       {/* Backdrop with blur */}
-      <div 
+      <div
         className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"
         onClick={onClose}
       ></div>
 
       {/* Modal Content */}
       <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl p-8 transform transition-all scale-100">
-        <button 
+        <button
+          ref={closeButtonRef}
           onClick={onClose}
           className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors"
+          aria-label="닫기"
         >
           <X size={24} />
         </button>
@@ -45,7 +73,7 @@ const LoginModal: React.FC<LoginModalProps> = ({
             <KiraBotLogo size={48} />
           </div>
 
-          <h2 className="text-2xl font-bold text-slate-900 mb-2">Kira 시작하기</h2>
+          <h2 id={LOGIN_MODAL_TITLE_ID} className="text-2xl font-bold text-slate-900 mb-2">Kira 시작하기</h2>
           <p className="text-slate-600 mb-8">
             로그인하고 복잡한 문서 업무를<br/>AI로 쉽고 빠르게 처리하세요.
           </p>

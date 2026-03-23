@@ -44,6 +44,7 @@ class DocumentRun(CuidPkMixin, CreatedAtMixin, Base):
         CheckConstraint(_DOC_TYPE_CHECK, name="ck_doc_runs_doc_type"),
         CheckConstraint(_RUN_STATUSES, name="ck_doc_runs_status"),
         CheckConstraint(_MODE_USED, name="ck_doc_runs_mode_used"),
+        Index("idx_doc_runs_project_doctype_status", "project_id", "doc_type", "status"),
     )
 
 

@@ -26,7 +26,7 @@ export default function StudioHome() {
 
   useEffect(() => {
     listStudioProjects()
-      .then(setProjects)
+      .then((res) => setProjects(res.projects))
       .catch((err) => setError(err.message || '프로젝트 목록을 불러올 수 없습니다'))
       .finally(() => setLoading(false));
 

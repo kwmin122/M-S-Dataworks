@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.web_app.db.engine import get_async_session
@@ -255,27 +255,25 @@ async def create_studio_project(
     return _project_to_response(project)
 
 
-@router.get("/projects", response_model=list[StudioProjectResponse])
+@router.get("/projects")
 async def list_studio_projects(
+    page: int = Query(default=1, ge=1, le=100),
+    page_size: int = Query(default=20, ge=1, le=50),
     user: CurrentUser = Depends(resolve_org_membership),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """List Studio projects visible to the current user.
+    """List Studio projects visible to the current user (paginated).
 
     Org owner/admin: see all org Studio projects.
     Other roles: only projects with a ProjectAccess row.
     """
     if user.role in ("owner", "admin"):
-        stmt = (
-            select(BidProject)
-            .where(
-                BidProject.org_id == user.org_id,
-                BidProject.project_type == "studio",
-            )
-            .order_by(BidProject.created_at.desc())
+        base_where = select(BidProject).where(
+            BidProject.org_id == user.org_id,
+            BidProject.project_type == "studio",
         )
     else:
-        stmt = (
+        base_where = (
             select(BidProject)
             .join(ProjectAccess, ProjectAccess.project_id == BidProject.id)
             .where(
@@ -283,11 +281,26 @@ async def list_studio_projects(
                 BidProject.project_type == "studio",
                 ProjectAccess.user_id == user.username,
             )
-            .order_by(BidProject.created_at.desc())
         )
+
+    # Total count
+    count_result = await db.execute(
+        select(func.count()).select_from(base_where.subquery())
+    )
+    total = count_result.scalar() or 0
+
+    # Paginated results
+    offset = (page - 1) * page_size
+    stmt = base_where.order_by(BidProject.created_at.desc()).offset(offset).limit(page_size)
     result = await db.execute(stmt)
     projects = result.scalars().all()
-    return [_project_to_response(p) for p in projects]
+
+    return {
+        "projects": [_project_to_response(p) for p in projects],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 @router.get("/projects/{project_id}", response_model=StudioProjectResponse)

@@ -108,8 +108,18 @@ export async function createStudioProject(params: {
   });
 }
 
-export async function listStudioProjects(): Promise<StudioProject[]> {
-  return studioFetch('/api/studio/projects');
+export interface PaginatedProjects {
+  projects: StudioProject[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export async function listStudioProjects(
+  page: number = 1,
+  pageSize: number = 20,
+): Promise<PaginatedProjects> {
+  return studioFetch(`/api/studio/projects?page=${page}&page_size=${pageSize}`);
 }
 
 export async function getStudioProject(projectId: string): Promise<StudioProject> {
