@@ -6,8 +6,10 @@ import {
 import type {
   GenerateResult, StudioProject, CurrentRevisionData, RevisionSection, GenerateDocType,
   SlideMetadata, QnaPairData, PackageItem, GenerationPerformance,
+  GenerateBatchResult,
+  QualityReport as QualityReportData,
 } from '../../../services/studioApi';
-import { generateProposal, getCurrentRevision, listPackageItems } from '../../../services/studioApi';
+import { generateProposal, generateBatch, getCurrentRevision, listPackageItems } from '../../../services/studioApi';
 import GenerateContractView from './GenerateContractView';
 import QuotaGate from '../QuotaGate';
 
@@ -41,6 +43,12 @@ export default function GenerateStage({ projectId, project, onProjectUpdate, onD
   const [showPreview, setShowPreview] = useState(false);
 
   const [hasPresentationItem, setHasPresentationItem] = useState<boolean | null>(null);
+
+  // Batch generation state
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<Record<string, 'pending' | 'running' | 'completed' | 'failed'>>({});
+  const [batchResult, setBatchResult] = useState<GenerateBatchResult | null>(null);
+  const [batchError, setBatchError] = useState('');
 
   const hasSnapshot = !!project.active_analysis_snapshot_id;
   const generating = phase !== 'idle' && phase !== 'done' && phase !== 'error';
@@ -91,6 +99,49 @@ export default function GenerateStage({ projectId, project, onProjectUpdate, onD
       setError(err instanceof Error ? err.message : '생성 중 오류가 발생했습니다');
     }
   }, [projectId, docType, onProjectUpdate]);
+
+  const handleBatchGenerate = useCallback(async () => {
+    setBatchRunning(true);
+    setBatchError('');
+    setBatchResult(null);
+    setResult(null);
+    setError('');
+
+    // Determine which doc types to include
+    const docTypes: GenerateDocType[] = ['proposal', 'execution_plan', 'track_record'];
+    if (hasPresentationItem) {
+      docTypes.push('presentation');
+    }
+
+    // Set initial progress
+    const initialProgress: Record<string, 'pending' | 'running' | 'completed' | 'failed'> = {};
+    for (const dt of docTypes) initialProgress[dt] = 'pending';
+    // Mark all as running (they execute sequentially on backend but we show pending -> running)
+    for (const dt of docTypes) initialProgress[dt] = 'running';
+    setBatchProgress(initialProgress);
+
+    try {
+      const res = await generateBatch(projectId, { doc_types: docTypes });
+      setBatchResult(res);
+
+      // Update progress based on results
+      const finalProgress: Record<string, 'pending' | 'running' | 'completed' | 'failed'> = {};
+      for (const dt of docTypes) {
+        const r = res.results[dt];
+        finalProgress[dt] = r ? (r.status === 'completed' ? 'completed' : 'failed') : 'failed';
+      }
+      setBatchProgress(finalProgress);
+
+      onProjectUpdate();
+    } catch (err) {
+      setBatchError(err instanceof Error ? err.message : '전체 생성 중 오류가 발생했습니다');
+      const failedProgress: Record<string, 'pending' | 'running' | 'completed' | 'failed'> = {};
+      for (const dt of docTypes) failedProgress[dt] = 'failed';
+      setBatchProgress(failedProgress);
+    } finally {
+      setBatchRunning(false);
+    }
+  }, [projectId, hasPresentationItem, onProjectUpdate]);
 
   return (
     <div className="max-w-3xl">
@@ -183,10 +234,10 @@ export default function GenerateStage({ projectId, project, onProjectUpdate, onD
       </div>
 
       {/* Generate button + controls */}
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex items-center gap-3 mb-4">
         <button
           onClick={handleGenerate}
-          disabled={generating || !hasSnapshot}
+          disabled={generating || batchRunning || !hasSnapshot}
           className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-kira-600 rounded-lg hover:bg-kira-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {generating ? (
@@ -195,6 +246,19 @@ export default function GenerateStage({ projectId, project, onProjectUpdate, onD
             <><Play size={16} /> {{ proposal: '제안서 생성', execution_plan: '수행계획서 생성', track_record: '실적기술서 생성', presentation: '발표자료 생성' }[docType]}</>
           )}
         </button>
+        <button
+          onClick={handleBatchGenerate}
+          disabled={generating || batchRunning || !hasSnapshot}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {batchRunning ? (
+            <><Loader2 size={16} className="animate-spin" /> 전체 생성 중...</>
+          ) : (
+            <><FileText size={16} /> 전체 생성</>
+          )}
+        </button>
+      </div>
+      <div className="flex items-center gap-3 mb-6">
         <button
           onClick={() => setShowContract(!showContract)}
           className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 hover:text-slate-800 border border-slate-200 rounded-lg hover:bg-slate-50"
@@ -212,6 +276,25 @@ export default function GenerateStage({ projectId, project, onProjectUpdate, onD
           </button>
         )}
       </div>
+
+      {/* Batch progress indicator */}
+      {(batchRunning || batchResult) && (
+        <BatchProgressView
+          progress={batchProgress}
+          result={batchResult}
+          running={batchRunning}
+        />
+      )}
+
+      {/* Batch error */}
+      {batchError && (
+        <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-700 mb-4">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={16} className="shrink-0" />
+            <span>{batchError}</span>
+          </div>
+        </div>
+      )}
 
       {/* Generation contract view */}
       {showContract && (
@@ -263,7 +346,7 @@ export default function GenerateStage({ projectId, project, onProjectUpdate, onD
 
       {/* Quality Report */}
       {revision?.quality_report && (
-        <QualityReportView report={revision.quality_report as QualityReportData} />
+        <QualityReportView report={revision.quality_report} />
       )}
 
       {/* Revision preview */}
@@ -274,24 +357,6 @@ export default function GenerateStage({ projectId, project, onProjectUpdate, onD
   );
 }
 
-
-interface QualityDimensionData {
-  name: string;
-  label: string;
-  score: number;
-  status: 'pass' | 'warn' | 'fail';
-  details: string[];
-}
-
-interface QualityReportData {
-  overall_score?: number;
-  grade?: string;
-  recommendation?: string;
-  pass_count?: number;
-  warn_count?: number;
-  fail_count?: number;
-  dimensions?: QualityDimensionData[];
-}
 
 function QualityReportView({ report }: { report: QualityReportData }) {
   const [expanded, setExpanded] = useState(false);
@@ -570,6 +635,107 @@ function ConditionRow({
       )}
       <span className="text-sm text-slate-700">{label}</span>
       <span className="text-xs text-slate-400">— {detail}</span>
+    </div>
+  );
+}
+
+
+const BATCH_DOC_LABELS: Record<string, string> = {
+  proposal: '기술 제안서',
+  execution_plan: '수행계획서/WBS',
+  track_record: '실적기술서',
+  presentation: '발표자료(PPT)',
+};
+
+function BatchProgressView({
+  progress,
+  result,
+  running,
+}: {
+  progress: Record<string, 'pending' | 'running' | 'completed' | 'failed'>;
+  result: GenerateBatchResult | null;
+  running: boolean;
+}) {
+  const entries = Object.entries(progress);
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 mb-4">
+      <div className="flex items-center gap-2 mb-3">
+        {running ? (
+          <Loader2 size={18} className="text-indigo-600 animate-spin" />
+        ) : result && result.failed_count === 0 ? (
+          <CheckCircle2 size={18} className="text-green-600" />
+        ) : (
+          <AlertCircle size={18} className="text-amber-600" />
+        )}
+        <h3 className="text-sm font-semibold text-indigo-800">
+          {running
+            ? '전체 생성 진행 중...'
+            : result
+              ? `전체 생성 완료 (${result.completed_count}/${result.completed_count + result.failed_count})`
+              : '전체 생성'}
+        </h3>
+        {result && (
+          <span className="text-xs text-indigo-500 ml-auto">
+            총 {result.total_time_sec.toFixed(1)}초
+          </span>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        {entries.map(([dt, status]) => {
+          const docResult = result?.results[dt];
+          return (
+            <div
+              key={dt}
+              className="flex items-center gap-3 rounded-lg bg-white/60 px-3 py-2"
+            >
+              {/* Status icon */}
+              {status === 'running' ? (
+                <Loader2 size={14} className="text-indigo-500 animate-spin shrink-0" />
+              ) : status === 'completed' ? (
+                <CheckCircle2 size={14} className="text-green-500 shrink-0" />
+              ) : status === 'failed' ? (
+                <AlertCircle size={14} className="text-red-500 shrink-0" />
+              ) : (
+                <Clock size={14} className="text-slate-400 shrink-0" />
+              )}
+
+              {/* Label */}
+              <span className="text-sm font-medium text-slate-700 w-32">
+                {BATCH_DOC_LABELS[dt] || dt}
+              </span>
+
+              {/* Status text */}
+              <span className={`text-xs ${
+                status === 'completed' ? 'text-green-600' :
+                status === 'failed' ? 'text-red-600' :
+                status === 'running' ? 'text-indigo-600' :
+                'text-slate-400'
+              }`}>
+                {status === 'completed' ? '완료' :
+                 status === 'failed' ? '실패' :
+                 status === 'running' ? '생성 중...' :
+                 '대기'}
+              </span>
+
+              {/* Details */}
+              {docResult?.status === 'completed' && docResult.generation_time_sec != null && (
+                <span className="text-xs text-slate-400 ml-auto">
+                  {docResult.generation_time_sec.toFixed(1)}초
+                  {docResult.sections_count != null && docResult.sections_count > 0 && ` / ${docResult.sections_count}섹션`}
+                </span>
+              )}
+              {docResult?.status === 'failed' && docResult.error && (
+                <span className="text-xs text-red-500 ml-auto truncate max-w-[200px]" title={docResult.error}>
+                  {docResult.error}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

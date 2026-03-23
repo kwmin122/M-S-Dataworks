@@ -485,11 +485,65 @@ export async function generateProposal(
   });
 }
 
+// --- Batch Generation ---
+
+export interface BatchDocResult {
+  status: 'completed' | 'failed';
+  run_id?: string;
+  revision_id?: string;
+  sections_count?: number;
+  generation_time_sec?: number | null;
+  performance?: GenerationPerformance;
+  error?: string;
+}
+
+export interface GenerateBatchResult {
+  results: Record<string, BatchDocResult>;
+  total_time_sec: number;
+  completed_count: number;
+  failed_count: number;
+  doc_types_requested: string[];
+}
+
+export async function generateBatch(
+  projectId: string,
+  params?: {
+    doc_types?: GenerateDocType[];
+    total_pages?: number;
+    target_slide_count?: number;
+    duration_min?: number;
+    qna_count?: number;
+  },
+): Promise<GenerateBatchResult> {
+  return studioFetch(`/api/studio/projects/${projectId}/generate-batch`, {
+    method: 'POST',
+    body: JSON.stringify(params ?? {}),
+  });
+}
+
 // --- Revision read ---
 
 export interface RevisionSection {
   name: string;
   text: string;
+}
+
+export interface QualityDimension {
+  name: string;
+  label: string;
+  score: number;
+  status: 'pass' | 'warn' | 'fail';
+  details: string[];
+}
+
+export interface QualityReport {
+  overall_score?: number;
+  grade?: string;
+  recommendation?: string;
+  pass_count?: number;
+  warn_count?: number;
+  fail_count?: number;
+  dimensions?: QualityDimension[];
 }
 
 export interface TrackRecordEntry {
@@ -529,7 +583,7 @@ export interface CurrentRevisionData {
   qna_pairs?: QnaPairData[];
   slide_count?: number;
   total_duration_min?: number;
-  quality_report: Record<string, unknown> | null;
+  quality_report: QualityReport | null;
   created_at: string | null;
 }
 

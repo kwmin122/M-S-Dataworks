@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Edit3, Save, GitCompare, Sparkles, Pin, Loader2, AlertCircle,
-  CheckCircle2, RefreshCw,
+  CheckCircle2, RefreshCw, ChevronDown, ChevronUp, ShieldCheck,
+  AlertTriangle, XCircle, TrendingUp, Lightbulb,
 } from 'lucide-react';
 import type {
   CurrentRevisionData, RevisionSection, ProposalDiffResult, DiffSection, RelearnResult, StudioProject,
-  GenerateDocType,
+  GenerateDocType, QualityReport, QualityDimension,
 } from '../../../services/studioApi';
 import {
   getCurrentRevision, saveEditedDocument, getDocumentDiff,
@@ -143,6 +144,11 @@ export default function ReviewStage({ projectId, project, onProjectUpdate, docTy
         <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 mb-4">{error}</div>
       )}
 
+      {/* Quality Gate Report */}
+      {revision?.quality_report && (
+        <QualityGatePanel report={revision.quality_report} />
+      )}
+
       {/* Phase: Edit */}
       {phase === 'edit' && revision && (
         <>
@@ -238,6 +244,202 @@ export default function ReviewStage({ projectId, project, onProjectUpdate, docTy
   );
 }
 
+
+/* ─── Quality Gate Panel ─── */
+
+const GRADE_STYLES: Record<string, string> = {
+  '수': 'text-green-700 bg-green-100 border-green-300',
+  '우': 'text-blue-700 bg-blue-100 border-blue-300',
+  '미': 'text-yellow-700 bg-yellow-100 border-yellow-300',
+  '양': 'text-orange-700 bg-orange-100 border-orange-300',
+  '가': 'text-red-700 bg-red-100 border-red-300',
+};
+
+function getScoreBarColor(score: number): string {
+  if (score >= 0.8) return 'bg-green-500';
+  if (score >= 0.5) return 'bg-amber-500';
+  return 'bg-red-500';
+}
+
+function getOverallBarColor(score: number): string {
+  if (score >= 80) return 'bg-green-500';
+  if (score >= 50) return 'bg-amber-500';
+  return 'bg-red-500';
+}
+
+function getStatusBadge(status: string): { label: string; className: string; Icon: typeof CheckCircle2 } {
+  switch (status) {
+    case 'pass':
+      return { label: '통과', className: 'bg-green-50 text-green-700 border-green-200', Icon: CheckCircle2 };
+    case 'warn':
+      return { label: '주의', className: 'bg-amber-50 text-amber-700 border-amber-200', Icon: AlertTriangle };
+    case 'fail':
+      return { label: '미달', className: 'bg-red-50 text-red-700 border-red-200', Icon: XCircle };
+    default:
+      return { label: status, className: 'bg-slate-50 text-slate-700 border-slate-200', Icon: AlertCircle };
+  }
+}
+
+function QualityGatePanel({ report }: { report: QualityReport }) {
+  const [dimensionsExpanded, setDimensionsExpanded] = useState(true);
+
+  const overallScore = report.overall_score ?? 0;
+  const grade = report.grade || '-';
+  const gradeStyle = GRADE_STYLES[grade] || 'text-slate-700 bg-slate-100 border-slate-300';
+  const passCount = report.pass_count ?? 0;
+  const warnCount = report.warn_count ?? 0;
+  const failCount = report.fail_count ?? 0;
+  const totalCount = passCount + warnCount + failCount;
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white mb-4 overflow-hidden">
+      {/* ── Score Summary ── */}
+      <div className="p-4 border-b border-slate-100">
+        <div className="flex items-center gap-2 mb-3">
+          <ShieldCheck size={16} className="text-slate-600" />
+          <h3 className="text-sm font-semibold text-slate-700">품질 검증 결과</h3>
+        </div>
+
+        <div className="flex items-center gap-4">
+          {/* Grade badge */}
+          <div className={`flex items-center justify-center w-12 h-12 rounded-xl border-2 text-xl font-extrabold shrink-0 ${gradeStyle}`}>
+            {grade}
+          </div>
+
+          {/* Score + bar */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-baseline gap-2 mb-1.5">
+              <span className="text-2xl font-bold text-slate-900">{overallScore.toFixed(1)}</span>
+              <span className="text-sm text-slate-400">/ 100</span>
+            </div>
+            <div className="w-full h-2.5 rounded-full bg-slate-100 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${getOverallBarColor(overallScore)}`}
+                style={{ width: `${Math.min(overallScore, 100)}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Status counts */}
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="flex items-center gap-1 text-xs">
+              <CheckCircle2 size={13} className="text-green-500" />
+              <span className="font-medium text-green-700">{passCount}</span>
+            </div>
+            <div className="flex items-center gap-1 text-xs">
+              <AlertTriangle size={13} className="text-amber-500" />
+              <span className="font-medium text-amber-700">{warnCount}</span>
+            </div>
+            <div className="flex items-center gap-1 text-xs">
+              <XCircle size={13} className="text-red-500" />
+              <span className="font-medium text-red-700">{failCount}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Dimension Breakdown ── */}
+      {report.dimensions && report.dimensions.length > 0 && (
+        <div className="border-b border-slate-100">
+          <button
+            onClick={() => setDimensionsExpanded(!dimensionsExpanded)}
+            className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <TrendingUp size={14} className="text-slate-500" />
+              <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
+                항목별 상세 ({totalCount}개 항목)
+              </span>
+            </div>
+            {dimensionsExpanded
+              ? <ChevronUp size={14} className="text-slate-400" />
+              : <ChevronDown size={14} className="text-slate-400" />
+            }
+          </button>
+
+          {dimensionsExpanded && (
+            <div className="px-4 pb-4 space-y-2">
+              {report.dimensions.map((dim) => (
+                <DimensionRow key={dim.name} dimension={dim} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Recommendation ── */}
+      {report.recommendation && (
+        <div className="px-4 py-3 flex items-start gap-2">
+          <Lightbulb size={14} className="text-kira-500 mt-0.5 shrink-0" />
+          <p className="text-sm text-slate-600">{report.recommendation}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DimensionRow({ dimension }: { dimension: QualityDimension }) {
+  const [detailOpen, setDetailOpen] = useState(false);
+  const badge = getStatusBadge(dimension.status);
+  const scorePercent = Math.round(dimension.score * 100);
+  const hasDetails = dimension.details && dimension.details.length > 0;
+
+  return (
+    <div className="rounded-lg border border-slate-100 overflow-hidden">
+      <button
+        onClick={() => hasDetails && setDetailOpen(!detailOpen)}
+        className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-slate-50 transition-colors"
+        disabled={!hasDetails}
+      >
+        {/* Status badge */}
+        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium border shrink-0 ${badge.className}`}>
+          <badge.Icon size={10} />
+          {badge.label}
+        </span>
+
+        {/* Label */}
+        <span className="text-sm font-medium text-slate-700 shrink-0">{dimension.label}</span>
+
+        {/* Score bar */}
+        <div className="flex-1 min-w-0">
+          <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-300 ${getScoreBarColor(dimension.score)}`}
+              style={{ width: `${scorePercent}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Score text */}
+        <span className="text-xs font-medium text-slate-500 w-10 text-right shrink-0">{scorePercent}%</span>
+
+        {/* Expand indicator */}
+        {hasDetails && (
+          detailOpen
+            ? <ChevronUp size={12} className="text-slate-300 shrink-0" />
+            : <ChevronDown size={12} className="text-slate-300 shrink-0" />
+        )}
+      </button>
+
+      {/* Detail list */}
+      {detailOpen && hasDetails && (
+        <div className="px-3 pb-2.5 pt-0">
+          <ul className="space-y-1 ml-[72px]">
+            {dimension.details.map((detail, i) => (
+              <li key={i} className="text-xs text-slate-500 flex items-start gap-1.5">
+                <span className="text-slate-300 mt-0.5 shrink-0">-</span>
+                <span>{detail}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/* ─── Diff View ─── */
 
 function DiffView({ diff }: { diff: ProposalDiffResult }) {
   return (

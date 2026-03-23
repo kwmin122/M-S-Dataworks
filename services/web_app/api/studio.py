@@ -2205,6 +2205,460 @@ async def generate_proposal(
     }
 
 
+# --- Batch Generation schemas ---
+
+class GenerateBatchRequest(BaseModel):
+    doc_types: list[Literal["proposal", "execution_plan", "track_record", "presentation"]] = [
+        "proposal", "execution_plan", "track_record",
+    ]
+    total_pages: int = Field(default=50, ge=10, le=200)
+    target_slide_count: int = Field(default=15, ge=5, le=50)
+    duration_min: int = Field(default=25, ge=5, le=120)
+    qna_count: int = Field(default=10, ge=0, le=30)
+
+    @field_validator("doc_types")
+    @classmethod
+    def _validate_doc_types(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("최소 1개 이상의 문서 타입이 필요합니다")
+        if len(v) != len(set(v)):
+            raise ValueError("중복된 문서 타입은 허용되지 않습니다")
+        return v
+
+
+# --- Batch Generation endpoint ---
+
+_BATCH_DOC_ORDER = ["proposal", "execution_plan", "track_record", "presentation"]
+
+
+@router.post("/projects/{project_id}/generate-batch")
+async def generate_batch(
+    project_id: str,
+    req: GenerateBatchRequest,
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Generate multiple document types in a single batch.
+
+    Runs sequentially in canonical order: proposal -> execution_plan -> track_record -> presentation.
+    This is required because presentation depends on proposal/execution_plan revisions.
+    If one doc type fails, continues with the rest and reports failures in the summary.
+    """
+    await _require_studio_project_access(project_id, "editor", user, db)
+    batch_start = time.perf_counter()
+
+    # --- Quota enforcement ---
+    try:
+        from services.web_app.services.usage_tracker import enforce_quota
+        await enforce_quota(db, user.org_id, "generate")
+    except HTTPException:
+        raise  # re-raise 402
+    except Exception:
+        pass  # graceful degradation if quota module fails
+
+    # Concurrent generation guard
+    existing_running = (await db.execute(
+        select(DocumentRun).where(
+            DocumentRun.project_id == project_id,
+            DocumentRun.status == "running",
+        )
+    )).scalar_one_or_none()
+    if existing_running:
+        raise HTTPException(409, "이미 생성 중인 문서가 있습니다.")
+
+    # Load project
+    project = (await db.execute(
+        select(BidProject).where(BidProject.id == project_id)
+    )).scalar_one()
+
+    # Require analysis snapshot
+    if not project.active_analysis_snapshot_id:
+        raise HTTPException(400, "분석 스냅샷이 없습니다. 먼저 공고를 분석해주세요.")
+
+    snap = (await db.execute(
+        select(AnalysisSnapshot).where(
+            AnalysisSnapshot.id == project.active_analysis_snapshot_id,
+        )
+    )).scalar_one_or_none()
+    if snap is None:
+        raise HTTPException(400, "분석 스냅샷을 찾을 수 없습니다.")
+
+    # Company context + style (shared across all doc types)
+    company_context, company_assets_count, company_name = await _build_company_context(db, project_id, user.org_id)
+
+    pinned_style = None
+    style_profile_md = ""
+    if project.pinned_style_skill_id:
+        pinned_style = (await db.execute(
+            select(ProjectStyleSkill).where(
+                ProjectStyleSkill.id == project.pinned_style_skill_id,
+            )
+        )).scalar_one_or_none()
+        if pinned_style:
+            style_profile_md = pinned_style.profile_md_content or ""
+
+    # Sort requested doc_types by canonical order
+    ordered_types = [dt for dt in _BATCH_DOC_ORDER if dt in req.doc_types]
+
+    # PPT gate check: if presentation is requested, verify package item exists
+    if "presentation" in ordered_types:
+        ppt_item = (await db.execute(
+            select(ProjectPackageItem).where(
+                ProjectPackageItem.project_id == project_id,
+                ProjectPackageItem.generation_target == "presentation",
+            )
+        )).scalar_one_or_none()
+        if not ppt_item:
+            # Remove presentation from batch — don't fail the entire batch
+            ordered_types.remove("presentation")
+
+    results: dict[str, Any] = {}
+    from services.web_app.db.models.document import ProjectCurrentDocument
+
+    for doc_type in ordered_types:
+        doc_start = time.perf_counter()
+        try:
+            # --- Base generation contract ---
+            generation_contract: dict[str, Any] = {
+                "snapshot_id": snap.id,
+                "snapshot_version": snap.version,
+                "company_assets_count": company_assets_count,
+                "company_context_length": len(company_context),
+                "pinned_style_skill_id": project.pinned_style_skill_id,
+                "pinned_style_name": pinned_style.name if pinned_style else None,
+                "pinned_style_version": pinned_style.version if pinned_style else None,
+                "doc_type": doc_type,
+                "total_pages": req.total_pages,
+            }
+
+            # --- PPT-specific: load current revisions ---
+            proposal_rev = None
+            exec_plan_rev = None
+            if doc_type == "presentation":
+                for dt, attr in [("proposal", "proposal_rev"), ("execution_plan", "exec_plan_rev")]:
+                    cur = (await db.execute(
+                        select(ProjectCurrentDocument).where(
+                            ProjectCurrentDocument.project_id == project_id,
+                            ProjectCurrentDocument.doc_type == dt,
+                        )
+                    )).scalar_one_or_none()
+                    if cur:
+                        rev = (await db.execute(
+                            select(DocumentRevision).where(DocumentRevision.id == cur.current_revision_id)
+                        )).scalar_one_or_none()
+                        if attr == "proposal_rev":
+                            proposal_rev = rev
+                        else:
+                            exec_plan_rev = rev
+
+                generation_contract.update({
+                    "proposal_revision_id": proposal_rev.id if proposal_rev else None,
+                    "execution_plan_revision_id": exec_plan_rev.id if exec_plan_rev else None,
+                    "target_slide_count": req.target_slide_count,
+                    "duration_min": req.duration_min,
+                    "qna_count": req.qna_count,
+                    "available_inputs": {
+                        "proposal": proposal_rev is not None,
+                        "execution_plan": exec_plan_rev is not None,
+                    },
+                })
+
+            # --- Create DocumentRun ---
+            run = DocumentRun(
+                org_id=user.org_id,
+                project_id=project_id,
+                analysis_snapshot_id=snap.id,
+                doc_type=doc_type,
+                status="running",
+                params_json=generation_contract,
+                created_by=user.username,
+                started_at=datetime.now(timezone.utc),
+            )
+            db.add(run)
+            await db.flush()
+
+            # --- Run generation ---
+            if doc_type == "execution_plan":
+                gen_result = await asyncio.to_thread(
+                    _run_wbs_generation,
+                    rfx_result=snap.analysis_json,
+                    company_context=company_context,
+                    style_profile_md=style_profile_md,
+                    company_name=company_name,
+                )
+                sections = [(t.phase, t.task_name) for t in (gen_result.tasks or [])]
+                content_json_extra: dict[str, Any] = {}
+                quality_issues: list[str] = []
+                generation_time_sec = getattr(gen_result, 'generation_time_sec', None)
+
+            elif doc_type == "track_record":
+                gen_result = await asyncio.to_thread(
+                    _run_track_record_generation,
+                    rfx_result=snap.analysis_json,
+                    company_context=company_context,
+                    style_profile_md=style_profile_md,
+                    company_name=company_name,
+                )
+                sections = []
+                content_json_extra = {
+                    "records": gen_result.records_data or [],
+                    "personnel": gen_result.personnel_data or [],
+                }
+                quality_issues = []
+                generation_time_sec = getattr(gen_result, 'generation_time_sec', None)
+
+            elif doc_type == "presentation":
+                prop_sections: list[dict[str, str]] = []
+                if proposal_rev and proposal_rev.content_json:
+                    prop_sections = proposal_rev.content_json.get("sections", [])
+                if exec_plan_rev and exec_plan_rev.content_json:
+                    exec_sections = exec_plan_rev.content_json.get("sections", [])
+                    for es in exec_sections:
+                        prop_sections.append({
+                            "name": f"[수행계획] {es.get('name', '')}",
+                            "text": es.get("text", ""),
+                        })
+
+                gen_result = await asyncio.to_thread(
+                    _run_ppt_generation,
+                    rfx_result=snap.analysis_json,
+                    proposal_sections=prop_sections if prop_sections else None,
+                    company_context=company_context,
+                    style_profile_md=style_profile_md,
+                    company_name=company_name,
+                    target_slide_count=req.target_slide_count,
+                    duration_min=req.duration_min,
+                    qna_count=req.qna_count,
+                )
+                sections = []
+                content_json_extra = {
+                    "slides": gen_result.slides_metadata or [],
+                    "qna_pairs": [
+                        {"question": q.question, "answer": q.answer, "category": q.category}
+                        for q in (gen_result.qna_pairs or [])
+                    ],
+                    "slide_count": gen_result.slide_count,
+                    "total_duration_min": gen_result.total_duration_min,
+                }
+                quality_issues = []
+                generation_time_sec = getattr(gen_result, 'generation_time_sec', None)
+
+                # Persist .pptx as DocumentAsset
+                if gen_result.pptx_path and os.path.isfile(gen_result.pptx_path):
+                    import shutil
+                    ppt_dest_dir = os.path.join(_PPT_ASSET_DIR, project_id)
+                    os.makedirs(ppt_dest_dir, exist_ok=True)
+                    ppt_filename = os.path.basename(gen_result.pptx_path)
+                    ppt_dest = os.path.join(ppt_dest_dir, ppt_filename)
+                    shutil.copy2(gen_result.pptx_path, ppt_dest)
+
+                    ppt_asset = DocumentAsset(
+                        org_id=user.org_id,
+                        project_id=project_id,
+                        asset_type="pptx",
+                        storage_uri=f"local://ppt_assets/{project_id}/{ppt_filename}",
+                        upload_status="uploaded",
+                        original_filename=ppt_filename,
+                        mime_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                        size_bytes=os.path.getsize(ppt_dest),
+                    )
+                    db.add(ppt_asset)
+                    await db.flush()
+            else:
+                # proposal (default)
+                gen_result = await asyncio.to_thread(
+                    _run_proposal_generation,
+                    rfx_result=snap.analysis_json,
+                    company_context=company_context,
+                    style_profile_md=style_profile_md,
+                    total_pages=req.total_pages,
+                    company_name=company_name,
+                )
+                sections = gen_result.sections or []
+                content_json_extra = {}
+                quality_issues = [str(i) for i in (gen_result.quality_issues or [])]
+                generation_time_sec = getattr(gen_result, 'generation_time_sec', None)
+
+            quality_gate_report = getattr(gen_result, 'quality_report', None) or {}
+
+            # --- Create DocumentRevision ---
+            rev_count_result = await db.execute(
+                select(DocumentRevision.revision_number)
+                .where(
+                    DocumentRevision.project_id == project_id,
+                    DocumentRevision.doc_type == doc_type,
+                )
+                .order_by(DocumentRevision.revision_number.desc())
+                .limit(1)
+            )
+            prev_rev = rev_count_result.scalar_one_or_none() or 0
+
+            revision = DocumentRevision(
+                org_id=user.org_id,
+                project_id=project_id,
+                doc_type=doc_type,
+                run_id=run.id,
+                revision_number=prev_rev + 1,
+                source="ai_generated",
+                status="draft",
+                title=snap.analysis_json.get("title", {
+                    "proposal": "제안서", "execution_plan": "수행계획서",
+                    "track_record": "실적기술서", "presentation": "발표자료",
+                }.get(doc_type, "문서")),
+                content_json={
+                    "sections": [
+                        {"name": name, "text": text}
+                        for name, text in sections
+                    ],
+                    **content_json_extra,
+                },
+                content_schema={
+                    "proposal": "proposal_sections_v1",
+                    "execution_plan": "execution_plan_tasks_v1",
+                    "track_record": "track_record_entries_v1",
+                    "presentation": "presentation_slides_v1",
+                }.get(doc_type, "unknown_v1"),
+                quality_report_json={
+                    "issues": quality_issues,
+                    **quality_gate_report,
+                },
+                created_by=user.username,
+            )
+            db.add(revision)
+            await db.flush()
+
+            # Update run status
+            run.status = "completed"
+            run.completed_at = datetime.now(timezone.utc)
+
+            # Update package item status
+            pkg_result = await db.execute(
+                select(ProjectPackageItem).where(
+                    ProjectPackageItem.project_id == project_id,
+                    ProjectPackageItem.generation_target == doc_type,
+                )
+            )
+            for pkg_item in pkg_result.scalars().all():
+                pkg_item.status = "generated"
+
+            # Update ProjectCurrentDocument (upsert)
+            current_doc = (await db.execute(
+                select(ProjectCurrentDocument).where(
+                    ProjectCurrentDocument.project_id == project_id,
+                    ProjectCurrentDocument.doc_type == doc_type,
+                )
+            )).scalar_one_or_none()
+            if current_doc:
+                current_doc.current_revision_id = revision.id
+            else:
+                db.add(ProjectCurrentDocument(
+                    org_id=user.org_id,
+                    project_id=project_id,
+                    doc_type=doc_type,
+                    current_revision_id=revision.id,
+                ))
+
+            # Audit log
+            db.add(AuditLog(
+                org_id=user.org_id,
+                user_id=user.username,
+                project_id=project_id,
+                action="document_generated",
+                target_type="document_run",
+                target_id=run.id,
+                detail_json={**generation_contract, "batch": True},
+            ))
+
+            # Usage event
+            _gen_duration_ms = int((time.perf_counter() - doc_start) * 1000)
+            if generation_time_sec is not None:
+                _gen_duration_ms = int(generation_time_sec * 1000)
+            try:
+                from services.web_app.services.usage_tracker import emit_usage_event
+                await emit_usage_event(
+                    db, org_id=user.org_id, event_type="generate", status="success",
+                    user_id=user.username, project_id=project_id,
+                    doc_type=doc_type,
+                    duration_ms=_gen_duration_ms,
+                )
+            except Exception:
+                pass
+
+            # Performance metadata
+            from services.web_app.services.performance_config import GENERATION_TIME_TARGETS, GENERATION_HARD_TIMEOUT
+            _target_sec = GENERATION_TIME_TARGETS.get(doc_type, 180)
+            _actual_sec = generation_time_sec if generation_time_sec is not None else (_gen_duration_ms / 1000)
+
+            results[doc_type] = {
+                "status": "completed",
+                "run_id": run.id,
+                "revision_id": revision.id,
+                "sections_count": len(sections),
+                "generation_time_sec": generation_time_sec,
+                "performance": {
+                    "duration_sec": round(_actual_sec, 2),
+                    "target_sec": _target_sec,
+                    "within_target": _actual_sec <= _target_sec,
+                    "timed_out": _actual_sec > GENERATION_HARD_TIMEOUT,
+                    "model": None,
+                },
+            }
+            logger.info("Batch generate: %s completed for project=%s", doc_type, project_id)
+
+        except Exception as exc:
+            logger.exception(
+                "Batch generate: %s failed for project=%s", doc_type, project_id,
+            )
+            # Mark run as failed (if it was created)
+            try:
+                run.status = "failed"
+                run.completed_at = datetime.now(timezone.utc)
+                run.error_message = str(exc)[:1000]
+            except Exception:
+                pass
+
+            db.add(AuditLog(
+                org_id=user.org_id,
+                user_id=user.username,
+                project_id=project_id,
+                action="document_generation_failed",
+                target_type="document_run",
+                target_id=run.id if run else "unknown",
+                detail_json={"error": str(exc)[:500], "doc_type": doc_type, "batch": True},
+            ))
+
+            try:
+                from services.web_app.services.usage_tracker import emit_usage_event
+                await emit_usage_event(
+                    db, org_id=user.org_id, event_type="generate", status="failure",
+                    user_id=user.username, project_id=project_id,
+                    doc_type=doc_type,
+                    duration_ms=int((time.perf_counter() - doc_start) * 1000),
+                    error_message=str(exc)[:500],
+                )
+            except Exception:
+                pass
+
+            results[doc_type] = {
+                "status": "failed",
+                "error": str(exc)[:500],
+            }
+
+    await db.commit()
+
+    total_time_sec = round(time.perf_counter() - batch_start, 2)
+    completed_count = sum(1 for r in results.values() if r["status"] == "completed")
+    failed_count = sum(1 for r in results.values() if r["status"] == "failed")
+
+    return {
+        "results": results,
+        "total_time_sec": total_time_sec,
+        "completed_count": completed_count,
+        "failed_count": failed_count,
+        "doc_types_requested": ordered_types,
+    }
+
+
 @router.get("/projects/{project_id}/documents/{doc_type}/current")
 async def get_current_revision(
     project_id: str,
