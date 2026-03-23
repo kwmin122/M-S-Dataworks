@@ -756,18 +756,7 @@ async def download_attachment(file_url: str, dest_dir: str, fallback_name: str =
         async with client.stream("GET", file_url, timeout=60.0) as resp:
             resp.raise_for_status()
 
-            chunks: list[bytes] = []
-            total = 0
-            async for chunk in resp.aiter_bytes(chunk_size=64 * 1024):
-                total += len(chunk)
-                if total > _MAX_DOWNLOAD_BYTES:
-                    raise ValueError(
-                        f"파일 크기 제한 초과: {_MAX_DOWNLOAD_BYTES // (1024 * 1024)}MB 이상"
-                    )
-                chunks.append(chunk)
-            content = b"".join(chunks)
-
-            # Content-Disposition에서 파일명 추출
+            # --- Extract filename BEFORE downloading body ---
             cd = resp.headers.get("content-disposition", "")
             filename = ""
             if "filename=" in cd:
@@ -789,12 +778,24 @@ async def download_attachment(file_url: str, dest_dir: str, fallback_name: str =
             safe_stem = re.sub(r"\.{2,}", ".", safe_stem)
             safe_name = f"{safe_stem}{ext}"
 
-            # --- Extension allowlist ---
+            # --- Extension allowlist (checked BEFORE writing to disk) ---
             if ext.lower() not in _ALLOWED_EXTENSIONS:
                 raise ValueError(
                     f"허용되지 않은 파일 확장자: {ext!r}. "
                     f"허용 목록: {_ALLOWED_EXTENSIONS}"
                 )
+
+            # --- Download body after extension check passes ---
+            chunks: list[bytes] = []
+            total = 0
+            async for chunk in resp.aiter_bytes(chunk_size=64 * 1024):
+                total += len(chunk)
+                if total > _MAX_DOWNLOAD_BYTES:
+                    raise ValueError(
+                        f"파일 크기 제한 초과: {_MAX_DOWNLOAD_BYTES // (1024 * 1024)}MB 이상"
+                    )
+                chunks.append(chunk)
+            content = b"".join(chunks)
 
             local_path = dest_path / safe_name
             local_path.write_bytes(content)
@@ -911,33 +912,33 @@ async def fetch_bid_rfp_text(
     file_nm = best["fileNm"]
     logger.info("RFP 첨부파일 선택: %s (bid=%s)", file_nm, bid_ntce_no)
 
-    # Step 3: 다운로드
+    # Step 3: 다운로드 + Step 4: 파싱
     tmp_dir = tempfile.mkdtemp(prefix="kira_rfp_")
     try:
-        local_path = await download_attachment(file_url, tmp_dir, fallback_name=file_nm)
-    except Exception as exc:
-        logger.warning("RFP 첨부파일 다운로드 실패 (bid=%s): %s", bid_ntce_no, exc)
-        return ""
+        try:
+            local_path = await download_attachment(file_url, tmp_dir, fallback_name=file_nm)
+        except Exception as exc:
+            logger.warning("RFP 첨부파일 다운로드 실패 (bid=%s): %s", bid_ntce_no, exc)
+            return ""
 
-    # Step 4: 파싱
-    try:
-        from document_parser import DocumentParser
-        parser = DocumentParser()
-        parsed = parser.parse(local_path)
-        text = parsed.text.strip() if parsed and parsed.text else ""
-        if text:
-            logger.info(
-                "RFP 파싱 완료: %s (%d자, %d페이지)",
-                file_nm, len(text), parsed.pages,
-            )
-        else:
-            logger.warning("RFP 파싱 결과 비어있음: %s", file_nm)
-        return text
-    except Exception as exc:
-        logger.warning("RFP 파싱 실패 (%s): %s", file_nm, exc)
-        return ""
+        try:
+            from document_parser import DocumentParser
+            parser = DocumentParser()
+            parsed = parser.parse(local_path)
+            text = parsed.text.strip() if parsed and parsed.text else ""
+            if text:
+                logger.info(
+                    "RFP 파싱 완료: %s (%d자, %d페이지)",
+                    file_nm, len(text), parsed.pages,
+                )
+            else:
+                logger.warning("RFP 파싱 결과 비어있음: %s", file_nm)
+            return text
+        except Exception as exc:
+            logger.warning("RFP 파싱 실패 (%s): %s", file_nm, exc)
+            return ""
     finally:
-        # 임시 파일 정리
+        # 임시 파일 정리 — 다운로드 실패 경로도 포함
         import shutil
         shutil.rmtree(tmp_dir, ignore_errors=True)
 

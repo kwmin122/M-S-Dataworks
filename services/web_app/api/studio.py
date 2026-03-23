@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -88,6 +88,12 @@ class AnalyzeRfpTextRequest(BaseModel):
     bid_ntce_no: str = ""
     bid_ntce_ord: str = "00"
     bid_attachments: list[NaraBidAttachmentItem] = []
+
+    @model_validator(mode="after")
+    def _check_text_length(self) -> "AnalyzeRfpTextRequest":
+        if not self.bid_ntce_no and len(self.document_text.strip()) < 50:
+            raise ValueError("공고번호 없이 분석하려면 document_text 50자 이상 필요합니다.")
+        return self
 
 
 class PackageItemResponse(BaseModel):
@@ -2399,15 +2405,6 @@ async def generate_batch(
     await _require_studio_project_access(project_id, "editor", user, db)
     batch_start = time.perf_counter()
 
-    # --- Quota enforcement ---
-    try:
-        from services.web_app.services.usage_tracker import enforce_quota
-        await enforce_quota(db, user.org_id, "generate")
-    except HTTPException:
-        raise  # re-raise 402
-    except Exception:
-        pass  # graceful degradation if quota module fails
-
     # Concurrent generation guard
     existing_running = (await db.execute(
         select(DocumentRun).where(
@@ -2469,7 +2466,17 @@ async def generate_batch(
 
     for doc_type in ordered_types:
         doc_start = time.perf_counter()
+        run = None
         try:
+            # --- Quota enforcement (per doc type) ---
+            try:
+                from services.web_app.services.usage_tracker import enforce_quota
+                await enforce_quota(db, user.org_id, "generate")
+            except HTTPException:
+                raise  # re-raise 402
+            except Exception:
+                pass  # graceful degradation if quota module fails
+
             # --- Base generation contract ---
             generation_contract: dict[str, Any] = {
                 "snapshot_id": snap.id,
@@ -2808,12 +2815,13 @@ async def generate_batch(
                 "Batch generate: %s failed for project=%s", doc_type, project_id,
             )
             # Mark run as failed (if it was created)
-            try:
-                run.status = "failed"
-                run.completed_at = datetime.now(timezone.utc)
-                run.error_message = str(exc)[:1000]
-            except Exception:
-                pass
+            if run is not None:
+                try:
+                    run.status = "failed"
+                    run.completed_at = datetime.now(timezone.utc)
+                    run.error_message = str(exc)[:1000]
+                except Exception:
+                    pass
 
             db.add(AuditLog(
                 org_id=user.org_id,
@@ -2821,7 +2829,7 @@ async def generate_batch(
                 project_id=project_id,
                 action="document_generation_failed",
                 target_type="document_run",
-                target_id=run.id if run else "unknown",
+                target_id=run.id if run is not None else "unknown",
                 detail_json={"error": str(exc)[:500], "doc_type": doc_type, "batch": True},
             ))
 
@@ -2842,7 +2850,8 @@ async def generate_batch(
                 "error": str(exc)[:500],
             }
 
-    await db.commit()
+        # Commit after each doc type — persist partial progress on failure
+        await db.commit()
 
     total_time_sec = round(time.perf_counter() - batch_start, 2)
     completed_count = sum(1 for r in results.values() if r["status"] == "completed")
