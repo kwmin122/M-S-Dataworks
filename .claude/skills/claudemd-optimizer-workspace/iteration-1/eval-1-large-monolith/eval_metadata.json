@@ -1,0 +1,42 @@
+{
+  "eval_id": 1,
+  "eval_name": "large-monolith-full-optimization",
+  "prompt": "이 프로젝트 CLAUDE.md가 너무 길어졌어. 최적화 좀 해줘. 토큰 낭비되는 것 같아.",
+  "assertions": [
+    {
+      "id": "hub-under-200-lines",
+      "text": "Optimized CLAUDE.md (hub) is under 200 lines",
+      "type": "programmatic"
+    },
+    {
+      "id": "rules-dir-created",
+      "text": "At least 3 .claude/rules/*.md files created",
+      "type": "programmatic"
+    },
+    {
+      "id": "paths-frontmatter",
+      "text": "Domain-scoped rule files have paths: frontmatter with glob patterns",
+      "type": "programmatic"
+    },
+    {
+      "id": "negative-to-positive",
+      "text": "Negative rules ('don't X') converted to positive form ('use Y instead')",
+      "type": "qualitative"
+    },
+    {
+      "id": "severity-tiers",
+      "text": "Rules categorized into severity tiers (CRITICAL/MANDATORY/PREFER or similar)",
+      "type": "programmatic"
+    },
+    {
+      "id": "primacy-recency",
+      "text": "CRITICAL rules placed at top and bottom of CLAUDE.md",
+      "type": "qualitative"
+    },
+    {
+      "id": "no-content-lost",
+      "text": "All original rules/info exist somewhere in the new structure",
+      "type": "qualitative"
+    }
+  ]
+}

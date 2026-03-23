@@ -1,0 +1,88 @@
+{
+  "skill_name": "claudemd-optimizer",
+  "iteration": 1,
+  "configurations": [
+    {
+      "name": "with_skill",
+      "evals": [
+        {
+          "eval_name": "large-monolith-full-optimization",
+          "pass_rate": 1.0,
+          "passed": 6,
+          "total": 6,
+          "tokens": 39560,
+          "duration_seconds": 299.5
+        },
+        {
+          "eval_name": "add-rule-to-existing-split",
+          "pass_rate": 1.0,
+          "passed": 4,
+          "total": 4,
+          "tokens": 30366,
+          "duration_seconds": 308.4
+        },
+        {
+          "eval_name": "negative-rules-conversion",
+          "pass_rate": 1.0,
+          "passed": 5,
+          "total": 5,
+          "tokens": 34452,
+          "duration_seconds": 373.2
+        }
+      ],
+      "aggregate": {
+        "mean_pass_rate": 1.0,
+        "stddev_pass_rate": 0.0,
+        "mean_tokens": 34793,
+        "mean_duration_seconds": 327.0
+      }
+    },
+    {
+      "name": "without_skill",
+      "evals": [
+        {
+          "eval_name": "large-monolith-full-optimization",
+          "pass_rate": 0.33,
+          "passed": 2,
+          "total": 6,
+          "tokens": 32618,
+          "duration_seconds": 347.4
+        },
+        {
+          "eval_name": "add-rule-to-existing-split",
+          "pass_rate": 1.0,
+          "passed": 4,
+          "total": 4,
+          "tokens": 24904,
+          "duration_seconds": 99.5
+        },
+        {
+          "eval_name": "negative-rules-conversion",
+          "pass_rate": 1.0,
+          "passed": 5,
+          "total": 5,
+          "tokens": 27403,
+          "duration_seconds": 169.2
+        }
+      ],
+      "aggregate": {
+        "mean_pass_rate": 0.78,
+        "stddev_pass_rate": 0.39,
+        "mean_tokens": 28308,
+        "mean_duration_seconds": 205.4
+      }
+    }
+  ],
+  "delta": {
+    "pass_rate": "+0.22 (1.0 vs 0.78)",
+    "tokens": "+6485 (34793 vs 28308)",
+    "duration": "+121.6s (327.0 vs 205.4)"
+  },
+  "analyst_observations": [
+    "Eval 1 (large monolith) is the discriminating test: with_skill 6/6 vs without_skill 2/6. The skill's key value is .claude/rules/ routing + severity tiers + primacy/recency — things the baseline doesn't know about.",
+    "Eval 2 (add rule) is non-discriminating: both score 4/4. Simple rule additions don't benefit much from the skill since Claude already knows to put Go rules in backend.md.",
+    "Eval 3 (negative rules) is also non-discriminating: both score 5/5. Claude naturally converts negative rules well without a skill — the skill adds structural guidance (tiers, primacy/recency) but both versions achieve this.",
+    "Token/time tradeoff: with_skill uses ~23% more tokens and ~59% more time. The skill overhead is acceptable given the quality improvement on complex tasks (eval 1).",
+    "The skill's unique value proposition is clear for large CLAUDE.md optimization (routing pattern + .claude/rules/) — this is knowledge Claude doesn't have by default."
+  ]
+}

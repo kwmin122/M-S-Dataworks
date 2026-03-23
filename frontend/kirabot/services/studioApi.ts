@@ -260,6 +260,20 @@ export async function searchNaraBids(params: NaraSearchParams): Promise<NaraSear
   });
 }
 
+// --- Curated Bids ---
+
+export interface CuratedBid extends NaraBidNotice {
+  relevance_score: number;
+}
+
+export interface CuratedBidsResult {
+  bids: CuratedBid[];
+}
+
+export async function getCuratedBids(): Promise<CuratedBidsResult> {
+  return studioFetch('/api/studio/curated-bids');
+}
+
 // --- Package classification ---
 
 export interface PackageItem {
@@ -436,6 +450,8 @@ export async function promoteStyleSkill(
 
 // --- Proposal Generation ---
 
+export type OutputFormat = 'docx' | 'hwpx';
+
 export interface GenerationContract {
   snapshot_id: string;
   snapshot_version: number;
@@ -446,6 +462,7 @@ export interface GenerationContract {
   pinned_style_version: number | null;
   doc_type: string;
   total_pages: number;
+  output_format?: OutputFormat;
   // PPT-specific
   proposal_revision_id?: string | null;
   execution_plan_revision_id?: string | null;
@@ -477,7 +494,7 @@ export type GenerateDocType = 'proposal' | 'execution_plan' | 'track_record' | '
 
 export async function generateProposal(
   projectId: string,
-  params?: { doc_type?: GenerateDocType; total_pages?: number },
+  params?: { doc_type?: GenerateDocType; total_pages?: number; output_format?: OutputFormat },
 ): Promise<GenerateResult> {
   return studioFetch(`/api/studio/projects/${projectId}/generate`, {
     method: 'POST',
@@ -510,6 +527,7 @@ export async function generateBatch(
   params?: {
     doc_types?: GenerateDocType[];
     total_pages?: number;
+    output_format?: OutputFormat;
     target_slide_count?: number;
     duration_min?: number;
     qna_count?: number;
@@ -702,6 +720,23 @@ export const getProposalDiff = (projectId: string) =>
   getDocumentDiff(projectId, 'proposal');
 export const relearnProposalStyle = (projectId: string) =>
   relearnDocumentStyle(projectId, 'proposal');
+
+// --- Document Download ---
+
+/**
+ * Get the download URL for a generated document (DOCX or HWPX).
+ * For presentation, use the dedicated /presentation/download endpoint.
+ */
+export function getDocumentDownloadUrl(
+  projectId: string,
+  docType: GenerateDocType,
+  format: OutputFormat = 'docx',
+): string {
+  if (docType === 'presentation') {
+    return `${API_BASE}/api/studio/projects/${projectId}/documents/presentation/download`;
+  }
+  return `${API_BASE}/api/studio/projects/${projectId}/documents/${docType}/download?format=${format}`;
+}
 
 // --- Admin Observability Metrics ---
 

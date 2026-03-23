@@ -1,0 +1,38 @@
+{
+  "run_id": "eval-1-large-monolith-without_skill",
+  "pass_rate": 0.3333333333333333,
+  "passed": 2,
+  "total": 6,
+  "expectations": [
+    {
+      "text": "Optimized CLAUDE.md (hub) is under 200 lines",
+      "passed": true,
+      "evidence": "CLAUDE.md is 126 lines"
+    },
+    {
+      "text": "At least 3 .claude/rules/*.md files created",
+      "passed": false,
+      "evidence": "Found 0 rule files in .claude/rules/"
+    },
+    {
+      "text": "Domain-scoped rule files have paths: frontmatter",
+      "passed": false,
+      "evidence": "No rule files found"
+    },
+    {
+      "text": "Negative rules converted to positive form",
+      "passed": true,
+      "evidence": "Original: 44 negative, Now: 1 negative (98% reduction)"
+    },
+    {
+      "text": "Rules categorized into severity tiers",
+      "passed": false,
+      "evidence": "Found 1 distinct severity tier headers"
+    },
+    {
+      "text": "CRITICAL rules at top and bottom of CLAUDE.md",
+      "passed": false,
+      "evidence": "CRITICAL not in primacy/recency position"
+    }
+  ]
+}

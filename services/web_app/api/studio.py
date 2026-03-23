@@ -402,6 +402,109 @@ async def studio_search_bids(
     return result
 
 
+# --- Curated Bids (AI bid curation) ---
+
+@router.get("/curated-bids")
+async def get_curated_bids(
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """회사 프로필 기반 맞춤 공고 추천.
+
+    1. Load company profile (CompanyProfile + CompanyTrackRecord) from org_id
+    2. Search bids (last 1 week, all categories, exclude closed)
+    3. Score each bid with score_bid_relevance()
+    4. Sort by score desc, return top 20
+    """
+    import re as _re
+    from services.web_app.nara_api import search_bids, score_bid_relevance
+
+    # 1. Load company profile
+    profile_result = await db.execute(
+        select(CompanyProfile).where(CompanyProfile.org_id == user.org_id)
+    )
+    profile_row = profile_result.scalar_one_or_none()
+    if profile_row is None:
+        raise HTTPException(
+            status_code=404,
+            detail="회사 프로필이 등록되지 않았습니다. 설정에서 회사 정보를 먼저 입력해주세요.",
+        )
+
+    # Build company_profile dict for scoring
+    company_data: dict[str, Any] = {
+        "company_name": profile_row.company_name or "",
+        "business_type": profile_row.business_type or "",
+        "capital": profile_row.capital or "",
+        "headcount": profile_row.headcount,
+        "licenses": profile_row.licenses or [],
+        "certifications": profile_row.certifications or [],
+        "region": "",  # CompanyProfile doesn't have region — leave empty for neutral scoring
+    }
+
+    # Load track records for keyword extraction
+    tr_result = await db.execute(
+        select(CompanyTrackRecord).where(CompanyTrackRecord.org_id == user.org_id)
+    )
+    track_records = tr_result.scalars().all()
+
+    # Extract keywords from track records
+    track_keywords: set[str] = set()
+    contract_amounts: list[float] = []
+    for tr in track_records:
+        if tr.project_name:
+            track_keywords.update(
+                t.lower() for t in _re.findall(r"[가-힣a-zA-Z0-9]{2,}", tr.project_name)
+            )
+        if tr.description:
+            track_keywords.update(
+                t.lower() for t in _re.findall(r"[가-힣a-zA-Z0-9]{2,}", tr.description)
+            )
+        if tr.technologies and isinstance(tr.technologies, (list, dict)):
+            techs = tr.technologies if isinstance(tr.technologies, list) else list(tr.technologies.values())
+            for tech in techs:
+                track_keywords.update(
+                    t.lower() for t in _re.findall(r"[가-힣a-zA-Z0-9]{2,}", str(tech))
+                )
+        if tr.contract_amount and tr.contract_amount > 0:
+            contract_amounts.append(float(tr.contract_amount))
+
+    company_data["track_record_keywords"] = track_keywords
+    if contract_amounts:
+        company_data["avg_contract_amount"] = sum(contract_amounts) / len(contract_amounts)
+
+    # 2. Search bids (last 1 week, all categories, exclude closed)
+    try:
+        result = await search_bids(
+            keywords="",
+            category="all",
+            period="1w",
+            bid_close_excl=True,
+            exclude_expired=True,
+            page=1,
+            page_size=50,  # Fetch more to score and pick top 20
+        )
+    except Exception as exc:
+        logger.warning("curated-bids: 나라장터 검색 실패: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="나라장터 공고 검색에 실패했습니다. 잠시 후 다시 시도해주세요.",
+        )
+
+    notices = result.get("notices", [])
+
+    # 3. Score each bid
+    scored_bids = []
+    for bid in notices:
+        relevance = score_bid_relevance(bid, company_data)
+        scored_bids.append({**bid, "relevance_score": relevance})
+
+    # 4. Sort by score desc, return top 20
+    scored_bids.sort(key=lambda b: b["relevance_score"], reverse=True)
+    top_bids = scored_bids[:20]
+
+    return {"bids": top_bids}
+
+
 @router.post("/projects/{project_id}/analyze")
 async def analyze_rfp_text(
     project_id: str,
@@ -1790,6 +1893,7 @@ def _skill_to_response(skill: ProjectStyleSkill) -> StyleSkillResponse:
 class GenerateProposalRequest(BaseModel):
     doc_type: Literal["proposal", "execution_plan", "track_record", "presentation"] = "proposal"
     total_pages: int = Field(default=50, ge=10, le=200)
+    output_format: Literal["docx", "hwpx"] = "docx"
     # PPT-specific params
     target_slide_count: int = Field(default=15, ge=5, le=50)
     duration_min: int = Field(default=25, ge=5, le=120)
@@ -1797,6 +1901,7 @@ class GenerateProposalRequest(BaseModel):
 
 
 _PPT_ASSET_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "ppt_assets")
+_DOC_ASSET_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "doc_assets")
 
 
 # --- Proposal Generation endpoint ---
@@ -1880,6 +1985,7 @@ async def generate_proposal(
         "pinned_style_version": pinned_style.version if pinned_style else None,
         "doc_type": req.doc_type,
         "total_pages": req.total_pages,
+        "output_format": req.output_format,
     }
 
     # PPT-specific: presentation evidence gate + load revisions
@@ -2039,11 +2145,56 @@ async def generate_proposal(
                 style_profile_md=style_profile_md,
                 total_pages=req.total_pages,
                 company_name=company_name,
+                output_format=req.output_format,
             )
             sections = gen_result.sections or []
             content_json_extra = {}
             quality_issues = [str(i) for i in (gen_result.quality_issues or [])]
             generation_time_sec = getattr(gen_result, 'generation_time_sec', None)
+
+            # Persist HWPX as DocumentAsset if generated
+            if gen_result.hwpx_path and os.path.isfile(gen_result.hwpx_path):
+                import shutil
+                hwpx_dest_dir = os.path.join(_DOC_ASSET_DIR, project_id)
+                os.makedirs(hwpx_dest_dir, exist_ok=True)
+                hwpx_filename = os.path.basename(gen_result.hwpx_path)
+                hwpx_dest = os.path.join(hwpx_dest_dir, hwpx_filename)
+                shutil.copy2(gen_result.hwpx_path, hwpx_dest)
+
+                hwpx_asset = DocumentAsset(
+                    org_id=user.org_id,
+                    project_id=project_id,
+                    asset_type="hwpx",
+                    storage_uri=f"local://doc_assets/{project_id}/{hwpx_filename}",
+                    upload_status="uploaded",
+                    original_filename=hwpx_filename,
+                    mime_type="application/hwp+zip",
+                    size_bytes=os.path.getsize(hwpx_dest),
+                )
+                db.add(hwpx_asset)
+                await db.flush()
+
+            # Persist DOCX as DocumentAsset if generated
+            if gen_result.docx_path and os.path.isfile(gen_result.docx_path):
+                import shutil
+                docx_dest_dir = os.path.join(_DOC_ASSET_DIR, project_id)
+                os.makedirs(docx_dest_dir, exist_ok=True)
+                docx_filename = os.path.basename(gen_result.docx_path)
+                docx_dest = os.path.join(docx_dest_dir, docx_filename)
+                shutil.copy2(gen_result.docx_path, docx_dest)
+
+                docx_asset = DocumentAsset(
+                    org_id=user.org_id,
+                    project_id=project_id,
+                    asset_type="docx",
+                    storage_uri=f"local://doc_assets/{project_id}/{docx_filename}",
+                    upload_status="uploaded",
+                    original_filename=docx_filename,
+                    mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    size_bytes=os.path.getsize(docx_dest),
+                )
+                db.add(docx_asset)
+                await db.flush()
 
         # Extract quality gate report if available (proposal orchestrator provides it)
         quality_gate_report = getattr(gen_result, 'quality_report', None) or {}
@@ -2212,6 +2363,7 @@ class GenerateBatchRequest(BaseModel):
         "proposal", "execution_plan", "track_record",
     ]
     total_pages: int = Field(default=50, ge=10, le=200)
+    output_format: Literal["docx", "hwpx"] = "docx"
     target_slide_count: int = Field(default=15, ge=5, le=50)
     duration_min: int = Field(default=25, ge=5, le=120)
     qna_count: int = Field(default=10, ge=0, le=30)
@@ -2329,6 +2481,7 @@ async def generate_batch(
                 "pinned_style_version": pinned_style.version if pinned_style else None,
                 "doc_type": doc_type,
                 "total_pages": req.total_pages,
+                "output_format": req.output_format,
             }
 
             # --- PPT-specific: load current revisions ---
@@ -2473,11 +2626,56 @@ async def generate_batch(
                     style_profile_md=style_profile_md,
                     total_pages=req.total_pages,
                     company_name=company_name,
+                    output_format=req.output_format,
                 )
                 sections = gen_result.sections or []
                 content_json_extra = {}
                 quality_issues = [str(i) for i in (gen_result.quality_issues or [])]
                 generation_time_sec = getattr(gen_result, 'generation_time_sec', None)
+
+                # Persist HWPX as DocumentAsset if generated
+                if gen_result.hwpx_path and os.path.isfile(gen_result.hwpx_path):
+                    import shutil
+                    hwpx_dest_dir = os.path.join(_DOC_ASSET_DIR, project_id)
+                    os.makedirs(hwpx_dest_dir, exist_ok=True)
+                    hwpx_filename = os.path.basename(gen_result.hwpx_path)
+                    hwpx_dest = os.path.join(hwpx_dest_dir, hwpx_filename)
+                    shutil.copy2(gen_result.hwpx_path, hwpx_dest)
+
+                    hwpx_asset = DocumentAsset(
+                        org_id=user.org_id,
+                        project_id=project_id,
+                        asset_type="hwpx",
+                        storage_uri=f"local://doc_assets/{project_id}/{hwpx_filename}",
+                        upload_status="uploaded",
+                        original_filename=hwpx_filename,
+                        mime_type="application/hwp+zip",
+                        size_bytes=os.path.getsize(hwpx_dest),
+                    )
+                    db.add(hwpx_asset)
+                    await db.flush()
+
+                # Persist DOCX as DocumentAsset if generated
+                if gen_result.docx_path and os.path.isfile(gen_result.docx_path):
+                    import shutil
+                    docx_dest_dir = os.path.join(_DOC_ASSET_DIR, project_id)
+                    os.makedirs(docx_dest_dir, exist_ok=True)
+                    docx_filename = os.path.basename(gen_result.docx_path)
+                    docx_dest = os.path.join(docx_dest_dir, docx_filename)
+                    shutil.copy2(gen_result.docx_path, docx_dest)
+
+                    docx_asset = DocumentAsset(
+                        org_id=user.org_id,
+                        project_id=project_id,
+                        asset_type="docx",
+                        storage_uri=f"local://doc_assets/{project_id}/{docx_filename}",
+                        upload_status="uploaded",
+                        original_filename=docx_filename,
+                        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        size_bytes=os.path.getsize(docx_dest),
+                    )
+                    db.add(docx_asset)
+                    await db.flush()
 
             quality_gate_report = getattr(gen_result, 'quality_report', None) or {}
 
@@ -3271,6 +3469,73 @@ async def download_presentation(
     )
 
 
+@router.get("/projects/{project_id}/documents/{doc_type}/download")
+async def download_document(
+    project_id: str,
+    doc_type: Literal["proposal", "execution_plan", "track_record"],
+    format: Literal["docx", "hwpx"] = Query(default="docx"),
+    user: CurrentUser = Depends(resolve_org_membership),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Download generated document file (DOCX or HWPX) for a project.
+
+    For presentation downloads, use the dedicated /presentation/download endpoint.
+    Falls back to DOCX if the requested HWPX file is not available.
+    """
+    from fastapi.responses import FileResponse
+
+    await _require_studio_project_access(project_id, "viewer", user, db)
+
+    # Try the requested format first, fall back to the other
+    asset_types_to_try = [format]
+    if format == "hwpx":
+        asset_types_to_try.append("docx")  # fallback to DOCX if HWPX not found
+
+    asset = None
+    for at in asset_types_to_try:
+        asset = (await db.execute(
+            select(DocumentAsset)
+            .where(
+                DocumentAsset.project_id == project_id,
+                DocumentAsset.asset_type == at,
+            )
+            .order_by(DocumentAsset.created_at.desc())
+            .limit(1)
+        )).scalar_one_or_none()
+        if asset is not None:
+            break
+
+    if asset is None:
+        raise HTTPException(404, "다운로드할 문서 파일이 없습니다. 먼저 문서를 생성해주세요.")
+
+    # Resolve file path with traversal guard
+    local_path = asset.storage_uri.replace("local://", "")
+    file_path = os.path.join(_DOC_ASSET_DIR, *local_path.split("doc_assets/", 1)[-1].split("/"))
+    resolved = os.path.realpath(file_path)
+    if not resolved.startswith(os.path.realpath(_DOC_ASSET_DIR)):
+        raise HTTPException(403, "잘못된 파일 경로입니다")
+    if not os.path.isfile(resolved):
+        raise HTTPException(404, "서버에서 파일을 찾을 수 없습니다")
+
+    _mime_map = {
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "hwpx": "application/hwp+zip",
+    }
+    actual_type = asset.asset_type  # "docx" or "hwpx"
+    _default_names = {
+        "proposal": "제안서",
+        "execution_plan": "수행계획서",
+        "track_record": "실적기술서",
+    }
+    default_filename = f"{_default_names.get(doc_type, 'document')}.{actual_type}"
+
+    return FileResponse(
+        path=resolved,
+        filename=asset.original_filename or default_filename,
+        media_type=asset.mime_type or _mime_map.get(actual_type, "application/octet-stream"),
+    )
+
+
 @router.get("/projects/{project_id}/package-items/{item_id}/evidence/download")
 async def download_evidence(
     project_id: str,
@@ -3388,6 +3653,7 @@ def _run_proposal_generation(
     style_profile_md: str,
     total_pages: int,
     company_name: str | None = None,
+    output_format: str = "docx",
 ) -> Any:
     """Run proposal generation using existing orchestrator.
 
@@ -3412,6 +3678,7 @@ def _run_proposal_generation(
                 total_pages=total_pages,
                 api_key=api_key,
                 company_skills_dir=style_dir,
+                output_format=output_format,
             )
 
     return _gen(
@@ -3421,6 +3688,7 @@ def _run_proposal_generation(
         total_pages=total_pages,
         api_key=api_key,
         company_skills_dir="",
+        output_format=output_format,
     )
 
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Edit3, Save, GitCompare, Sparkles, Pin, Loader2, AlertCircle,
   CheckCircle2, RefreshCw, ChevronDown, ChevronUp, ShieldCheck,
-  AlertTriangle, XCircle, TrendingUp, Lightbulb,
+  AlertTriangle, XCircle, TrendingUp, Lightbulb, Download,
 } from 'lucide-react';
 import type {
   CurrentRevisionData, RevisionSection, ProposalDiffResult, DiffSection, RelearnResult, StudioProject,
@@ -10,7 +10,7 @@ import type {
 } from '../../../services/studioApi';
 import {
   getCurrentRevision, saveEditedDocument, getDocumentDiff,
-  relearnDocumentStyle, pinStyleSkill, generateProposal,
+  relearnDocumentStyle, pinStyleSkill, generateProposal, getDocumentDownloadUrl,
 } from '../../../services/studioApi';
 
 const DOC_TYPE_LABELS: Record<string, string> = {
@@ -152,6 +152,43 @@ export default function ReviewStage({ projectId, project, onProjectUpdate, docTy
       {/* Phase: Edit */}
       {phase === 'edit' && revision && (
         <>
+          {/* Document download buttons */}
+          {docType !== 'presentation' && (
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-sm text-slate-500">문서 다운로드:</span>
+              <a
+                href={getDocumentDownloadUrl(projectId, docType, 'docx')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50"
+                download
+              >
+                <Download size={14} />
+                .docx
+              </a>
+              <a
+                href={getDocumentDownloadUrl(projectId, docType, 'hwpx')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50"
+                download
+                title="공공기관 제출용 한글 형식 (없으면 DOCX로 대체)"
+              >
+                <Download size={14} />
+                .hwpx
+              </a>
+            </div>
+          )}
+          {docType === 'presentation' && (
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-sm text-slate-500">문서 다운로드:</span>
+              <a
+                href={getDocumentDownloadUrl(projectId, 'presentation')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50"
+                download
+              >
+                <Download size={14} />
+                .pptx
+              </a>
+            </div>
+          )}
+
           <div className="rounded-xl border border-slate-200 bg-white p-4 mb-4">
             <div className="flex items-center gap-2 mb-3">
               <Edit3 size={16} className="text-slate-600" />

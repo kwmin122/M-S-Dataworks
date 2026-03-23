@@ -129,7 +129,7 @@ describe('GenerateStage', () => {
     });
 
     await waitFor(() => {
-      expect(mockGenerate).toHaveBeenCalledWith('proj1', { doc_type: 'proposal' });
+      expect(mockGenerate).toHaveBeenCalledWith('proj1', expect.objectContaining({ doc_type: 'proposal' }));
     });
 
     expect(await screen.findByText('생성 완료')).toBeInTheDocument();

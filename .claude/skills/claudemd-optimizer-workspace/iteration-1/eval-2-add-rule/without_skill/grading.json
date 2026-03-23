@@ -1,0 +1,28 @@
+{
+  "run_id": "eval-2-add-rule-without_skill",
+  "pass_rate": 1.0,
+  "passed": 4,
+  "total": 4,
+  "expectations": [
+    {
+      "text": "New rule added to .claude/rules/backend.md",
+      "passed": true,
+      "evidence": "context.WithTimeout rule found in backend.md"
+    },
+    {
+      "text": "CLAUDE.md not significantly modified",
+      "passed": true,
+      "evidence": "CLAUDE.md: orig 749 chars, new 749 chars"
+    },
+    {
+      "text": "New rule uses positive framing",
+      "passed": true,
+      "evidence": "Positive terms: True, Negative terms: True"
+    },
+    {
+      "text": "New rule placed under severity tier",
+      "passed": true,
+      "evidence": "Severity tier header found in backend.md"
+    }
+  ]
+}

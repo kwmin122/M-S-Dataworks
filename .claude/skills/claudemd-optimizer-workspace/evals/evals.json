@@ -1,0 +1,23 @@
+{
+  "skill_name": "claudemd-optimizer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "이 프로젝트 CLAUDE.md가 너무 길어졌어. 최적화 좀 해줘. 토큰 낭비되는 것 같아.",
+      "expected_output": "CLAUDE.md를 100줄 이내 허브로 축소하고, .claude/rules/에 도메인별 rule 파일 5~7개 생성. 부정형 규칙 긍정형 전환, CRITICAL/MANDATORY/PREFER 계층화, primacy/recency 배치 적용.",
+      "files": ["test-fixtures/case-1-large-monolith/CLAUDE.md"]
+    },
+    {
+      "id": 2,
+      "prompt": "Go 서비스에서 context.WithTimeout 필수로 쓰라는 규칙 추가해줘. 타임아웃 없이 gRPC 콜하면 안 돼.",
+      "expected_output": "이미 분리된 .claude/rules/backend.md에 새 규칙 추가. 긍정형 프레이밍 적용. CLAUDE.md는 건드리지 않음.",
+      "files": ["test-fixtures/case-2-add-rule/CLAUDE.md", "test-fixtures/case-2-add-rule/.claude/rules/frontend.md", "test-fixtures/case-2-add-rule/.claude/rules/backend.md"]
+    },
+    {
+      "id": 3,
+      "prompt": "CLAUDE.md 규칙들이 전부 '~하지마' 형태라서 좀 정리해주고 싶어. 긍정형으로 바꾸고, 중요도별로 분류해줘.",
+      "expected_output": "모든 부정형 규칙을 긍정형으로 전환. CRITICAL/MANDATORY/PREFER 3단계 분류. 200줄 넘으면 .claude/rules/ 분리도 수행. primacy/recency 배치.",
+      "files": ["test-fixtures/case-3-negative-rules/CLAUDE.md"]
+    }
+  ]
+}

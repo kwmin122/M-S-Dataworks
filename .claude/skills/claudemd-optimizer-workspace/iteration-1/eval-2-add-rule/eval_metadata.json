@@ -1,0 +1,27 @@
+{
+  "eval_id": 2,
+  "eval_name": "add-rule-to-existing-split",
+  "prompt": "Go 서비스에서 context.WithTimeout 필수로 쓰라는 규칙 추가해줘. 타임아웃 없이 gRPC 콜하면 안 돼.",
+  "assertions": [
+    {
+      "id": "rule-in-backend-md",
+      "text": "New rule added to .claude/rules/backend.md (not CLAUDE.md)",
+      "type": "programmatic"
+    },
+    {
+      "id": "claudemd-unchanged",
+      "text": "CLAUDE.md is not modified (or only trivially changed)",
+      "type": "programmatic"
+    },
+    {
+      "id": "positive-framing",
+      "text": "New rule uses positive framing ('use context.WithTimeout' not 'don't call without timeout')",
+      "type": "qualitative"
+    },
+    {
+      "id": "severity-tagged",
+      "text": "New rule is placed under appropriate severity tier (MANDATORY or CRITICAL)",
+      "type": "programmatic"
+    }
+  ]
+}

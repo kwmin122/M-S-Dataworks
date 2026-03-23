@@ -1,0 +1,33 @@
+{
+  "run_id": "eval-3-negative-rules-without_skill",
+  "pass_rate": 1.0,
+  "passed": 5,
+  "total": 5,
+  "expectations": [
+    {
+      "text": "At least 80% of negative rules converted to positive",
+      "passed": true,
+      "evidence": "Original: 55 negative, Now: 8 negative (85% reduction)"
+    },
+    {
+      "text": "2+ severity tiers applied",
+      "passed": true,
+      "evidence": "Found 3 severity tier headers"
+    },
+    {
+      "text": "Key technical terms preserved (meaning check)",
+      "passed": true,
+      "evidence": "7/7 key terms found"
+    },
+    {
+      "text": "Structure improved with clear sections",
+      "passed": true,
+      "evidence": "Found 6 section headers"
+    },
+    {
+      "text": "No split needed (output <= 200 lines)",
+      "passed": true,
+      "evidence": "CLAUDE.md: 138 lines (under threshold)"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "eval_id": 3,
+  "eval_name": "negative-rules-conversion",
+  "prompt": "CLAUDE.md 규칙들이 전부 '~하지마' 형태라서 좀 정리해주고 싶어. 긍정형으로 바꾸고, 중요도별로 분류해줘.",
+  "assertions": [
+    {
+      "id": "negative-reduced",
+      "text": "At least 80% of negative rules ('~하지마/금지/사용하지') converted to positive form",
+      "type": "programmatic"
+    },
+    {
+      "id": "severity-tiers-applied",
+      "text": "Rules organized into 2+ severity tiers (CRITICAL/MANDATORY/PREFER or equivalent)",
+      "type": "programmatic"
+    },
+    {
+      "id": "meaning-preserved",
+      "text": "Converted rules preserve the original intent (no information loss or meaning change)",
+      "type": "qualitative"
+    },
+    {
+      "id": "structure-improved",
+      "text": "Overall structure is improved (clearer sections, logical grouping)",
+      "type": "qualitative"
+    },
+    {
+      "id": "split-if-needed",
+      "text": "If output exceeds 200 lines, .claude/rules/ split was performed",
+      "type": "programmatic"
+    }
+  ]
+}

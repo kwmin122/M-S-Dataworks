@@ -2,14 +2,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   FileText, Play, Loader2, AlertCircle, CheckCircle2,
   FileCheck, Eye, BookOpen, ChevronDown, ChevronUp, RotateCcw, History, Clock, Timer,
+  Download,
 } from 'lucide-react';
 import type {
   GenerateResult, StudioProject, CurrentRevisionData, RevisionSection, GenerateDocType,
   SlideMetadata, QnaPairData, PackageItem, GenerationPerformance,
-  GenerateBatchResult,
+  GenerateBatchResult, OutputFormat,
   QualityReport as QualityReportData,
 } from '../../../services/studioApi';
-import { generateProposal, generateBatch, getCurrentRevision, listPackageItems } from '../../../services/studioApi';
+import { generateProposal, generateBatch, getCurrentRevision, listPackageItems, getDocumentDownloadUrl } from '../../../services/studioApi';
 import GenerateContractView from './GenerateContractView';
 import QuotaGate from '../QuotaGate';
 
@@ -41,6 +42,7 @@ export default function GenerateStage({ projectId, project, onProjectUpdate, onD
   const [showContract, setShowContract] = useState(false);
   const [revision, setRevision] = useState<CurrentRevisionData | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [outputFormat, setOutputFormat] = useState<OutputFormat>('docx');
 
   const [hasPresentationItem, setHasPresentationItem] = useState<boolean | null>(null);
 
@@ -78,7 +80,7 @@ export default function GenerateStage({ projectId, project, onProjectUpdate, onD
       setPhase('generating_sections');
 
       // Phase 2: actual generation (long-running)
-      const res = await generateProposal(projectId, { doc_type: docType });
+      const res = await generateProposal(projectId, { doc_type: docType, output_format: outputFormat });
 
       // Phase 3: saving
       setPhase('saving_revision');
@@ -98,7 +100,7 @@ export default function GenerateStage({ projectId, project, onProjectUpdate, onD
       setPhase('error');
       setError(err instanceof Error ? err.message : '생성 중 오류가 발생했습니다');
     }
-  }, [projectId, docType, onProjectUpdate]);
+  }, [projectId, docType, outputFormat, onProjectUpdate]);
 
   const handleBatchGenerate = useCallback(async () => {
     setBatchRunning(true);
@@ -121,7 +123,7 @@ export default function GenerateStage({ projectId, project, onProjectUpdate, onD
     setBatchProgress(initialProgress);
 
     try {
-      const res = await generateBatch(projectId, { doc_types: docTypes });
+      const res = await generateBatch(projectId, { doc_types: docTypes, output_format: outputFormat });
       setBatchResult(res);
 
       // Update progress based on results
@@ -141,7 +143,7 @@ export default function GenerateStage({ projectId, project, onProjectUpdate, onD
     } finally {
       setBatchRunning(false);
     }
-  }, [projectId, hasPresentationItem, onProjectUpdate]);
+  }, [projectId, hasPresentationItem, outputFormat, onProjectUpdate]);
 
   return (
     <div className="max-w-3xl">
@@ -232,6 +234,32 @@ export default function GenerateStage({ projectId, project, onProjectUpdate, onD
           );
         })}
       </div>
+
+      {/* Output format selector — only for non-PPT doc types */}
+      {docType !== 'presentation' && (
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-sm text-slate-600">출력 형식:</span>
+          {([['docx', 'DOCX'], ['hwpx', 'HWPX']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setOutputFormat(key)}
+              title={key === 'hwpx' ? '공공기관 제출용 한글 형식' : 'Microsoft Word 형식'}
+              className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                outputFormat === key
+                  ? 'bg-slate-800 text-white border-slate-800'
+                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+          {outputFormat === 'hwpx' && (
+            <span className="text-xs text-amber-600 ml-1">
+              HWPX 변환 실패 시 자동으로 DOCX로 대체됩니다
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Generate button + controls */}
       <div className="flex items-center gap-3 mb-4">
@@ -331,16 +359,41 @@ export default function GenerateStage({ projectId, project, onProjectUpdate, onD
               Run: {result.run_id.slice(0, 8)}... / Revision: {result.revision_id.slice(0, 8)}...
             </span>
           </div>
-          {docType === 'presentation' && (
-            <a
-              href={`${import.meta.env.VITE_API_BASE_URL || (typeof window !== 'undefined' && window.location.port === '5173' ? 'http://localhost:8000' : '')}/api/studio/projects/${projectId}/documents/presentation/download`}
-              className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-kira-600 border border-kira-200 rounded-lg hover:bg-kira-50"
-              download
-            >
-              <FileCheck size={14} />
-              .pptx 다운로드
-            </a>
-          )}
+          {/* Download buttons */}
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            {docType === 'presentation' ? (
+              <a
+                href={getDocumentDownloadUrl(projectId, 'presentation')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-kira-600 border border-kira-200 rounded-lg hover:bg-kira-50"
+                download
+              >
+                <Download size={14} />
+                .pptx 다운로드
+              </a>
+            ) : (
+              <>
+                <a
+                  href={getDocumentDownloadUrl(projectId, docType, 'docx')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-kira-600 border border-kira-200 rounded-lg hover:bg-kira-50"
+                  download
+                >
+                  <Download size={14} />
+                  .docx 다운로드
+                </a>
+                {(result.generation_contract?.output_format === 'hwpx') && (
+                  <a
+                    href={getDocumentDownloadUrl(projectId, docType, 'hwpx')}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50"
+                    download
+                    title="공공기관 제출용 한글 형식"
+                  >
+                    <Download size={14} />
+                    .hwpx 다운로드
+                  </a>
+                )}
+              </>
+            )}
+          </div>
         </div>
       )}
 

@@ -464,6 +464,144 @@ async def search_bids(
     }
 
 
+# ---------------------------------------------------------------------------
+# Bid relevance scoring — pure Python, no LLM
+# ---------------------------------------------------------------------------
+
+def _tokenize(text: str) -> set[str]:
+    """Split Korean/English text into lowercase tokens (2+ chars)."""
+    return {t.lower() for t in re.findall(r"[가-힣a-zA-Z0-9]{2,}", text)} if text else set()
+
+
+def _overlap_score(tokens_a: set[str], tokens_b: set[str]) -> float:
+    """Jaccard-like overlap ratio: |intersection| / min(|a|, |b|).
+
+    Returns 0.0-1.0. Uses min-denominator so a small company specialty
+    matching a large bid title still scores high.
+    """
+    if not tokens_a or not tokens_b:
+        return 0.0
+    intersection = tokens_a & tokens_b
+    denominator = min(len(tokens_a), len(tokens_b))
+    return len(intersection) / denominator if denominator else 0.0
+
+
+def score_bid_relevance(
+    bid: dict[str, Any],
+    company_profile: dict[str, Any],
+) -> int:
+    """회사 프로필 기반 공고 적합도 점수 (0-100).
+
+    Scoring criteria:
+    - 업종 매칭 (0-30): company specialties vs bid title/category
+    - 금액 범위 적합성 (0-20): bid price vs company's typical project size
+    - 지역 매칭 (0-15): bid region vs company location
+    - 실적 관련성 (0-25): bid keywords vs company track record keywords
+    - 자격 충족 가능성 (0-10): general qualification indicators
+
+    All inputs are dicts — no DB model dependency.
+    ``company_profile`` keys:
+        business_type, capital, licenses (list[str]),
+        certifications (list[str]), company_name,
+        region (str), track_record_keywords (set[str] | list[str]),
+        avg_contract_amount (float | None), headcount (int | None)
+    """
+    score = 0
+
+    # --- 1. 업종 매칭 (0-30) ---
+    bid_title = str(bid.get("title", ""))
+    bid_category = str(bid.get("category", ""))
+    bid_text = f"{bid_title} {bid_category}"
+    bid_tokens = _tokenize(bid_text)
+
+    company_specialties = str(company_profile.get("business_type", ""))
+    company_name = str(company_profile.get("company_name", ""))
+    # Licenses & certifications often contain industry keywords
+    licenses = company_profile.get("licenses") or []
+    if isinstance(licenses, dict):
+        licenses = list(licenses.values()) if licenses else []
+    certifications = company_profile.get("certifications") or []
+    if isinstance(certifications, dict):
+        certifications = list(certifications.values()) if certifications else []
+    specialty_parts = [company_specialties, company_name]
+    specialty_parts.extend(str(l) for l in licenses)
+    specialty_parts.extend(str(c) for c in certifications)
+    specialty_tokens = _tokenize(" ".join(specialty_parts))
+
+    specialty_overlap = _overlap_score(bid_tokens, specialty_tokens)
+    score += int(specialty_overlap * 30)
+
+    # --- 2. 금액 범위 적합성 (0-20) ---
+    bid_price = bid.get("estimatedPriceRaw")
+    avg_contract = company_profile.get("avg_contract_amount")
+    if bid_price and avg_contract:
+        try:
+            bid_price_f = float(bid_price)
+            avg_f = float(avg_contract)
+            if avg_f > 0 and bid_price_f > 0:
+                ratio = bid_price_f / avg_f
+                # Ideal: 0.3x - 3x of typical project size
+                if 0.3 <= ratio <= 3.0:
+                    score += 20
+                elif 0.1 <= ratio <= 5.0:
+                    score += 12
+                elif ratio < 0.1 or ratio > 10.0:
+                    score += 2
+                else:
+                    score += 6
+        except (ValueError, TypeError, ZeroDivisionError):
+            # No data → neutral partial credit
+            score += 8
+    else:
+        # No price data → give neutral partial credit
+        score += 8
+
+    # --- 3. 지역 매칭 (0-15) ---
+    bid_region = str(bid.get("region", "") or "")
+    company_region = str(company_profile.get("region", "") or "")
+    if not bid_region:
+        # No region restriction → any company can participate
+        score += 15
+    elif company_region and bid_region:
+        # Check if company region overlaps with bid region
+        bid_rgn_tokens = _tokenize(bid_region)
+        co_rgn_tokens = _tokenize(company_region)
+        if bid_rgn_tokens & co_rgn_tokens:
+            score += 15
+        elif "전국" in bid_region or "제한없음" in bid_region:
+            score += 15
+        else:
+            score += 3
+    else:
+        score += 5  # Unknown company region → partial
+
+    # --- 4. 실적 관련성 (0-25) ---
+    track_kw = company_profile.get("track_record_keywords") or set()
+    if isinstance(track_kw, list):
+        track_kw = set(track_kw)
+    track_tokens = {t.lower() for t in track_kw} if track_kw else set()
+    if track_tokens and bid_tokens:
+        tr_overlap = _overlap_score(bid_tokens, track_tokens)
+        score += int(tr_overlap * 25)
+    else:
+        # No track record data → small base credit
+        score += 5
+
+    # --- 5. 자격 충족 가능성 (0-10) ---
+    qual_score = 0
+    # Company with licenses/certifications gets base credit
+    if licenses:
+        qual_score += 4
+    if certifications:
+        qual_score += 3
+    headcount = company_profile.get("headcount")
+    if headcount and isinstance(headcount, (int, float)) and headcount >= 5:
+        qual_score += 3
+    elif headcount:
+        qual_score += 1
+    score += min(qual_score, 10)
+
+    return min(max(score, 0), 100)
 
 
 async def get_bid_detail_attachments(
