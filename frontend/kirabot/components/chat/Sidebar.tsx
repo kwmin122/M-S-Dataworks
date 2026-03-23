@@ -28,9 +28,7 @@ const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, onHome }) => {
   const location = useLocation();
   const collapsed = state.sidebarCollapsed;
 
-  const navItems = user?.isAdmin
-    ? [...baseNavItems, { path: '/admin', label: '관리자', icon: Shield }]
-    : baseNavItems;
+  const isAdmin = !!user?.isAdmin;
 
   return (
     <div
@@ -50,7 +48,7 @@ const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, onHome }) => {
       />
       {/* Navigation */}
       <nav className="px-2 py-2 space-y-0.5 border-b border-white/10">
-        {navItems.map((item) => {
+        {baseNavItems.map((item) => {
           const isActive = location.pathname.startsWith(item.path);
           const Icon = item.icon;
           return (
@@ -70,6 +68,25 @@ const Sidebar: React.FC<SidebarProps> = ({ user, onLogout, onHome }) => {
             </button>
           );
         })}
+        {/* Admin link — visually separated */}
+        {isAdmin && (
+          <>
+            <div className="my-1 border-t border-white/10" />
+            <button
+              type="button"
+              onClick={() => navigate('/admin')}
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                location.pathname.startsWith('/admin')
+                  ? 'bg-sidebar-active/20 text-white'
+                  : 'text-slate-400 hover:bg-sidebar-hover hover:text-white'
+              } ${collapsed ? 'justify-center px-0' : ''}`}
+              title={collapsed ? '관리자' : undefined}
+            >
+              <Shield size={18} className="shrink-0" />
+              {!collapsed && <span>관리자</span>}
+            </button>
+          </>
+        )}
       </nav>
       {/* User Guide + Tour restart (Chat screen only) */}
       {location.pathname === '/chat' && (
