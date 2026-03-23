@@ -139,10 +139,21 @@ export interface AnalyzeResult {
 export async function analyzeRfpText(
   projectId: string,
   documentText: string,
+  bidInfo?: {
+    bid_ntce_no: string;
+    bid_ntce_ord?: string;
+    bid_attachments?: Array<{ fileNm: string; fileUrl: string }>;
+  },
 ): Promise<AnalyzeResult> {
+  const body: Record<string, unknown> = { document_text: documentText };
+  if (bidInfo?.bid_ntce_no) {
+    body.bid_ntce_no = bidInfo.bid_ntce_no;
+    if (bidInfo.bid_ntce_ord) body.bid_ntce_ord = bidInfo.bid_ntce_ord;
+    if (bidInfo.bid_attachments?.length) body.bid_attachments = bidInfo.bid_attachments;
+  }
   return studioFetch(`/api/studio/projects/${projectId}/analyze`, {
     method: 'POST',
-    body: JSON.stringify({ document_text: documentText }),
+    body: JSON.stringify(body),
   });
 }
 

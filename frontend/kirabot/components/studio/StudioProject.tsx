@@ -93,9 +93,13 @@ export default function StudioProject() {
     [projectId, project, addToast],
   );
 
-  const handleAnalyze = useCallback(async (text: string) => {
+  const handleAnalyze = useCallback(async (text: string, bidInfo?: {
+    bid_ntce_no: string;
+    bid_ntce_ord?: string;
+    bid_attachments?: Array<{ fileNm: string; fileUrl: string }>;
+  }) => {
     if (!projectId) return;
-    const result = await analyzeRfpText(projectId, text);
+    const result = await analyzeRfpText(projectId, text, bidInfo);
     setProject(result.project);
   }, [projectId]);
 
@@ -179,7 +183,7 @@ function StageContent({
 }: {
   stage: StudioStage;
   project: StudioProjectType;
-  onAnalyze: (text: string) => Promise<void>;
+  onAnalyze: (text: string, bidInfo?: { bid_ntce_no: string; bid_ntce_ord?: string; bid_attachments?: Array<{ fileNm: string; fileUrl: string }> }) => Promise<void>;
   onClassify: () => Promise<void>;
   classifyResult: ClassifyResult | null;
   onProjectUpdate: () => void;

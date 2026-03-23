@@ -175,14 +175,72 @@ class TrackRecordDocResult:
 # Shared utilities
 # ---------------------------------------------------------------------------
 
+def _extract_meta(rfx_result: dict[str, Any], key: str, fallback: str = "") -> str:
+    """rfx_result에서 메타데이터 추출 (serialize 또는 to_dict 형식 모두 지원)."""
+    val = rfx_result.get(key, "")
+    if val:
+        return str(val)
+    # to_dict 형식: {"기본정보": {"사업명": ..., "발주기관": ...}}
+    _kr = {"title": "사업명", "issuing_org": "발주기관", "budget": "사업비", "project_period": "사업기간"}
+    kr_key = _kr.get(key, "")
+    if kr_key:
+        basic = rfx_result.get("기본정보", {})
+        if isinstance(basic, dict):
+            return str(basic.get(kr_key, fallback))
+    return fallback
+
+
 def build_rfp_context(rfx_result: dict[str, Any]) -> str:
-    """RFP 컨텍스트 문자열 조립 (공통 유틸리티)."""
+    """RFP 컨텍스트 문자열 조립.
+
+    메타데이터 + 자격요건 + 평가기준 + 특이사항 + RFP 원문을 포함하여
+    LLM이 실제 사업 내용 기반으로 작성하도록 한다.
+    """
+    title = _extract_meta(rfx_result, "title")
+    issuing_org = _extract_meta(rfx_result, "issuing_org")
+    budget = _extract_meta(rfx_result, "budget")
+    period = _extract_meta(rfx_result, "project_period")
+
     parts = [
-        f"사업명: {rfx_result.get('title', '')}",
-        f"발주기관: {rfx_result.get('issuing_org', '')}",
-        f"사업비: {rfx_result.get('budget', '')}",
-        f"사업기간: {rfx_result.get('project_period', '')}",
+        f"사업명: {title}",
+        f"발주기관: {issuing_org}",
+        f"사업비: {budget}",
+        f"사업기간: {period}",
     ]
-    if rfx_result.get("rfp_text_summary"):
-        parts.append(f"RFP 요약: {rfx_result['rfp_text_summary']}")
+
+    # 자격요건
+    reqs = rfx_result.get("requirements", rfx_result.get("자격요건", []))
+    if reqs:
+        parts.append("\n## 자격요건")
+        for i, r in enumerate(reqs[:15], 1):
+            desc = r.get("description", r.get("내용", "")) if isinstance(r, dict) else str(r)
+            if desc:
+                parts.append(f"  {i}. {desc}")
+
+    # 평가기준
+    evals = rfx_result.get("evaluation_criteria", rfx_result.get("평가기준", []))
+    if evals:
+        parts.append("\n## 평가기준")
+        for e in evals[:20]:
+            if isinstance(e, dict):
+                name = e.get("category", e.get("항목", ""))
+                score = e.get("max_score", e.get("배점", ""))
+                desc = e.get("description", e.get("세부내용", ""))
+                parts.append(f"  - {name} ({score}점): {desc}")
+
+    # 특이사항
+    notes = rfx_result.get("special_notes", rfx_result.get("특이사항", []))
+    if notes:
+        parts.append("\n## 특이사항")
+        for n in notes[:10]:
+            parts.append(f"  - {n}")
+
+    # RFP 요약 또는 원문
+    summary = rfx_result.get("rfp_text_summary", "")
+    raw_text = rfx_result.get("raw_text", "")
+    if summary:
+        parts.append(f"\n## RFP 요약\n{summary}")
+    elif raw_text:
+        parts.append(f"\n## RFP 원문 (발췌)\n{raw_text[:4000]}")
+
     return "\n".join(parts)

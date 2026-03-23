@@ -58,8 +58,16 @@ class UpdateStudioStageRequest(BaseModel):
     studio_stage: str = Field(pattern="^(rfp|package|company|style|generate|review|relearn)$")
 
 
+class NaraBidAttachmentItem(BaseModel):
+    fileNm: str = ""
+    fileUrl: str = ""
+
 class AnalyzeRfpTextRequest(BaseModel):
-    document_text: str = Field(min_length=50, max_length=200_000)
+    document_text: str = Field(min_length=10, max_length=200_000)
+    # 나라장터 공고 연동 — 있으면 첨부파일 자동 다운로드+파싱
+    bid_ntce_no: str = ""
+    bid_ntce_ord: str = "00"
+    bid_attachments: list[NaraBidAttachmentItem] = []
 
 
 class PackageItemResponse(BaseModel):
@@ -416,13 +424,35 @@ async def analyze_rfp_text(
     from rfx_analyzer import RFxAnalyzer
     from services.web_app.api.analysis_serializer import serialize_analysis_for_db
 
+    # 나라장터 첨부파일 자동 fetch — bid_ntce_no가 있으면 RFP 전문 추출
+    analysis_text = req.document_text
+    if req.bid_ntce_no:
+        try:
+            from services.web_app.nara_api import fetch_bid_rfp_text
+            att_dicts = [{"fileNm": a.fileNm, "fileUrl": a.fileUrl} for a in req.bid_attachments] if req.bid_attachments else None
+            rfp_full_text = await fetch_bid_rfp_text(
+                bid_ntce_no=req.bid_ntce_no,
+                bid_ntce_ord=req.bid_ntce_ord,
+                attachments=att_dicts,
+            )
+            if rfp_full_text:
+                # 메타데이터 + 실제 RFP 전문을 합침
+                analysis_text = f"{req.document_text}\n\n--- 첨부파일 본문 ---\n\n{rfp_full_text}"
+                logger.info(
+                    "RFP 첨부파일 자동 추출 완료 (bid=%s, %d자 → %d자)",
+                    req.bid_ntce_no, len(req.document_text), len(analysis_text),
+                )
+        except Exception as exc:
+            logger.warning("RFP 첨부파일 자동 추출 실패 (bid=%s): %s", req.bid_ntce_no, exc)
+            # 실패해도 기존 document_text로 계속 진행
+
     analyzer = RFxAnalyzer(
         api_key=api_key,
         model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
     )
 
     try:
-        analysis = await asyncio.to_thread(analyzer.analyze_text, req.document_text)
+        analysis = await asyncio.to_thread(analyzer.analyze_text, analysis_text)
     except Exception as exc:
         try:
             from services.web_app.services.usage_tracker import emit_usage_event

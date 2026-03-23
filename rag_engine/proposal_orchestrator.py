@@ -14,7 +14,7 @@ from typing import Any, Optional
 
 from knowledge_db import KnowledgeDB
 from knowledge_models import ProposalOutline, DocumentType
-from phase2_models import build_rfp_context
+from phase2_models import build_rfp_context, _extract_meta
 from proposal_planner import build_proposal_outline
 from section_writer import write_section, rewrite_section
 from quality_checker import check_quality, QualityIssue
@@ -270,12 +270,29 @@ def generate_proposal(
     # 3.5. profile_md already loaded in step 0 above
 
     # 4. Write sections with self-correction (parallel with ThreadPoolExecutor)
+    # RFP 제목에서 사업 도메인 키워드 추출 — 무관한 지식 유닛 필터용
+    _rfp_title = _extract_meta(rfx_result, "title").lower()
+
+    def _is_irrelevant_knowledge(unit) -> bool:
+        """RFP와 무관한 산업/도메인의 지식 유닛 필터링."""
+        rule = (unit.rule or "").lower() if hasattr(unit, 'rule') else ""
+        explanation = (unit.explanation or "").lower() if hasattr(unit, 'explanation') else ""
+        text = rule + " " + explanation
+        # 다른 산업 도메인 키워드 — RFP 제목에 해당 키워드가 없으면 제외
+        domain_keywords = ["스마트공장", "k-뷰티", "k뷰티", "화장품", "제조업 혁신"]
+        for dk in domain_keywords:
+            if dk in text and dk not in _rfp_title:
+                return True
+        return False
+
     def _write_one(section):
         memo = strategy.get_memo_for(section.name)
         search_query = f"{section.name} {section.evaluation_item}"
         if memo and memo.knowledge_hints:
             search_query += " " + " ".join(memo.knowledge_hints)
         knowledge = kb.search(search_query, top_k=10, document_types=[DocumentType.PROPOSAL, DocumentType.COMMON])
+        # 무관한 산업 도메인의 지식 유닛 제외
+        knowledge = [k for k in knowledge if not _is_irrelevant_knowledge(k)]
         name, text, residuals = _write_and_check_section(
             section=section,
             rfp_context=rfp_context,
@@ -310,6 +327,39 @@ def generate_proposal(
     sections: list[tuple[str, str]] = []
     for s in outline.sections:
         sections.append((s.name, results_map.get(s.name, "")))
+
+    # 4.5. 플레이스홀더 후처리 치환 — LLM이 남긴 [사업명] 등을 실제 값으로 대체
+    _title = _extract_meta(rfx_result, "title")
+    _org = _extract_meta(rfx_result, "issuing_org")
+    _budget = _extract_meta(rfx_result, "budget")
+    _period = _extract_meta(rfx_result, "project_period")
+    _ph_map = {
+        "[사업명]": _title,
+        "**[사업명]**": _title,
+        "[발주기관]": _org,
+        "**[발주기관]**": _org,
+        "[수요기관]": _org,
+        "**[수요기관]**": _org,
+        "[사업비]": _budget,
+        "**[사업비]**": _budget,
+        "[사업기간]": _period,
+        "**[사업기간]**": _period,
+    }
+    # 빈 값 매핑 제거 (치환할 값이 없으면 플레이스홀더 유지)
+    _ph_map = {k: v for k, v in _ph_map.items() if v}
+    if _ph_map:
+        replaced_count = 0
+        new_sections: list[tuple[str, str]] = []
+        for name, text in sections:
+            original = text
+            for ph, val in _ph_map.items():
+                text = text.replace(ph, val)
+            if text != original:
+                replaced_count += 1
+            new_sections.append((name, text))
+        sections = new_sections
+        if replaced_count:
+            _logger.info("플레이스홀더 치환: %d개 섹션에서 치환 수행", replaced_count)
 
     # 5. Quality check (legacy anti-pattern gate)
     all_text = "\n\n".join(text for _, text in sections)

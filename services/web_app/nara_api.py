@@ -675,6 +675,91 @@ def pick_best_attachment(attachments: list[dict[str, Any]]) -> dict[str, Any] | 
     return scored[0]
 
 
+async def fetch_bid_rfp_text(
+    bid_ntce_no: str,
+    bid_ntce_ord: str = "00",
+    attachments: list[dict[str, Any]] | None = None,
+    category: str = "",
+) -> str:
+    """공고 첨부파일에서 RFP 전문 텍스트를 추출한다.
+
+    1. attachments가 제공되면 그중 최적 파일 선택
+    2. 없으면 상세 API → e발주 API 순으로 첨부파일 조회
+    3. 최적 파일 다운로드 → DocumentParser로 파싱 → 텍스트 반환
+
+    Returns:
+        파싱된 RFP 텍스트. 실패 시 빈 문자열.
+    """
+    import tempfile
+
+    # Step 1: 첨부파일 목록 확보
+    att_list = attachments or []
+
+    # search 결과의 attachments에는 docDiv가 없으므로 보강
+    if att_list:
+        # fileNm/fileUrl만 있는 간단 형태 → 적절한 형태로 변환
+        normalized = []
+        for a in att_list:
+            normalized.append({
+                "fileNm": str(a.get("fileNm", "")).strip(),
+                "fileUrl": str(a.get("fileUrl", "")).strip(),
+                "fileSize": a.get("fileSize", 0),
+                "docDiv": str(a.get("docDiv", "")).strip(),
+            })
+        att_list = [a for a in normalized if a["fileNm"] and a["fileUrl"]]
+
+    if not att_list:
+        # 상세 API에서 가져오기
+        att_list = await get_bid_detail_attachments(bid_ntce_no, bid_ntce_ord, category)
+
+    if not att_list:
+        # e발주 API 폴백
+        att_list = await get_bid_attachments(bid_ntce_no, bid_ntce_ord)
+
+    if not att_list:
+        logger.info("RFP 첨부파일 없음 (bid=%s)", bid_ntce_no)
+        return ""
+
+    # Step 2: 최적 파일 선택 (PDF/HWP 우선)
+    best = pick_best_attachment(att_list)
+    if not best:
+        return ""
+
+    file_url = best["fileUrl"]
+    file_nm = best["fileNm"]
+    logger.info("RFP 첨부파일 선택: %s (bid=%s)", file_nm, bid_ntce_no)
+
+    # Step 3: 다운로드
+    tmp_dir = tempfile.mkdtemp(prefix="kira_rfp_")
+    try:
+        local_path = await download_attachment(file_url, tmp_dir, fallback_name=file_nm)
+    except Exception as exc:
+        logger.warning("RFP 첨부파일 다운로드 실패 (bid=%s): %s", bid_ntce_no, exc)
+        return ""
+
+    # Step 4: 파싱
+    try:
+        from document_parser import DocumentParser
+        parser = DocumentParser()
+        parsed = parser.parse(local_path)
+        text = parsed.text.strip() if parsed and parsed.text else ""
+        if text:
+            logger.info(
+                "RFP 파싱 완료: %s (%d자, %d페이지)",
+                file_nm, len(text), parsed.pages,
+            )
+        else:
+            logger.warning("RFP 파싱 결과 비어있음: %s", file_nm)
+        return text
+    except Exception as exc:
+        logger.warning("RFP 파싱 실패 (%s): %s", file_nm, exc)
+        return ""
+    finally:
+        # 임시 파일 정리
+        import shutil
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 # ── 발주계획현황서비스 (OrderPlanSttusService) ──
 
 ORDER_PLAN_API_BASE = "https://apis.data.go.kr/1230000/ao/OrderPlanSttusService"

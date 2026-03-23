@@ -28,9 +28,15 @@ const REGION_OPTIONS = [
   { code: '50', label: '제주' },
 ];
 
+interface BidAnalyzeInfo {
+  bid_ntce_no: string;
+  bid_ntce_ord?: string;
+  bid_attachments?: Array<{ fileNm: string; fileUrl: string }>;
+}
+
 interface RfpStageProps {
   project: StudioProject;
-  onAnalyze: (text: string) => Promise<void>;
+  onAnalyze: (text: string, bidInfo?: BidAnalyzeInfo) => Promise<void>;
   onClassify: () => Promise<void>;
   onProjectUpdate?: () => void;
 }
@@ -159,7 +165,13 @@ export default function RfpStage({ project, onAnalyze, onClassify, onProjectUpda
     setAnalyzing(true);
     setError('');
     try {
-      await onAnalyze(lines);
+      // 첨부파일 정보를 함께 전달 — 백엔드가 자동 다운로드+파싱
+      const bidInfo: BidAnalyzeInfo = {
+        bid_ntce_no: bid.id,
+        bid_ntce_ord: bid.bidNtceOrd || '00',
+        bid_attachments: bid.attachments?.map(a => ({ fileNm: a.fileNm, fileUrl: a.fileUrl })),
+      };
+      await onAnalyze(lines, bidInfo);
       setRfpText('');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'RFP 분석 실패';

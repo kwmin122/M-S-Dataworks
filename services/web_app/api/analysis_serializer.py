@@ -43,5 +43,7 @@ def serialize_analysis_for_db(analysis: RFxAnalysisResult) -> dict:
             }
             for req in analysis.requirements
         ],
+        "special_notes": analysis.special_notes or [],
+        "raw_text": analysis.raw_text[:8000] if analysis.raw_text else "",
         "rfp_text_summary": "",  # Summary is stored separately in AnalysisSnapshot.summary_md
     }
