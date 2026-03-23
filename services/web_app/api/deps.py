@@ -101,6 +101,18 @@ async def resolve_org_membership(
         # Auto-provision: first-time user gets their own org + owner membership.
         # This runs exactly once per user (only when no active membership exists
         # AND no deactivated membership exists).
+        # SECURITY: auto-provision is DEV ONLY — production requires org invitation.
+        if not _DEV_BOOTSTRAP:
+            logger.warning(
+                "Blocked auto-provision for user=%s — "
+                "BID_DEV_BOOTSTRAP is not enabled. "
+                "Production users must be invited to an existing org.",
+                user.username,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="조직 소속이 없습니다. 관리자에게 초대를 요청하세요.",
+            )
         logger.info("Auto-provisioning org for new user=%s", user.username)
         from services.web_app.db.models.org import Organization
         org = Organization(name=f"{user.username}의 조직")

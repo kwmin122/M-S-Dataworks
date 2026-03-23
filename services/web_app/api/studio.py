@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,9 +58,29 @@ class UpdateStudioStageRequest(BaseModel):
     studio_stage: str = Field(pattern="^(rfp|package|company|style|generate|review|relearn)$")
 
 
+_ALLOWED_ATTACHMENT_HOSTS: set[str] = {"apis.data.go.kr", "www.g2b.go.kr", "g2b.go.kr"}
+
+
 class NaraBidAttachmentItem(BaseModel):
     fileNm: str = ""
     fileUrl: str = ""
+
+    @field_validator("fileUrl")
+    @classmethod
+    def _validate_file_url(cls, v: str) -> str:
+        if not v:
+            return v
+        from urllib.parse import urlparse
+
+        parsed = urlparse(v)
+        if parsed.scheme != "https":
+            raise ValueError("fileUrl은 https:// 만 허용됩니다")
+        if parsed.hostname not in _ALLOWED_ATTACHMENT_HOSTS:
+            raise ValueError(
+                f"허용되지 않은 도메인: {parsed.hostname!r}. "
+                f"허용: {_ALLOWED_ATTACHMENT_HOSTS}"
+            )
+        return v
 
 class AnalyzeRfpTextRequest(BaseModel):
     document_text: str = Field(min_length=10, max_length=200_000)
@@ -445,6 +465,9 @@ async def analyze_rfp_text(
         except Exception as exc:
             logger.warning("RFP 첨부파일 자동 추출 실패 (bid=%s): %s", req.bid_ntce_no, exc)
             # 실패해도 기존 document_text로 계속 진행
+
+    # --- 결합 텍스트 길이 제한 (LLM 토큰 폭주 방지) ---
+    analysis_text = analysis_text[:200_000]
 
     analyzer = RFxAnalyzer(
         api_key=api_key,

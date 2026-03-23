@@ -3730,9 +3730,9 @@ async def preview_alert_matches(request: Request, payload: dict) -> dict[str, An
             {
                 "id": b.get("id", ""),
                 "title": b.get("title", ""),
-                "organization": b.get("organization", ""),
-                "deadline": b.get("deadline", ""),
-                "amount": b.get("amount"),
+                "organization": b.get("issuingOrg", ""),
+                "deadline": b.get("deadlineAt", ""),
+                "amount": b.get("estimatedPriceRaw"),
             }
             for b in samples
         ],

@@ -7,6 +7,7 @@ API 키: DATA_GO_KR_API_KEY 환경변수
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import uuid
@@ -206,9 +207,9 @@ def _normalize_bid_notice(item: dict[str, Any], category: str = "") -> dict[str,
     # 공고 URL
     url = str(item.get("bidNtceUrl", "") or "").strip() or None
 
-    # 지역 — 참가제한지역명, 없으면 공고기관 담당자명 대체
+    # 지역 — 참가제한지역명만 사용 (담당자명 fallback 제거)
     prtcpt_rgn = str(item.get("prtcptLmtRgnNm", "") or "").strip()
-    rgn_nm = prtcpt_rgn or str(item.get("ntceInsttOfclNm", "") or "").strip()
+    rgn_nm = prtcpt_rgn or None
 
     # 계약/입찰 방식
     contract_method = str(item.get("cntrctCnclsMthdNm", "") or "").strip() or None
@@ -243,7 +244,7 @@ def _normalize_bid_notice(item: dict[str, Any], category: str = "") -> dict[str,
         "issuingOrg": str(item.get("ntceInsttNm", "")).strip(),
         "demandOrg": str(item.get("dminsttNm", "")).strip() or None,
         "department": str(item.get("dminsttNm", "")).strip() or None,
-        "region": rgn_nm or None,
+        "region": rgn_nm,
         "deadlineAt": deadline_at,
         "publishedAt": published_at,
         "submitStartAt": submit_start_at,
@@ -412,9 +413,17 @@ async def search_bids(
                 endpoint = CATEGORY_ENDPOINTS[category]
                 chunk_notices, _ = await _fetch_category(client, endpoint, category, chunk_params)
             else:
+                tasks = [
+                    _fetch_category(client, endpoint, cat, chunk_params)
+                    for cat, endpoint in CATEGORY_ENDPOINTS.items()
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
                 chunk_notices = []
-                for cat, endpoint in CATEGORY_ENDPOINTS.items():
-                    cat_notices, _ = await _fetch_category(client, endpoint, cat, chunk_params)
+                for r in results:
+                    if isinstance(r, BaseException):
+                        logger.warning("카테고리 병렬 조회 실패: %s", r)
+                        continue
+                    cat_notices, _ = r  # type: ignore[misc]
                     chunk_notices.extend(cat_notices)
 
             # 중복 제거 (여러 청크에서 같은 공고 반환 가능)
@@ -581,42 +590,77 @@ async def get_bid_attachments(bid_ntce_no: str, bid_ntce_ord: str = "00") -> lis
     return attachments
 
 
+# --- Download security constants ---
+_ALLOWED_DOWNLOAD_HOSTS: set[str] = {"apis.data.go.kr", "www.g2b.go.kr", "g2b.go.kr"}
+_ALLOWED_EXTENSIONS: set[str] = {".pdf", ".hwp", ".hwpx", ".docx", ".txt"}
+_MAX_DOWNLOAD_BYTES: int = 30 * 1024 * 1024  # 30 MB
+
+
 async def download_attachment(file_url: str, dest_dir: str, fallback_name: str = "") -> str:
     """첨부파일 다운로드 → 로컬 경로 반환."""
+    from urllib.parse import urlparse, unquote
+
+    # --- URL validation: scheme + domain allowlist ---
+    parsed_url = urlparse(file_url)
+    if parsed_url.scheme != "https":
+        raise ValueError(f"HTTPS만 허용됩니다 (scheme={parsed_url.scheme!r})")
+    if parsed_url.hostname not in _ALLOWED_DOWNLOAD_HOSTS:
+        raise ValueError(
+            f"허용되지 않은 도메인입니다: {parsed_url.hostname!r}. "
+            f"허용 목록: {_ALLOWED_DOWNLOAD_HOSTS}"
+        )
+
     dest_path = Path(dest_dir)
     dest_path.mkdir(parents=True, exist_ok=True)
 
+    # --- Streaming download with size limit ---
     async with httpx.AsyncClient(follow_redirects=True) as client:
-        resp = await client.get(file_url, timeout=60.0)
-        resp.raise_for_status()
+        async with client.stream("GET", file_url, timeout=60.0) as resp:
+            resp.raise_for_status()
 
-        # Content-Disposition에서 파일명 추출
-        from urllib.parse import urlparse, unquote
-        cd = resp.headers.get("content-disposition", "")
-        filename = ""
-        if "filename=" in cd:
-            parts = cd.split("filename=")
-            if len(parts) > 1:
-                raw = parts[1].strip().strip('"').strip("'").rstrip(";").strip()
-                filename = unquote(raw)
+            chunks: list[bytes] = []
+            total = 0
+            async for chunk in resp.aiter_bytes(chunk_size=64 * 1024):
+                total += len(chunk)
+                if total > _MAX_DOWNLOAD_BYTES:
+                    raise ValueError(
+                        f"파일 크기 제한 초과: {_MAX_DOWNLOAD_BYTES // (1024 * 1024)}MB 이상"
+                    )
+                chunks.append(chunk)
+            content = b"".join(chunks)
 
-        if not filename:
-            parsed = urlparse(file_url)
-            filename = unquote(parsed.path.split("/")[-1]) if parsed.path else ""
+            # Content-Disposition에서 파일명 추출
+            cd = resp.headers.get("content-disposition", "")
+            filename = ""
+            if "filename=" in cd:
+                parts = cd.split("filename=")
+                if len(parts) > 1:
+                    raw = parts[1].strip().strip('"').strip("'").rstrip(";").strip()
+                    filename = unquote(raw)
 
-        if not filename:
-            filename = fallback_name or f"attachment_{uuid.uuid4().hex[:8]}"
+            if not filename:
+                filename = unquote(parsed_url.path.split("/")[-1]) if parsed_url.path else ""
 
-        # 확장자를 보존하면서 파일명만 sanitize
-        stem, ext = os.path.splitext(filename)
-        safe_stem = re.sub(r"[^0-9A-Za-z._\-가-힣]", "_", stem).strip("_")
-        # 연속 점(..) 제거 — 파일 서빙 시 path traversal 차단 방지
-        safe_stem = re.sub(r"\.{2,}", ".", safe_stem)
-        safe_name = f"{safe_stem}{ext}"
-        local_path = dest_path / safe_name
+            if not filename:
+                filename = fallback_name or f"attachment_{uuid.uuid4().hex[:8]}"
 
-        local_path.write_bytes(resp.content)
-        return str(local_path)
+            # 확장자를 보존하면서 파일명만 sanitize
+            stem, ext = os.path.splitext(filename)
+            safe_stem = re.sub(r"[^0-9A-Za-z._\-가-힣]", "_", stem).strip("_")
+            # 연속 점(..) 제거 — 파일 서빙 시 path traversal 차단 방지
+            safe_stem = re.sub(r"\.{2,}", ".", safe_stem)
+            safe_name = f"{safe_stem}{ext}"
+
+            # --- Extension allowlist ---
+            if ext.lower() not in _ALLOWED_EXTENSIONS:
+                raise ValueError(
+                    f"허용되지 않은 파일 확장자: {ext!r}. "
+                    f"허용 목록: {_ALLOWED_EXTENSIONS}"
+                )
+
+            local_path = dest_path / safe_name
+            local_path.write_bytes(content)
+            return str(local_path)
 
 
 def pick_best_attachment(attachments: list[dict[str, Any]]) -> dict[str, Any] | None:
